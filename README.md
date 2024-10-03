@@ -16,7 +16,7 @@ Create anywhere in the document a simple table
 Insert a simple table
 | #ID          | ReqID1 |
 | ------------ | ------ |
-| #Description |        |
+| #Description | The description of the requirement |
 | #State       | Open   |
 
 The table can have any random shape. If a cell begins with hash (#) it is a variable of the requirement. The neighbor on the right side contains the data for the variable.
