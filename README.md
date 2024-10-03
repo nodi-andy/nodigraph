@@ -10,10 +10,12 @@ Insert following column names in the row 1: ID, Description, Location, Parents, 
 Create a google docs document
 Create anywhere in the document a simple table
 | #DB          | https://docs.google.com/spreadsheets/d/tHeL0ngH4ashT0th3fil3/edit |
+| ------------ | ----------------------------------------------------------------- |
 
 # Create a requirement
 Insert a simple table
 | #ID          | ReqID1 |
+| ------------ | ------ |
 | #Description |        |
 | #State       | Open   |
 
