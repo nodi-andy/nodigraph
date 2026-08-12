@@ -1,6 +1,6 @@
 import {
   getResizeHandleWorldRect,
-  getPortPositions,
+  getAllPortPositions,
   getConnectorHandlePosition,
   PORT_RADIUS,
   CONNECTOR_HANDLE_RADIUS,
@@ -31,23 +31,19 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY) {
   // when the cursor is right at the tip.
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const block = blocks[i];
-    for (const direction of ['in', 'out']) {
-      for (const { port, x, y } of getPortPositions(block, direction)) {
-        const handle = getConnectorHandlePosition({ x, y }, direction);
-        if (pointInCircle(worldX, worldY, handle.x, handle.y, CONNECTOR_HANDLE_RADIUS + HANDLE_HIT_PADDING)) {
-          return { type: 'connector', blockId: block.id, portId: port.id };
-        }
+    for (const { port, x, y } of getAllPortPositions(block)) {
+      const handle = getConnectorHandlePosition({ x, y }, port.side);
+      if (pointInCircle(worldX, worldY, handle.x, handle.y, CONNECTOR_HANDLE_RADIUS + HANDLE_HIT_PADDING)) {
+        return { type: 'connector', blockId: block.id, portId: port.id };
       }
     }
   }
 
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const block = blocks[i];
-    for (const direction of ['in', 'out']) {
-      for (const { port, x, y } of getPortPositions(block, direction)) {
-        if (pointInCircle(worldX, worldY, x, y, PORT_RADIUS + HANDLE_HIT_PADDING)) {
-          return { type: 'port', blockId: block.id, portId: port.id };
-        }
+    for (const { port, x, y } of getAllPortPositions(block)) {
+      if (pointInCircle(worldX, worldY, x, y, PORT_RADIUS + HANDLE_HIT_PADDING)) {
+        return { type: 'port', blockId: block.id, portId: port.id };
       }
     }
   }
@@ -59,7 +55,7 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY) {
  * Tests smallest/highest-priority targets first (resize handle, then port
  * connector/move handles across every block, then block body), over blocks
  * in reverse draw order (topmost first). Returns null if nothing was hit
- * (caller should start a pan/marquee instead).
+ * (caller should try a wire trunk, then fall back to pan/marquee).
  */
 export function hitTest(project, worldX, worldY, selectedBlockId) {
   const blocks = project.listBlocks();

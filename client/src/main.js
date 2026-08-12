@@ -4,6 +4,7 @@ import { Camera } from './render/Camera.js';
 import { RenderLoop } from './render/RenderLoop.js';
 import { renderScene } from './render/SceneRenderer.js';
 import { SelectionManager } from './interaction/SelectionManager.js';
+import { WireSelection } from './interaction/WireSelection.js';
 import { DragStateMachine } from './interaction/DragStateMachine.js';
 import { attachInputRouter } from './interaction/InputRouter.js';
 import { mountToolbar } from './ui/Toolbar.js';
@@ -21,6 +22,7 @@ if (project.listBlocks().length === 0) {
 
 const camera = new Camera();
 const selection = new SelectionManager();
+const wireSelection = new WireSelection();
 const renderLoop = new RenderLoop(draw);
 
 let inspectorApi = null;
@@ -37,6 +39,13 @@ function deleteBlock(blockId) {
   renderLoop.requestRender();
 }
 
+function deleteSelectedWires() {
+  for (const id of wireSelection.list()) project.removeConnection(id);
+  wireSelection.clear();
+  persist();
+  renderLoop.requestRender();
+}
+
 function draw() {
   const dpr = window.devicePixelRatio || 1;
   renderScene(ctx, camera, project, {
@@ -44,7 +53,8 @@ function draw() {
     dpr,
     canvasWidth: canvas.clientWidth,
     canvasHeight: canvas.clientHeight,
-    pendingConnection: stateMachine.getPendingConnectionVisual(),
+    pendingConnectionPath: stateMachine.getPendingConnectionVisual(),
+    wireSelection,
     timestampMs: performance.now(),
   });
 
@@ -66,6 +76,7 @@ const stateMachine = new DragStateMachine({
   camera,
   project,
   selection,
+  wireSelection,
   requestRender: () => renderLoop.requestRender(),
   persist,
 });
@@ -90,15 +101,21 @@ inspectorApi = mountInspector(inspectorEl, {
   deleteBlock,
 });
 
-// Delete/Backspace removes the selected block, but only when focus isn't in
-// a text field — otherwise editing the Name field or description would
-// delete the block out from under you.
+// Delete/Backspace removes the selected block or wire(s), but only when
+// focus isn't in a text field — otherwise editing the Name field or
+// description would delete something out from under you.
 window.addEventListener('keydown', (event) => {
   if (event.key !== 'Delete' && event.key !== 'Backspace') return;
-  if (!selection.selectedBlockId) return;
   const tag = document.activeElement?.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
+  if (wireSelection.list().length > 0) {
+    event.preventDefault();
+    deleteSelectedWires();
+    return;
+  }
+
+  if (!selection.selectedBlockId) return;
   event.preventDefault();
   const block = project.getBlock(selection.selectedBlockId);
   if (block && window.confirm(`Delete "${block.name}" and its connections? This can't be undone.`)) {

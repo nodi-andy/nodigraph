@@ -127,7 +127,7 @@ export function mountInspector(container, { project, selection, requestRender, p
       requestRender();
     });
     colorInput.addEventListener('change', persist);
-    container_.appendChild(field('Header color', colorInput));
+    container_.appendChild(field('Accent color', colorInput));
 
     // Properties get live controls here (the "simulation feel" the raw text
     // editor alone can't give): flipping an enum prop like state re-renders

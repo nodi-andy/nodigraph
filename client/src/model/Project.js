@@ -59,6 +59,14 @@ export class Project {
     return Array.from(this.connections.values());
   }
 
+  getConnection(id) {
+    return this.connections.get(id) || null;
+  }
+
+  removeConnection(id) {
+    this.connections.delete(id);
+  }
+
   hasConnection(sourcePortId, targetPortId) {
     return this.listConnections().some(
       (c) => c.sourcePortId === sourcePortId && c.targetPortId === targetPortId,

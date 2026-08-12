@@ -47,7 +47,10 @@ export function touchBlock(block) {
 export function hydrateBlock(raw) {
   return {
     ...raw,
-    ports: raw.ports || [],
+    ports: (raw.ports || []).map((port) => ({
+      side: port.direction === 'out' ? 'right' : 'left',
+      ...port,
+    })),
     props: raw.props || [],
     description: raw.description || `Block: ${raw.name || 'Block'}`,
   };
