@@ -9,11 +9,14 @@ import { DragStateMachine } from './interaction/DragStateMachine.js';
 import { attachInputRouter } from './interaction/InputRouter.js';
 import { mountToolbar } from './ui/Toolbar.js';
 import { mountInspector } from './ui/InspectorPanel.js';
+import { mountBreadcrumb } from './ui/Breadcrumb.js';
 
 const canvas = document.getElementById('scene-canvas');
 const ctx = canvas.getContext('2d');
 const fabEl = document.getElementById('fab-add-block');
 const inspectorEl = document.getElementById('inspector');
+const breadcrumbEl = document.getElementById('breadcrumb');
+const backButtonEl = document.getElementById('btn-back');
 
 const project = loadProject() || new Project({ name: 'Untitled Product' });
 if (project.listBlocks().length === 0) {
@@ -42,6 +45,41 @@ function deleteBlock(blockId) {
 function deleteSelectedWires() {
   for (const id of wireSelection.list()) project.removeConnection(id);
   wireSelection.clear();
+  persist();
+  renderLoop.requestRender();
+}
+
+let breadcrumbApi = null;
+
+function updateNavigationUI() {
+  breadcrumbApi?.refresh();
+  backButtonEl.hidden = project.path.length === 0;
+}
+
+// Navigation is deliberately not persisted — reloading always starts back
+// at the product root, like most apps default to a home view.
+function resetCameraForNewLevel() {
+  camera.offsetX = 0;
+  camera.offsetY = 0;
+  camera.zoom = 1;
+}
+
+function enterBlock(blockId) {
+  if (!project.enterBlock(blockId)) return;
+  selection.clear();
+  wireSelection.clear();
+  resetCameraForNewLevel();
+  updateNavigationUI();
+  persist();
+  renderLoop.requestRender();
+}
+
+function navigateToDepth(depth) {
+  project.exitToDepth(depth);
+  selection.clear();
+  wireSelection.clear();
+  resetCameraForNewLevel();
+  updateNavigationUI();
   persist();
   renderLoop.requestRender();
 }
@@ -79,6 +117,7 @@ const stateMachine = new DragStateMachine({
   wireSelection,
   requestRender: () => renderLoop.requestRender(),
   persist,
+  onEnterBlock: enterBlock,
 });
 
 attachInputRouter(canvas, camera, stateMachine);
@@ -99,7 +138,11 @@ inspectorApi = mountInspector(inspectorEl, {
   requestRender: () => renderLoop.requestRender(),
   persist,
   deleteBlock,
+  enterBlock,
 });
+
+breadcrumbApi = mountBreadcrumb(breadcrumbEl, { project, onNavigate: navigateToDepth });
+backButtonEl.addEventListener('click', () => navigateToDepth(project.path.length - 1));
 
 // Delete/Backspace removes the selected block or wire(s), but only when
 // focus isn't in a text field — otherwise editing the Name field or

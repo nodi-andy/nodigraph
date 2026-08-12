@@ -21,13 +21,14 @@ const STATES = {
  * wire" vs "drag a wire's trunk" vs "pan background" unambiguous.
  */
 export class DragStateMachine {
-  constructor({ camera, project, selection, wireSelection, requestRender, persist }) {
+  constructor({ camera, project, selection, wireSelection, requestRender, persist, onEnterBlock }) {
     this.camera = camera;
     this.project = project;
     this.selection = selection;
     this.wireSelection = wireSelection;
     this.requestRender = requestRender;
     this.persist = persist;
+    this.onEnterBlock = onEnterBlock;
     this.state = STATES.IDLE;
     this.context = null;
   }
@@ -35,6 +36,12 @@ export class DragStateMachine {
   onPointerDown(screen, world, modifiers = {}) {
     const hit = hitTest(this.project, world.x, world.y, this.selection.selectedBlockId);
     if (hit) this.wireSelection.clear();
+
+    if (hit?.type === 'enter') {
+      // A discrete action, not a drag — fires immediately like a button.
+      this.onEnterBlock?.(hit.blockId);
+      return;
+    }
 
     if (hit?.type === 'resize') {
       const block = this.project.getBlock(hit.blockId);
@@ -272,6 +279,15 @@ export class DragStateMachine {
     const sourcePos = block && findPortPosition(block, this.context.sourcePortId);
     if (!sourcePos || !port) return null;
     return previewPathToCursor(sourcePos, port.side, this.context.currentWorld);
+  }
+
+  // Double-clicking a block is a shortcut for its enter icon — either way
+  // gets you in, so it doesn't matter which one someone discovers first.
+  onDoubleClick(world) {
+    const hit = hitTest(this.project, world.x, world.y, this.selection.selectedBlockId);
+    if (hit?.type === 'body' || hit?.type === 'enter') {
+      this.onEnterBlock?.(hit.blockId);
+    }
   }
 
   onWheelZoom(screen, factor) {

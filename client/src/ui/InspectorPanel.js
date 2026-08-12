@@ -53,7 +53,7 @@ function tabBar(activeTab, onSelect) {
   return bar;
 }
 
-export function mountInspector(container, { project, selection, requestRender, persist, deleteBlock }) {
+export function mountInspector(container, { project, selection, requestRender, persist, deleteBlock, enterBlock }) {
   // Shows either the structured Inspector or the raw Description editor at
   // once, not both stacked — persists across refresh() calls (e.g. after
   // every prop edit) since it lives outside the rebuild functions below.
@@ -128,6 +128,17 @@ export function mountInspector(container, { project, selection, requestRender, p
     });
     colorInput.addEventListener('change', persist);
     container_.appendChild(field('Accent color', colorInput));
+
+    const architectureRow = document.createElement('div');
+    architectureRow.className = 'apply-row';
+    const enterButton = document.createElement('button');
+    enterButton.type = 'button';
+    enterButton.textContent = block.hasChildren
+      ? `Enter block (${block.children?.blocks?.size ?? 0} inside) →`
+      : 'Enter block →';
+    enterButton.addEventListener('click', () => enterBlock(block.id));
+    architectureRow.appendChild(enterButton);
+    container_.appendChild(architectureRow);
 
     // Properties get live controls here (the "simulation feel" the raw text
     // editor alone can't give): flipping an enum prop like state re-renders
