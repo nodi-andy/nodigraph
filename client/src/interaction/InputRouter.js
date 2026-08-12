@@ -26,7 +26,7 @@ export function attachInputRouter(canvas, camera, stateMachine) {
     tryCapture(canvas.setPointerCapture, event.pointerId);
     const screen = toScreen(event);
     const world = camera.screenToWorld(screen.x, screen.y);
-    stateMachine.onPointerDown(screen, world);
+    stateMachine.onPointerDown(screen, world, { shiftKey: event.shiftKey });
   });
 
   canvas.addEventListener('pointermove', (event) => {

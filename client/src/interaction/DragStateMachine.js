@@ -1,7 +1,8 @@
 import { hitTest } from './HitTest.js';
 import { touchBlock, MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT } from '../model/Block.js';
-import { snap, clamp, getPortOffsetBounds } from '../model/grid.js';
-import { findPortPosition } from '../render/BlockRenderer.js';
+import { snap } from '../model/grid.js';
+import { findPortPosition, projectPointToPerimeter } from '../render/BlockRenderer.js';
+import { getConnectionGeometry, previewPathToCursor, hitTestConnectionTrunk } from '../render/ConnectionRenderer.js';
 import { createConnection } from '../model/Connection.js';
 
 const STATES = {
@@ -11,26 +12,29 @@ const STATES = {
   RESIZING_BLOCK: 'resizingBlock',
   DRAGGING_PORT: 'draggingPort',
   DRAWING_CONNECTION: 'drawingConnection',
+  DRAGGING_WIRE_TRUNK: 'draggingWireTrunk',
 };
 
 /**
  * Explicit finite states rather than ad-hoc booleans — this is what makes
  * "drag block body" vs "drag resize handle" vs "drag a port" vs "draw a
- * wire" vs "pan background" unambiguous.
+ * wire" vs "drag a wire's trunk" vs "pan background" unambiguous.
  */
 export class DragStateMachine {
-  constructor({ camera, project, selection, requestRender, persist }) {
+  constructor({ camera, project, selection, wireSelection, requestRender, persist }) {
     this.camera = camera;
     this.project = project;
     this.selection = selection;
+    this.wireSelection = wireSelection;
     this.requestRender = requestRender;
     this.persist = persist;
     this.state = STATES.IDLE;
     this.context = null;
   }
 
-  onPointerDown(screen, world) {
+  onPointerDown(screen, world, modifiers = {}) {
     const hit = hitTest(this.project, world.x, world.y, this.selection.selectedBlockId);
+    if (hit) this.wireSelection.clear();
 
     if (hit?.type === 'resize') {
       const block = this.project.getBlock(hit.blockId);
@@ -66,10 +70,59 @@ export class DragStateMachine {
       return;
     }
 
+    const wireHit = this.hitTestWires(world.x, world.y);
+    if (wireHit) {
+      if (modifiers.shiftKey) {
+        // Shift-click only toggles membership — a following drag (grabbing
+        // any selected trunk) is what actually moves the group.
+        this.wireSelection.toggle(wireHit.connectionId);
+        this.requestRender();
+        return;
+      }
+      if (!this.wireSelection.isSelected(wireHit.connectionId)) {
+        this.wireSelection.selectOnly(wireHit.connectionId);
+      }
+      this.state = STATES.DRAGGING_WIRE_TRUNK;
+      this.context = { items: this.buildTrunkDragItems(), startWorld: world };
+      this.requestRender();
+      return;
+    }
+
+    this.wireSelection.clear();
     this.selection.clear();
     this.state = STATES.PANNING;
     this.context = { lastScreen: screen };
     this.requestRender();
+  }
+
+  hitTestWires(worldX, worldY) {
+    const connections = this.project.listConnections();
+    for (let i = connections.length - 1; i >= 0; i -= 1) {
+      const connection = connections[i];
+      const geometry = getConnectionGeometry(this.project, connection);
+      if (hitTestConnectionTrunk(geometry, worldX, worldY)) {
+        return { connectionId: connection.id };
+      }
+    }
+    return null;
+  }
+
+  // Captures each selected trunk's current axis + displayed position once,
+  // at drag start, so the group can be dragged together even when one of
+  // them hasn't been manually bent before (its baseline is the live
+  // auto-computed midpoint, not an arbitrary jump).
+  buildTrunkDragItems() {
+    return this.wireSelection
+      .list()
+      .map((connectionId) => {
+        const connection = this.project.getConnection(connectionId);
+        const geometry = connection && getConnectionGeometry(this.project, connection);
+        if (!connection || !geometry || geometry.trunkIndex < 0) return null;
+        const axis = geometry.trunkAxis;
+        const point = geometry.points[geometry.trunkIndex];
+        return { connectionId, axis, startBend: axis === 'x' ? point.x : point.y };
+      })
+      .filter(Boolean);
   }
 
   onPointerMove(screen, world) {
@@ -111,15 +164,33 @@ export class DragStateMachine {
         const block = this.project.getBlock(this.context.blockId);
         const port = block?.ports.find((p) => p.id === this.context.portId);
         if (!block || !port) break;
-        // Ports only slide along their own edge (vertically) — matches the
-        // fixed input-on-left/output-on-right border model.
-        const bounds = getPortOffsetBounds(block.geometry.height);
-        port.offset = clamp(snap(world.y - block.geometry.y), bounds.min, bounds.max);
+        // Projects onto the nearest point on the block's border across all
+        // four sides, so a port slides all the way around the perimeter and
+        // switches sides at the corners rather than sticking to one edge.
+        const projected = projectPointToPerimeter(block, world.x, world.y);
+        port.side = projected.side;
+        port.offset = projected.offset;
+        port.manualOffset = true;
         this.requestRender();
         break;
       }
       case STATES.DRAWING_CONNECTION: {
         this.context.currentWorld = world;
+        this.requestRender();
+        break;
+      }
+      case STATES.DRAGGING_WIRE_TRUNK: {
+        const dx = world.x - this.context.startWorld.x;
+        const dy = world.y - this.context.startWorld.y;
+        for (const item of this.context.items) {
+          const connection = this.project.getConnection(item.connectionId);
+          if (!connection) continue;
+          // Each wire moves along its own trunk axis, so a diagonal drag
+          // over a mixed horizontal/vertical selection still moves each one
+          // correctly instead of fighting over a single shared axis.
+          const delta = item.axis === 'x' ? dx : dy;
+          connection.manualBend = snap(item.startBend + delta);
+        }
         this.requestRender();
         break;
       }
@@ -129,16 +200,18 @@ export class DragStateMachine {
   }
 
   onPointerUp(world) {
-    if (this.state === STATES.DRAGGING_BLOCK || this.state === STATES.RESIZING_BLOCK) {
-      const block = this.project.getBlock(this.context.blockId);
-      if (block) touchBlock(block);
-      this.persist();
-    } else if (this.state === STATES.DRAGGING_PORT) {
+    if (
+      this.state === STATES.DRAGGING_BLOCK ||
+      this.state === STATES.RESIZING_BLOCK ||
+      this.state === STATES.DRAGGING_PORT
+    ) {
       const block = this.project.getBlock(this.context.blockId);
       if (block) touchBlock(block);
       this.persist();
     } else if (this.state === STATES.DRAWING_CONNECTION) {
       this.tryCompleteConnection(world);
+    } else if (this.state === STATES.DRAGGING_WIRE_TRUNK) {
+      this.persist();
     }
 
     this.state = STATES.IDLE;
@@ -189,12 +262,16 @@ export class DragStateMachine {
     this.persist();
   }
 
+  // The live paving preview: an auto-routed path from the source port to
+  // wherever the cursor is right now, so dragging visibly "lays down" the
+  // wire rather than showing a plain rubber-band line.
   getPendingConnectionVisual() {
     if (this.state !== STATES.DRAWING_CONNECTION) return null;
     const block = this.project.getBlock(this.context.sourceBlockId);
-    const source = block && findPortPosition(block, this.context.sourcePortId);
-    if (!source) return null;
-    return { source, target: this.context.currentWorld };
+    const port = block?.ports.find((p) => p.id === this.context.sourcePortId);
+    const sourcePos = block && findPortPosition(block, this.context.sourcePortId);
+    if (!sourcePos || !port) return null;
+    return previewPathToCursor(sourcePos, port.side, this.context.currentWorld);
   }
 
   onWheelZoom(screen, factor) {

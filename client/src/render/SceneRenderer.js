@@ -1,9 +1,11 @@
-import { drawBlock, findPortPosition } from './BlockRenderer.js';
-import { drawConnection, drawFlowDot } from './ConnectionRenderer.js';
+import { drawBlock } from './BlockRenderer.js';
+import { drawPath, drawFlowDot, getConnectionGeometry } from './ConnectionRenderer.js';
 import { getFlowPhase } from './FlowAnimator.js';
 import { GRID_SIZE } from '../model/grid.js';
 
 const GRID_COLOR = '#1a212b';
+const WIRE_COLOR = '#4f8cff';
+const WIRE_SELECTED_COLOR = '#ffb454';
 
 function drawGrid(ctx, camera, canvasWidth, canvasHeight) {
   const topLeft = camera.screenToWorld(0, 0);
@@ -25,19 +27,15 @@ function drawGrid(ctx, camera, canvasWidth, canvasHeight) {
   ctx.stroke();
 }
 
-function drawConnections(ctx, project, timestampMs) {
+function drawConnections(ctx, project, timestampMs, wireSelection) {
   const phase = getFlowPhase(timestampMs);
   for (const connection of project.listConnections()) {
-    const sourceBlock = project.getBlock(connection.sourceBlockId);
-    const targetBlock = project.getBlock(connection.targetBlockId);
-    if (!sourceBlock || !targetBlock) continue;
+    const geometry = getConnectionGeometry(project, connection);
+    if (!geometry) continue;
 
-    const sourcePos = findPortPosition(sourceBlock, connection.sourcePortId);
-    const targetPos = findPortPosition(targetBlock, connection.targetPortId);
-    if (!sourcePos || !targetPos) continue;
-
-    drawConnection(ctx, sourcePos, targetPos);
-    drawFlowDot(ctx, sourcePos, targetPos, phase);
+    const selected = wireSelection?.isSelected(connection.id);
+    drawPath(ctx, geometry.points, { color: selected ? WIRE_SELECTED_COLOR : WIRE_COLOR, width: selected ? 4 : 3 });
+    drawFlowDot(ctx, geometry.points, phase);
   }
 }
 
@@ -45,7 +43,7 @@ export function renderScene(
   ctx,
   camera,
   project,
-  { selectedBlockId, dpr, canvasWidth, canvasHeight, pendingConnection, timestampMs = 0 },
+  { selectedBlockId, dpr, canvasWidth, canvasHeight, pendingConnectionPath, wireSelection, timestampMs = 0 },
 ) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
@@ -57,12 +55,9 @@ export function renderScene(
     drawBlock(ctx, block, { selected: block.id === selectedBlockId });
   }
 
-  drawConnections(ctx, project, timestampMs);
+  drawConnections(ctx, project, timestampMs, wireSelection);
 
-  if (pendingConnection) {
-    drawConnection(ctx, pendingConnection.source, pendingConnection.target, {
-      color: '#4f8cff',
-      dashed: true,
-    });
+  if (pendingConnectionPath) {
+    drawPath(ctx, pendingConnectionPath, { color: WIRE_COLOR, dashed: true });
   }
 }

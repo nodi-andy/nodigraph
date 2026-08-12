@@ -1,5 +1,5 @@
 import { generateId } from './Block.js';
-import { HEADER_HEIGHT, snap } from './grid.js';
+import { snap, sideAxis, getPortOffsetBounds, GRID_SIZE } from './grid.js';
 
 /**
  * A block's ports and properties are edited as plain text in this small,
@@ -114,12 +114,20 @@ export function applyDescriptionText(block, text) {
   const existingPortsByKey = new Map((block.ports || []).map((p) => [`${p.direction}:${p.name}`, p]));
   block.ports = parsed.ports.map((p) => {
     const existing = existingPortsByKey.get(`${p.direction}:${p.name}`);
+    const manualOffset = existing?.manualOffset || false;
     return {
       id: existing?.id || generateId('prt'),
       direction: p.direction,
       name: p.name,
       description: p.description,
-      offset: existing?.offset,
+      // Inputs default to the left, outputs to the right — dragging a port
+      // around the block's perimeter can move it to any side.
+      side: existing?.side || (p.direction === 'out' ? 'right' : 'left'),
+      // Only a *dragged* offset survives re-parsing; an auto-placed one is
+      // recomputed below so it can't collide with a newly added sibling on
+      // the same side.
+      offset: manualOffset ? existing.offset : undefined,
+      manualOffset,
     };
   });
   assignDefaultPortOffsets(block);
@@ -140,19 +148,30 @@ export function applyDescriptionText(block, text) {
 }
 
 // Ports without an explicit offset (brand new, just parsed from text) get
-// evenly distributed along their edge; a port that's already been dragged
-// (or auto-placed before) keeps its stored offset untouched.
+// evenly distributed among *themselves* along whichever side they're on —
+// deliberately not mixed in with already-placed ports' indices, since that
+// previously let two new same-side ports round to the exact same offset.
+// A dragged port's offset is never touched here.
 function assignDefaultPortOffsets(block) {
-  const height = block.geometry.height;
-  const usable = height - HEADER_HEIGHT;
+  const { width, height } = block.geometry;
 
-  for (const direction of ['in', 'out']) {
-    const group = block.ports.filter((p) => p.direction === direction);
-    const step = usable / (group.length + 1);
-    group.forEach((port, i) => {
-      if (port.offset === undefined || port.offset === null) {
-        port.offset = snap(HEADER_HEIGHT + step * (i + 1));
-      }
+  for (const side of ['left', 'right', 'top', 'bottom']) {
+    const sidePorts = block.ports.filter((p) => p.side === side);
+    const autoPorts = sidePorts.filter((p) => p.offset === undefined || p.offset === null);
+    if (!autoPorts.length) continue;
+
+    const sideLength = sideAxis(side) === 'x' ? height : width;
+    const bounds = getPortOffsetBounds(sideLength);
+    const step = (bounds.max - bounds.min) / (autoPorts.length + 1);
+    // Manually-placed ports on this side are fixed points auto-layout has
+    // to dodge, not just other auto ports to space evenly against.
+    const taken = new Set(sidePorts.filter((p) => p.manualOffset).map((p) => p.offset));
+
+    autoPorts.forEach((port, i) => {
+      let offset = snap(bounds.min + step * (i + 1));
+      while (taken.has(offset) && offset + GRID_SIZE <= bounds.max) offset += GRID_SIZE;
+      taken.add(offset);
+      port.offset = offset;
     });
   }
 }
