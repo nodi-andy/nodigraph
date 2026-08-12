@@ -2,8 +2,10 @@ import {
   getResizeHandleWorldRect,
   getAllPortPositions,
   getConnectorHandlePosition,
+  getEnterIconCenter,
   PORT_RADIUS,
   CONNECTOR_HANDLE_RADIUS,
+  ENTER_ICON_RADIUS,
 } from '../render/BlockRenderer.js';
 
 // Handles are visually tiny, so their hit area is padded beyond what's drawn —
@@ -72,6 +74,14 @@ export function hitTest(project, worldX, worldY, selectedBlockId) {
 
   const portHit = hitPortsAcrossBlocks(blocks, worldX, worldY);
   if (portHit) return portHit;
+
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const block = blocks[i];
+    const center = getEnterIconCenter(block);
+    if (pointInCircle(worldX, worldY, center.x, center.y, ENTER_ICON_RADIUS + HANDLE_HIT_PADDING)) {
+      return { type: 'enter', blockId: block.id };
+    }
+  }
 
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const block = blocks[i];

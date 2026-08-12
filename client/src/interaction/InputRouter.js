@@ -46,6 +46,12 @@ export function attachInputRouter(canvas, camera, stateMachine) {
     stateMachine.onPointerUp();
   });
 
+  canvas.addEventListener('dblclick', (event) => {
+    const screen = toScreen(event);
+    const world = camera.screenToWorld(screen.x, screen.y);
+    stateMachine.onDoubleClick(world);
+  });
+
   canvas.addEventListener(
     'wheel',
     (event) => {

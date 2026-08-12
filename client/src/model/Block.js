@@ -30,7 +30,10 @@ export function createBlock({ x, y, name } = {}) {
     ports: [],
     props: [],
     hasChildren: false,
-    childRef: null,
+    // Populated lazily the first time someone enters this block (see
+    // Project.enterBlock) — { blocks: Map, connections: Map } in memory,
+    // { blocks: [], connections: [] } once serialized to JSON.
+    children: null,
     requirementIds: [],
     createdAt: now,
     updatedAt: now,
@@ -54,4 +57,33 @@ export function hydrateBlock(raw) {
     props: raw.props || [],
     description: raw.description || `Block: ${raw.name || 'Block'}`,
   };
+}
+
+// Recursively hydrates a block and, if it has a saved sub-architecture,
+// its whole nested children tree — turning the JSON array shape back into
+// the Map-based shape the rest of the app works with in memory.
+export function hydrateBlockTree(raw) {
+  const block = hydrateBlock(raw);
+  if (raw.children) {
+    block.children = {
+      blocks: new Map((raw.children.blocks || []).map((b) => [b.id, hydrateBlockTree(b)])),
+      connections: new Map((raw.children.connections || []).map((c) => [c.id, c])),
+    };
+  } else {
+    block.children = null;
+  }
+  return block;
+}
+
+// The inverse of hydrateBlockTree — walks the whole nested tree turning
+// Maps back into plain arrays for JSON.stringify.
+export function serializeBlockTree(block) {
+  const serialized = { ...block };
+  if (block.children) {
+    serialized.children = {
+      blocks: Array.from(block.children.blocks.values()).map(serializeBlockTree),
+      connections: Array.from(block.children.connections.values()),
+    };
+  }
+  return serialized;
 }
