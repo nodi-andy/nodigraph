@@ -1,5 +1,6 @@
 * {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html, body {
@@ -11,43 +12,39 @@ html, body {
 
 #app {
   display: grid;
-  grid-template-columns: 1fr 260px;
-  grid-template-rows: 48px 1fr;
+  grid-template-columns: 1fr 300px;
+  grid-template-rows: 52px 1fr;
   grid-template-areas:
-    "toolbar toolbar"
-    "canvas  inspector";
+    "topbar topbar"
+    "canvas inspector";
   height: 100%;
+  height: 100dvh;
 }
 
-#toolbar {
-  grid-area: toolbar;
+#topbar {
+  grid-area: topbar;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px;
+  gap: 12px;
+  padding: 0 16px;
   background: #1e2530;
   color: #e6e9ef;
   border-bottom: 1px solid #2c3644;
 }
 
-#toolbar button {
-  background: #2f6fed;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  padding: 6px 12px;
-  font-size: 13px;
-  cursor: pointer;
+#topbar .brand {
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
-#toolbar button:hover {
-  background: #3f7bf5;
-}
-
-#toolbar .hint {
-  margin-left: auto;
+#topbar .hint {
   font-size: 12px;
   color: #8b93a3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 #scene-canvas {
@@ -57,6 +54,37 @@ html, body {
   height: 100%;
   background: #12161d;
   cursor: default;
+  touch-action: none;
+}
+
+/* Floating action button — the app's single primary action, following the
+   mobile FAB convention so the same control works for touch and mouse. */
+.fab {
+  position: fixed;
+  right: 20px;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: #2f6fed;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  z-index: 20;
+  transition: transform 0.15s ease, background 0.15s ease, opacity 0.15s ease;
+}
+
+.fab:hover {
+  background: #3f7bf5;
+  transform: translateY(-1px);
+}
+
+.fab:active {
+  transform: translateY(0) scale(0.94);
 }
 
 #inspector {
@@ -64,7 +92,7 @@ html, body {
   background: #1a1f28;
   color: #e6e9ef;
   border-left: 1px solid #2c3644;
-  padding: 12px;
+  padding: 14px;
   overflow-y: auto;
   font-size: 13px;
 }
@@ -75,6 +103,10 @@ html, body {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: #8b93a3;
+}
+
+#inspector .sheet-header {
+  display: none;
 }
 
 #inspector .field {
@@ -114,4 +146,63 @@ html, body {
 
 #inspector .row .field {
   flex: 1;
+}
+
+/* App-like layout below the mobile breakpoint: the inspector becomes a
+   bottom sheet that slides up over the full-bleed canvas instead of eating
+   permanent screen width, and the topbar hint is dropped for space. */
+@media (max-width: 768px) {
+  #app {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "topbar"
+      "canvas";
+  }
+
+  #topbar .hint {
+    display: none;
+  }
+
+  #inspector {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: 65vh;
+    border-left: none;
+    border-top: 1px solid #2c3644;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.45);
+    padding: 8px 16px 20px;
+    padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    transform: translateY(100%);
+    transition: transform 0.25s ease;
+    z-index: 15;
+  }
+
+  #inspector.open {
+    transform: translateY(0);
+  }
+
+  #inspector .sheet-header {
+    display: flex;
+    justify-content: center;
+    padding: 6px 0 10px;
+  }
+
+  #inspector .sheet-header .grabber {
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: #3a4556;
+  }
+
+  #inspector h3 {
+    display: none;
+  }
+
+  body.inspector-open .fab {
+    opacity: 0;
+    pointer-events: none;
+  }
 }
