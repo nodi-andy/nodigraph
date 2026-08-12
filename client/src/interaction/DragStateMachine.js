@@ -1,7 +1,7 @@
 import { hitTest } from './HitTest.js';
 import { touchBlock, MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT } from '../model/Block.js';
 import { snap } from '../model/grid.js';
-import { findPortPosition, projectPointToPerimeter } from '../render/BlockRenderer.js';
+import { findPortPosition, projectPointToPerimeter, computeBoundaryGeometry } from '../render/BlockRenderer.js';
 import { getConnectionGeometry, previewPathToCursor, hitTestConnectionTrunk } from '../render/ConnectionRenderer.js';
 import { createConnection } from '../model/Connection.js';
 
@@ -14,6 +14,10 @@ const STATES = {
   DRAWING_CONNECTION: 'drawingConnection',
   DRAGGING_WIRE_TRUNK: 'draggingWireTrunk',
 };
+
+function invertDirection(direction) {
+  return direction === 'out' ? 'in' : 'out';
+}
 
 /**
  * Explicit finite states rather than ad-hoc booleans — this is what makes
@@ -33,8 +37,18 @@ export class DragStateMachine {
     this.context = null;
   }
 
+  // The block you're currently inside, with a geometry sized to fit its
+  // children right now — recomputed fresh every call (cheap) so it can
+  // never disagree with what's actually on screen.
+  getBoundaryInfo() {
+    const block = this.project.getContainerBlock();
+    if (!block) return null;
+    return { block, geometry: computeBoundaryGeometry(this.project.listBlocks()) };
+  }
+
   onPointerDown(screen, world, modifiers = {}) {
-    const hit = hitTest(this.project, world.x, world.y, this.selection.selectedBlockId);
+    const boundary = this.getBoundaryInfo();
+    const hit = hitTest(this.project, world.x, world.y, this.selection.selectedBlockId, boundary);
     if (hit) this.wireSelection.clear();
 
     if (hit?.type === 'enter') {
@@ -51,19 +65,26 @@ export class DragStateMachine {
     }
 
     if (hit?.type === 'connector') {
+      const isBoundary = Boolean(boundary) && hit.blockId === boundary.block.id;
       // Selection is left untouched: drawing a wire shouldn't disturb
       // whatever the inspector is currently showing.
       this.state = STATES.DRAWING_CONNECTION;
-      this.context = { sourceBlockId: hit.blockId, sourcePortId: hit.portId, currentWorld: world };
+      this.context = {
+        sourceBlockId: hit.blockId,
+        sourcePortId: hit.portId,
+        sourceInverted: isBoundary,
+        currentWorld: world,
+      };
       this.requestRender();
       return;
     }
 
     if (hit?.type === 'port') {
+      const isBoundary = Boolean(boundary) && hit.blockId === boundary.block.id;
       const block = this.project.getBlock(hit.blockId);
       this.selection.select(block.id);
       this.state = STATES.DRAGGING_PORT;
-      this.context = { blockId: block.id, portId: hit.portId };
+      this.context = { blockId: block.id, portId: hit.portId, isBoundary };
       this.requestRender();
       return;
     }
@@ -77,7 +98,16 @@ export class DragStateMachine {
       return;
     }
 
-    const wireHit = this.hitTestWires(world.x, world.y);
+    if (hit?.type === 'boundaryBody') {
+      // Selecting "the current system" so its own interface can be edited
+      // in the Inspector — its geometry is computed, not draggable, so
+      // there's nothing to enter a drag state for.
+      this.selection.select(hit.blockId);
+      this.requestRender();
+      return;
+    }
+
+    const wireHit = this.hitTestWires(world.x, world.y, boundary);
     if (wireHit) {
       if (modifiers.shiftKey) {
         // Shift-click only toggles membership — a following drag (grabbing
@@ -90,7 +120,7 @@ export class DragStateMachine {
         this.wireSelection.selectOnly(wireHit.connectionId);
       }
       this.state = STATES.DRAGGING_WIRE_TRUNK;
-      this.context = { items: this.buildTrunkDragItems(), startWorld: world };
+      this.context = { items: this.buildTrunkDragItems(boundary), startWorld: world };
       this.requestRender();
       return;
     }
@@ -102,11 +132,11 @@ export class DragStateMachine {
     this.requestRender();
   }
 
-  hitTestWires(worldX, worldY) {
+  hitTestWires(worldX, worldY, boundary) {
     const connections = this.project.listConnections();
     for (let i = connections.length - 1; i >= 0; i -= 1) {
       const connection = connections[i];
-      const geometry = getConnectionGeometry(this.project, connection);
+      const geometry = getConnectionGeometry(this.project, connection, boundary);
       if (hitTestConnectionTrunk(geometry, worldX, worldY)) {
         return { connectionId: connection.id };
       }
@@ -118,12 +148,12 @@ export class DragStateMachine {
   // at drag start, so the group can be dragged together even when one of
   // them hasn't been manually bent before (its baseline is the live
   // auto-computed midpoint, not an arbitrary jump).
-  buildTrunkDragItems() {
+  buildTrunkDragItems(boundary) {
     return this.wireSelection
       .list()
       .map((connectionId) => {
         const connection = this.project.getConnection(connectionId);
-        const geometry = connection && getConnectionGeometry(this.project, connection);
+        const geometry = connection && getConnectionGeometry(this.project, connection, boundary);
         if (!connection || !geometry || geometry.trunkIndex < 0) return null;
         const axis = geometry.trunkAxis;
         const point = geometry.points[geometry.trunkIndex];
@@ -171,10 +201,12 @@ export class DragStateMachine {
         const block = this.project.getBlock(this.context.blockId);
         const port = block?.ports.find((p) => p.id === this.context.portId);
         if (!block || !port) break;
-        // Projects onto the nearest point on the block's border across all
-        // four sides, so a port slides all the way around the perimeter and
-        // switches sides at the corners rather than sticking to one edge.
-        const projected = projectPointToPerimeter(block, world.x, world.y);
+        // Projects onto the nearest point on the block's own border across
+        // all four sides (or the boundary frame's border, if this port
+        // belongs to the current container) so a port slides all the way
+        // around the perimeter and switches sides at the corners.
+        const geometry = this.context.isBoundary ? this.getBoundaryInfo().geometry : block.geometry;
+        const projected = projectPointToPerimeter({ geometry }, world.x, world.y);
         port.side = projected.side;
         port.offset = projected.offset;
         port.manualOffset = true;
@@ -230,8 +262,9 @@ export class DragStateMachine {
       this.requestRender();
       return;
     }
-    const { sourceBlockId, sourcePortId } = this.context;
-    const targetHit = hitTest(this.project, world.x, world.y, this.selection.selectedBlockId);
+    const boundary = this.getBoundaryInfo();
+    const { sourceBlockId, sourcePortId, sourceInverted } = this.context;
+    const targetHit = hitTest(this.project, world.x, world.y, this.selection.selectedBlockId, boundary);
     const isPortHit = targetHit?.type === 'port' || targetHit?.type === 'connector';
 
     if (!isPortHit || targetHit.blockId === sourceBlockId) {
@@ -243,17 +276,29 @@ export class DragStateMachine {
     const targetBlock = this.project.getBlock(targetHit.blockId);
     const sourcePort = sourceBlock?.ports.find((p) => p.id === sourcePortId);
     const targetPort = targetBlock?.ports.find((p) => p.id === targetHit.portId);
-    if (!sourcePort || !targetPort || sourcePort.direction === targetPort.direction) {
+    if (!sourcePort || !targetPort) {
       this.requestRender();
       return;
     }
 
-    // Normalize so sourcePortId is always the 'out' port, regardless of
-    // which handle the user actually grabbed first.
-    const outSide = sourcePort.direction === 'out'
+    // A boundary port's role is inverted from this level's point of view
+    // (an outside input is an inside source, and vice versa) — comparing
+    // effective roles, not raw stored direction, is what lets a boundary
+    // port wire to a child of the same raw direction correctly.
+    const targetInverted = Boolean(boundary) && targetHit.blockId === boundary.block.id;
+    const sourceEffective = sourceInverted ? invertDirection(sourcePort.direction) : sourcePort.direction;
+    const targetEffective = targetInverted ? invertDirection(targetPort.direction) : targetPort.direction;
+    if (sourceEffective === targetEffective) {
+      this.requestRender();
+      return;
+    }
+
+    // Normalize so sourcePortId is always the effective source, regardless
+    // of which handle the user actually grabbed first.
+    const outSide = sourceEffective === 'out'
       ? { blockId: sourceBlockId, portId: sourcePortId }
       : { blockId: targetHit.blockId, portId: targetHit.portId };
-    const inSide = sourcePort.direction === 'out'
+    const inSide = sourceEffective === 'out'
       ? { blockId: targetHit.blockId, portId: targetHit.portId }
       : { blockId: sourceBlockId, portId: sourcePortId };
 
@@ -274,11 +319,16 @@ export class DragStateMachine {
   // wire rather than showing a plain rubber-band line.
   getPendingConnectionVisual() {
     if (this.state !== STATES.DRAWING_CONNECTION) return null;
-    const block = this.project.getBlock(this.context.sourceBlockId);
-    const port = block?.ports.find((p) => p.id === this.context.sourcePortId);
-    const sourcePos = block && findPortPosition(block, this.context.sourcePortId);
-    if (!sourcePos || !port) return null;
-    return previewPathToCursor(sourcePos, port.side, this.context.currentWorld);
+    const { sourceBlockId, sourcePortId, sourceInverted, currentWorld } = this.context;
+    const block = this.project.getBlock(sourceBlockId);
+    const port = block?.ports.find((p) => p.id === sourcePortId);
+    if (!block || !port) return null;
+
+    const boundary = this.getBoundaryInfo();
+    const geomBlock = sourceInverted && boundary ? { ...block, geometry: boundary.geometry } : block;
+    const sourcePos = findPortPosition(geomBlock, sourcePortId);
+    if (!sourcePos) return null;
+    return previewPathToCursor(sourcePos, port.side, currentWorld, sourceInverted);
   }
 
   // Double-clicking a block is a shortcut for its enter icon — either way

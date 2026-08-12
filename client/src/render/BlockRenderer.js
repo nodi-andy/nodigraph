@@ -1,4 +1,4 @@
-import { clamp, snap, sideNormal, sideAxis, getPortOffsetBounds } from '../model/grid.js';
+import { clamp, snap, sideNormal, sideAxis, getPortOffsetBounds, GRID_SIZE } from '../model/grid.js';
 import { getStateColor } from '../model/BlockDescription.js';
 
 const CORNER_RADIUS = 6;
@@ -52,9 +52,14 @@ export function findPortPosition(block, portId) {
 // The connector handle sits just outside the block, past the port dot on
 // the border — a distinct, slightly harder-to-hit target so a drag can
 // reliably tell "reposition this port" from "start a wire" apart.
-export function getConnectorHandlePosition(portPos, side) {
+// `inverted` flips it to point inward instead — used when this port is
+// being drawn on the surrounding boundary frame (see drawBoundary) rather
+// than on an ordinary block, since "outward" there would point off into
+// space outside the diagram instead of toward anything wireable.
+export function getConnectorHandlePosition(portPos, side, inverted = false) {
   const n = sideNormal(side);
-  return { x: portPos.x + n.x * CONNECTOR_NUB_LENGTH, y: portPos.y + n.y * CONNECTOR_NUB_LENGTH };
+  const sign = inverted ? -1 : 1;
+  return { x: portPos.x + n.x * sign * CONNECTOR_NUB_LENGTH, y: portPos.y + n.y * sign * CONNECTOR_NUB_LENGTH };
 }
 
 // Projects an arbitrary world point onto the nearest point on the block's
@@ -72,6 +77,36 @@ export function projectPointToPerimeter(block, worldX, worldY) {
   const best = candidates[0];
   const bounds = getPortOffsetBounds(sideLength(block, best.side));
   return { side: best.side, offset: snap(clamp(best.offset, bounds.min, bounds.max)) };
+}
+
+const BOUNDARY_PADDING = GRID_SIZE * 2;
+const BOUNDARY_MIN_WIDTH = GRID_SIZE * 10;
+const BOUNDARY_MIN_HEIGHT = GRID_SIZE * 8;
+
+// The frame you're "inside" at any given level: a box that grows to fit
+// whatever's currently there, padded so ports and wires have room, with a
+// floor so an empty or single-block level still gives you space to work in.
+export function computeBoundaryGeometry(blocks) {
+  if (!blocks.length) {
+    return { x: 0, y: 0, width: BOUNDARY_MIN_WIDTH, height: BOUNDARY_MIN_HEIGHT };
+  }
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const block of blocks) {
+    minX = Math.min(minX, block.geometry.x);
+    minY = Math.min(minY, block.geometry.y);
+    maxX = Math.max(maxX, block.geometry.x + block.geometry.width);
+    maxY = Math.max(maxY, block.geometry.y + block.geometry.height);
+  }
+
+  const x = snap(minX - BOUNDARY_PADDING);
+  const y = snap(minY - BOUNDARY_PADDING);
+  const width = Math.max(BOUNDARY_MIN_WIDTH, snap(maxX + BOUNDARY_PADDING - x));
+  const height = Math.max(BOUNDARY_MIN_HEIGHT, snap(maxY + BOUNDARY_PADDING - y));
+  return { x, y, width, height };
 }
 
 function drawPortLabel(ctx, port, pos) {
@@ -105,12 +140,18 @@ function drawPortLabel(ctx, port, pos) {
   }
 }
 
-function drawPorts(ctx, block) {
+// `inverted` is set when drawing a container's ports on its boundary frame:
+// a port that's an input from outside acts as a source from inside (data
+// is available to route to children), and an output acts as a sink (a
+// child's result flows into it, then out) — so which color/role a port
+// gets flips, on top of the nub direction flipping in getConnectorHandlePosition.
+function drawPorts(ctx, block, { inverted = false } = {}) {
   const outputColor = getStateColor(block) || DEFAULT_OUTPUT_PORT_COLOR;
 
   for (const { port, x: px, y: py } of getAllPortPositions(block)) {
-    const color = port.direction === 'out' ? outputColor : INPUT_PORT_COLOR;
-    const handle = getConnectorHandlePosition({ x: px, y: py }, port.side);
+    const isEffectivelyOutput = inverted ? port.direction === 'in' : port.direction === 'out';
+    const color = isEffectivelyOutput ? outputColor : INPUT_PORT_COLOR;
+    const handle = getConnectorHandlePosition({ x: px, y: py }, port.side, inverted);
 
     ctx.strokeStyle = '#4a5568';
     ctx.lineWidth = 1.5;
@@ -214,6 +255,32 @@ export function drawBlock(ctx, block, { selected = false } = {}) {
       RESIZE_HANDLE_SIZE,
     );
   }
+}
+
+// The frame representing "the current system" — the block you're inside,
+// drawn as a dashed outline (not a solid box: it's empty space you're
+// standing in, not an object) sized to fit its children via
+// computeBoundaryGeometry. Its ports are the container's own real ports,
+// rendered inverted (see drawPorts) so wiring them to a child never has to
+// cross back out over this outline. No resize handle, no enter icon, no
+// centered name-as-content — just a small label so it reads as a frame.
+export function drawBoundary(ctx, block, geometry, { selected = false } = {}) {
+  const { x, y, width, height } = geometry;
+
+  ctx.save();
+  ctx.setLineDash([8, 6]);
+  ctx.strokeStyle = selected ? '#4f8cff' : 'rgba(255, 255, 255, 0.25)';
+  ctx.lineWidth = selected ? 2 : 1.5;
+  ctx.strokeRect(x, y, width, height);
+  ctx.restore();
+
+  ctx.fillStyle = selected ? '#4f8cff' : '#8b93a3';
+  ctx.font = '11px -apple-system, Segoe UI, Roboto, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(block.name, x + 4, y - 6);
+
+  drawPorts(ctx, { ...block, geometry }, { inverted: true });
 }
 
 export function getResizeHandleWorldRect(block) {
