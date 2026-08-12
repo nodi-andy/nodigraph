@@ -1,4 +1,4 @@
-import { createBlock } from './Block.js';
+import { createBlock, hydrateBlock } from './Block.js';
 
 /**
  * Milestone 1 scope: a single flat level of blocks (no hierarchy/manifest split yet —
@@ -8,7 +8,7 @@ import { createBlock } from './Block.js';
 export class Project {
   constructor({ name = 'Untitled Product', blocks = [] } = {}) {
     this.name = name;
-    this.blocks = new Map(blocks.map((block) => [block.id, block]));
+    this.blocks = new Map(blocks.map((block) => [block.id, hydrateBlock(block)]));
   }
 
   static fromJSON(data) {

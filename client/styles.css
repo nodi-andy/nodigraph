@@ -105,8 +105,108 @@ html, body {
   color: #8b93a3;
 }
 
+#inspector h4 {
+  margin: 18px 0 10px;
+  padding-top: 12px;
+  border-top: 1px solid #2c3644;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #8b93a3;
+}
+
 #inspector .sheet-header {
   display: none;
+}
+
+#inspector select {
+  background: #10151c;
+  border: 1px solid #2c3644;
+  color: #e6e9ef;
+  border-radius: 4px;
+  padding: 5px 7px;
+  font-size: 13px;
+}
+
+#inspector select:focus {
+  outline: 1px solid #2f6fed;
+}
+
+#inspector .description-editor {
+  width: 100%;
+  background: #10151c;
+  border: 1px solid #2c3644;
+  color: #e6e9ef;
+  border-radius: 6px;
+  padding: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+#inspector .description-editor:focus {
+  outline: 1px solid #2f6fed;
+}
+
+#inspector .description-editor::placeholder {
+  color: #4a5568;
+}
+
+#inspector .apply-row {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+#inspector .apply-row button {
+  background: #2c3644;
+  color: #e6e9ef;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#inspector .apply-row button:hover {
+  background: #3a4556;
+}
+
+#inspector .ports-summary {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#inspector .ports-summary li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  color: #c3c9d4;
+}
+
+#inspector .port-badge {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+#inspector .port-badge-in {
+  background: #2c3644;
+  color: #a8b1c2;
+}
+
+#inspector .port-badge-out {
+  background: #2f6fed;
+  color: white;
 }
 
 #inspector .field {
