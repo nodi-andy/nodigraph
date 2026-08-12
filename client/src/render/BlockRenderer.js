@@ -4,8 +4,11 @@ import { getStateColor } from '../model/BlockDescription.js';
 const CORNER_RADIUS = 6;
 export const RESIZE_HANDLE_SIZE = 10;
 export const PORT_RADIUS = 5;
+// The drawn arrowhead is smaller than this — it's the hit-test radius
+// around the handle's tip, padded like every other small handle.
 export const CONNECTOR_HANDLE_RADIUS = 4;
 export const CONNECTOR_NUB_LENGTH = 14;
+const CONNECTOR_ARROW_SIZE = 8;
 export const ENTER_ICON_RADIUS = 9;
 export const ENTER_ICON_MARGIN = 4;
 const INPUT_PORT_COLOR = '#8b93a3';
@@ -114,42 +117,64 @@ export function getBorderHit(geometry, worldX, worldY, threshold = BORDER_HIT_TH
   return { side: best.side, offset: snap(clamp(best.offset, bounds.min, bounds.max)) };
 }
 
-function drawPortLabel(ctx, port, pos) {
+// Grows away from wherever the connector handle points, so the two never
+// overlap: normally that's inward (the handle points outward), but on an
+// inverted (boundary) port the handle points inward instead, so the label
+// has to swap to the outward side to stay clear of it.
+function drawPortLabel(ctx, port, pos, inverted = false) {
   if (!port.name) return;
   ctx.fillStyle = PORT_LABEL_COLOR;
   ctx.font = '10px -apple-system, Segoe UI, Roboto, sans-serif';
 
-  switch (port.side) {
-    case 'left':
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(port.name, pos.x + PORT_RADIUS + PORT_LABEL_GAP, pos.y);
-      break;
-    case 'right':
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(port.name, pos.x - PORT_RADIUS - PORT_LABEL_GAP, pos.y);
-      break;
-    case 'top':
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      ctx.fillText(port.name, pos.x, pos.y + PORT_RADIUS + PORT_LABEL_GAP);
-      break;
-    case 'bottom':
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'bottom';
-      ctx.fillText(port.name, pos.x, pos.y - PORT_RADIUS - PORT_LABEL_GAP);
-      break;
-    default:
-      break;
+  const n = sideNormal(port.side);
+  const sign = inverted ? 1 : -1;
+  const dirX = n.x * sign;
+  const dirY = n.y * sign;
+  const gap = PORT_RADIUS + PORT_LABEL_GAP;
+
+  if (Math.abs(dirX) > Math.abs(dirY)) {
+    ctx.textAlign = dirX > 0 ? 'left' : 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(port.name, pos.x + dirX * gap, pos.y);
+  } else {
+    ctx.textAlign = 'center';
+    ctx.textBaseline = dirY > 0 ? 'top' : 'bottom';
+    ctx.fillText(port.name, pos.x, pos.y + dirY * gap);
   }
+}
+
+// An arrowhead pointing the same way the connector line already travels
+// (outward for a normal block, inward for the boundary — see
+// getConnectorHandlePosition) reads as "drag from here to wire it up" more
+// clearly than a plain dot did.
+function drawConnectorArrow(ctx, handlePos, side, inverted) {
+  const n = sideNormal(side);
+  const sign = inverted ? -1 : 1;
+  const dirX = n.x * sign;
+  const dirY = n.y * sign;
+  const perpX = -dirY;
+  const perpY = dirX;
+  const half = CONNECTOR_ARROW_SIZE / 2;
+
+  const tipX = handlePos.x + dirX * half;
+  const tipY = handlePos.y + dirY * half;
+  const backX = handlePos.x - dirX * half;
+  const backY = handlePos.y - dirY * half;
+
+  ctx.beginPath();
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(backX + perpX * half, backY + perpY * half);
+  ctx.lineTo(backX - perpX * half, backY - perpY * half);
+  ctx.closePath();
+  ctx.fillStyle = CONNECTOR_HANDLE_COLOR;
+  ctx.fill();
 }
 
 // `inverted` is set when drawing a container's ports on its boundary frame:
 // a port that's an input from outside acts as a source from inside (data
 // is available to route to children), and an output acts as a sink (a
 // child's result flows into it, then out) — so which color/role a port
-// gets flips, on top of the nub direction flipping in getConnectorHandlePosition.
+// gets flips, on top of the nub/arrow direction flipping.
 function drawPorts(ctx, block, { inverted = false } = {}) {
   const outputColor = getStateColor(block) || DEFAULT_OUTPUT_PORT_COLOR;
 
@@ -173,12 +198,8 @@ function drawPorts(ctx, block, { inverted = false } = {}) {
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    ctx.beginPath();
-    ctx.arc(handle.x, handle.y, CONNECTOR_HANDLE_RADIUS, 0, Math.PI * 2);
-    ctx.fillStyle = CONNECTOR_HANDLE_COLOR;
-    ctx.fill();
-
-    drawPortLabel(ctx, port, { x: px, y: py });
+    drawConnectorArrow(ctx, handle, port.side, inverted);
+    drawPortLabel(ctx, port, { x: px, y: py }, inverted);
   }
 }
 

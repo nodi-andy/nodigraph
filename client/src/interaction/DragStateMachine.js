@@ -58,6 +58,15 @@ export class DragStateMachine {
   }
 
   onPointerDown(screen, world, modifiers = {}) {
+    // Middle-button drag is always "pan the canvas," even over a block, a
+    // port, or the boundary — it bypasses hit-testing entirely rather than
+    // doing whatever a left-click there would do.
+    if (modifiers.button === 1) {
+      this.state = STATES.PANNING;
+      this.context = { lastScreen: screen };
+      return;
+    }
+
     const boundary = this.getBoundaryInfo();
     const hit = hitTest(this.project, world.x, world.y, this.selection.selectedBlockId, boundary);
     if (hit) this.wireSelection.clear();
@@ -125,15 +134,6 @@ export class DragStateMachine {
       this.selection.select(block.id);
       this.state = STATES.DRAGGING_BLOCK;
       this.context = { blockId: block.id, startWorld: world, startGeom: { ...block.geometry } };
-      this.requestRender();
-      return;
-    }
-
-    if (hit?.type === 'boundaryBody') {
-      // Selecting "the current system" so its own interface can be edited
-      // in the Inspector — its geometry is computed, not draggable, so
-      // there's nothing to enter a drag state for.
-      this.selection.select(hit.blockId);
       this.requestRender();
       return;
     }

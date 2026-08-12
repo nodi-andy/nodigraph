@@ -23,10 +23,14 @@ export function attachInputRouter(canvas, camera, stateMachine) {
   };
 
   canvas.addEventListener('pointerdown', (event) => {
+    // The middle button is a universal "pan," even over a block/port/
+    // boundary — browsers otherwise show an autoscroll icon for it, so
+    // that default needs suppressing here too.
+    if (event.button === 1) event.preventDefault();
     tryCapture(canvas.setPointerCapture, event.pointerId);
     const screen = toScreen(event);
     const world = camera.screenToWorld(screen.x, screen.y);
-    stateMachine.onPointerDown(screen, world, { shiftKey: event.shiftKey });
+    stateMachine.onPointerDown(screen, world, { shiftKey: event.shiftKey, button: event.button });
   });
 
   canvas.addEventListener('pointermove', (event) => {
