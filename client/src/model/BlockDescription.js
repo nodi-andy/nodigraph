@@ -152,7 +152,7 @@ export function applyDescriptionText(block, text) {
 // deliberately not mixed in with already-placed ports' indices, since that
 // previously let two new same-side ports round to the exact same offset.
 // A dragged port's offset is never touched here.
-function assignDefaultPortOffsets(block) {
+export function assignDefaultPortOffsets(block) {
   const { width, height } = block.geometry;
 
   for (const side of ['left', 'right', 'top', 'bottom']) {
@@ -174,6 +174,35 @@ function assignDefaultPortOffsets(block) {
       port.offset = offset;
     });
   }
+}
+
+// Adds a port directly (from a border click on the canvas, or the
+// Inspector's own "+ Add port" button) rather than through the text editor
+// — still keeps `description` in sync so the two views never disagree.
+// `side`/`offset` come from wherever the user actually clicked; when
+// omitted (the Inspector button has no click position to go on) the port
+// defaults to its direction's usual side and gets auto-placed.
+export function addPort(block, { direction = 'in', side, offset } = {}) {
+  const resolvedSide = side || (direction === 'out' ? 'right' : 'left');
+  const countSameDirection = block.ports.filter((p) => p.direction === direction).length;
+  const port = {
+    id: generateId('prt'),
+    direction,
+    name: `${direction === 'out' ? 'Out' : 'In'}${countSameDirection + 1}`,
+    description: '',
+    side: resolvedSide,
+    offset,
+    manualOffset: offset !== undefined && offset !== null,
+  };
+  block.ports.push(port);
+  if (port.offset === undefined || port.offset === null) assignDefaultPortOffsets(block);
+  block.description = serializeBlockDescription(block);
+  return port;
+}
+
+export function removePort(block, portId) {
+  block.ports = block.ports.filter((p) => p.id !== portId);
+  block.description = serializeBlockDescription(block);
 }
 
 export function setPropValue(block, propId, value) {

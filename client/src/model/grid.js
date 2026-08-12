@@ -47,3 +47,11 @@ const PORT_EDGE_MARGIN = 25;
 export function getPortOffsetBounds(sideLength) {
   return { min: PORT_EDGE_MARGIN, max: Math.max(PORT_EDGE_MARGIN, sideLength - PORT_EDGE_MARGIN) };
 }
+
+// The boundary is just a container for a block's own IOs, not a frame that
+// has to enclose its children — this is its starting size/position the
+// first time a block is entered; from then on it's whatever the user has
+// dragged it to (see DragStateMachine's boundary-edge splitter drag).
+export function createDefaultBoundaryGeometry() {
+  return { x: 0, y: 0, width: GRID_SIZE * 8, height: GRID_SIZE * 6 };
+}

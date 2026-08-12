@@ -1,4 +1,4 @@
-import { drawBlock, drawBoundary, computeBoundaryGeometry } from './BlockRenderer.js';
+import { drawBlock, drawBoundary } from './BlockRenderer.js';
 import { drawPath, drawFlowDot, getConnectionGeometry } from './ConnectionRenderer.js';
 import { getFlowPhase } from './FlowAnimator.js';
 import { GRID_SIZE } from '../model/grid.js';
@@ -53,7 +53,9 @@ export function renderScene(
 
   const blocks = project.listBlocks();
   const containerBlock = project.getContainerBlock();
-  const boundary = containerBlock ? { block: containerBlock, geometry: computeBoundaryGeometry(blocks) } : null;
+  const boundary = containerBlock?.boundaryGeometry
+    ? { block: containerBlock, geometry: containerBlock.boundaryGeometry }
+    : null;
 
   // Drawn before the real blocks so they visually sit "inside" the frame
   // rather than the dashed outline cutting across them.

@@ -271,40 +271,48 @@ html, body {
   background: #3a4556;
 }
 
-#inspector .ports-summary {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+#inspector .port-row {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 6px;
+  margin-bottom: 4px;
 }
 
-#inspector .ports-summary li {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  font-size: 12px;
-  color: #c3c9d4;
-}
-
-#inspector .port-badge {
+#inspector .port-dir-select {
   flex-shrink: 0;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  padding: 1px 5px;
-  border-radius: 3px;
+  width: 58px;
+  padding: 5px 4px;
+  font-size: 11px;
 }
 
-#inspector .port-badge-in {
-  background: #2c3644;
+#inspector .port-name-input {
+  flex: 1;
+  min-width: 0;
+}
+
+#inspector .port-delete-button {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  background: none;
+  border: 1px solid #2c3644;
+  border-radius: 4px;
+  color: #8b93a3;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#inspector .port-delete-button:hover {
+  color: #e5484d;
+  border-color: #e5484d;
+}
+
+#inspector .port-desc-input {
+  width: 100%;
+  margin-bottom: 12px;
+  font-size: 11px;
   color: #a8b1c2;
-}
-
-#inspector .port-badge-out {
-  background: #2f6fed;
-  color: white;
 }
 
 #inspector .delete-row {
