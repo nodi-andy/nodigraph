@@ -114,13 +114,13 @@ export function hitTest(project, worldX, worldY, selectedBlockId, boundary) {
 
   if (boundary) {
     // A child block drawn over part of the boundary's edge should win —
-    // hence this is checked only after every real block's body above.
+    // hence this is checked only after every real block's body above. The
+    // boundary's plain interior isn't a click target at all: there's
+    // nothing to select there, so an unmatched click here just falls
+    // through to a wire-trunk check and then panning.
     const edge = getBorderHit(boundary.geometry, worldX, worldY);
     if (edge) {
       return { type: 'boundaryEdge', blockId: boundary.block.id, edge: edge.side, offset: edge.offset };
-    }
-    if (pointInRect(worldX, worldY, boundary.geometry)) {
-      return { type: 'boundaryBody', blockId: boundary.block.id };
     }
   }
 
