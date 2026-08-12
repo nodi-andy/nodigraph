@@ -246,6 +246,27 @@ html, body {
   color: white;
 }
 
+#inspector .delete-row {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid #2c3644;
+}
+
+#inspector .delete-button {
+  width: 100%;
+  background: transparent;
+  border: 1px solid #e5484d;
+  color: #e5484d;
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#inspector .delete-button:hover {
+  background: rgba(229, 72, 77, 0.12);
+}
+
 #inspector .field {
   display: flex;
   flex-direction: column;

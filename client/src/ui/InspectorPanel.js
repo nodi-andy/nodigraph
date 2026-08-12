@@ -53,7 +53,7 @@ function tabBar(activeTab, onSelect) {
   return bar;
 }
 
-export function mountInspector(container, { project, selection, requestRender, persist }) {
+export function mountInspector(container, { project, selection, requestRender, persist, deleteBlock }) {
   // Shows either the structured Inspector or the raw Description editor at
   // once, not both stacked — persists across refresh() calls (e.g. after
   // every prop edit) since it lives outside the rebuild functions below.
@@ -188,6 +188,20 @@ export function mountInspector(container, { project, selection, requestRender, p
       hint.textContent = 'Drag a port dot to reposition it; drag from the small handle beside it to wire a connection.';
       container_.appendChild(hint);
     }
+
+    const deleteRow = document.createElement('div');
+    deleteRow.className = 'delete-row';
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'delete-button';
+    deleteButton.textContent = 'Delete block';
+    deleteButton.addEventListener('click', () => {
+      if (window.confirm(`Delete "${block.name}" and its connections? This can't be undone.`)) {
+        deleteBlock(block.id);
+      }
+    });
+    deleteRow.appendChild(deleteButton);
+    container_.appendChild(deleteRow);
   }
 
   function renderDescriptionTab(container_, block) {
