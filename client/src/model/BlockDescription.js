@@ -1,4 +1,5 @@
 import { generateId } from './Block.js';
+import { HEADER_HEIGHT, snap } from './grid.js';
 
 /**
  * A block's ports and properties are edited as plain text in this small,
@@ -118,8 +119,10 @@ export function applyDescriptionText(block, text) {
       direction: p.direction,
       name: p.name,
       description: p.description,
+      offset: existing?.offset,
     };
   });
+  assignDefaultPortOffsets(block);
 
   const existingPropsByName = new Map((block.props || []).map((p) => [p.name, p]));
   block.props = parsed.props.map((p) => {
@@ -134,6 +137,24 @@ export function applyDescriptionText(block, text) {
   });
 
   block.description = serializeBlockDescription(block);
+}
+
+// Ports without an explicit offset (brand new, just parsed from text) get
+// evenly distributed along their edge; a port that's already been dragged
+// (or auto-placed before) keeps its stored offset untouched.
+function assignDefaultPortOffsets(block) {
+  const height = block.geometry.height;
+  const usable = height - HEADER_HEIGHT;
+
+  for (const direction of ['in', 'out']) {
+    const group = block.ports.filter((p) => p.direction === direction);
+    const step = usable / (group.length + 1);
+    group.forEach((port, i) => {
+      if (port.offset === undefined || port.offset === null) {
+        port.offset = snap(HEADER_HEIGHT + step * (i + 1));
+      }
+    });
+  }
 }
 
 export function setPropValue(block, propId, value) {
