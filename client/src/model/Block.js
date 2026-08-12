@@ -1,4 +1,4 @@
-import { GRID_SIZE, snap } from './grid.js';
+import { GRID_SIZE, snap, createDefaultBoundaryGeometry } from './grid.js';
 
 let counter = 0;
 
@@ -34,6 +34,10 @@ export function createBlock({ x, y, name } = {}) {
     // Project.enterBlock) — { blocks: Map, connections: Map } in memory,
     // { blocks: [], connections: [] } once serialized to JSON.
     children: null,
+    // The boundary frame's own position/size once this block has been
+    // entered — just a container for its IOs, independent of where its
+    // children happen to sit (see grid.createDefaultBoundaryGeometry).
+    boundaryGeometry: null,
     requirementIds: [],
     createdAt: now,
     updatedAt: now,
@@ -56,6 +60,7 @@ export function hydrateBlock(raw) {
     })),
     props: raw.props || [],
     description: raw.description || `Block: ${raw.name || 'Block'}`,
+    boundaryGeometry: raw.hasChildren ? raw.boundaryGeometry || createDefaultBoundaryGeometry() : raw.boundaryGeometry || null,
   };
 }
 

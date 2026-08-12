@@ -3,6 +3,7 @@ import {
   getAllPortPositions,
   getConnectorHandlePosition,
   getEnterIconCenter,
+  getBorderHit,
   PORT_RADIUS,
   CONNECTOR_HANDLE_RADIUS,
   ENTER_ICON_RADIUS,
@@ -93,6 +94,17 @@ export function hitTest(project, worldX, worldY, selectedBlockId, boundary) {
     }
   }
 
+  // A precise click right on a block's own border adds a port there —
+  // checked before the body so it doesn't get swallowed by "drag to move,"
+  // but after ports/enter-icon so it never shadows a more specific handle.
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const block = blocks[i];
+    const border = getBorderHit(block.geometry, worldX, worldY);
+    if (border) {
+      return { type: 'border', blockId: block.id, side: border.side, offset: border.offset };
+    }
+  }
+
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const block = blocks[i];
     if (pointInRect(worldX, worldY, block.geometry)) {
@@ -100,8 +112,16 @@ export function hitTest(project, worldX, worldY, selectedBlockId, boundary) {
     }
   }
 
-  if (boundary && pointInRect(worldX, worldY, boundary.geometry)) {
-    return { type: 'boundaryBody', blockId: boundary.block.id };
+  if (boundary) {
+    // A child block drawn over part of the boundary's edge should win —
+    // hence this is checked only after every real block's body above.
+    const edge = getBorderHit(boundary.geometry, worldX, worldY);
+    if (edge) {
+      return { type: 'boundaryEdge', blockId: boundary.block.id, edge: edge.side, offset: edge.offset };
+    }
+    if (pointInRect(worldX, worldY, boundary.geometry)) {
+      return { type: 'boundaryBody', blockId: boundary.block.id };
+    }
   }
 
   return null;

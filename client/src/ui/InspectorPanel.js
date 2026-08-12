@@ -1,6 +1,23 @@
 import { touchBlock, MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT } from '../model/Block.js';
 import { snap } from '../model/grid.js';
-import { applyDescriptionText, setPropValue } from '../model/BlockDescription.js';
+import {
+  applyDescriptionText,
+  setPropValue,
+  addPort,
+  removePort,
+  serializeBlockDescription,
+} from '../model/BlockDescription.js';
+
+// A structural port edit (name/direction/description/add/delete) changes
+// the model directly, so the raw Description text has to be regenerated
+// to match — the same "structured edit re-derives the text" rule already
+// used for properties.
+function syncPortChange(block, requestRender, persist) {
+  block.description = serializeBlockDescription(block);
+  touchBlock(block);
+  requestRender();
+  if (persist) persist();
+}
 
 const DESCRIPTION_PLACEHOLDER = `Block: PowerUnit
 
@@ -195,25 +212,80 @@ export function mountInspector(container, { project, selection, requestRender, p
       }
     }
 
-    if (block.ports.length) {
-      container_.appendChild(sectionHeading('Ports'));
-      const list = document.createElement('ul');
-      list.className = 'ports-summary';
-      for (const port of block.ports) {
-        const item = document.createElement('li');
-        const badge = document.createElement('span');
-        badge.className = `port-badge port-badge-${port.direction}`;
-        badge.textContent = port.direction === 'in' ? 'IN' : 'OUT';
-        const text = document.createElement('span');
-        text.textContent = port.description ? `${port.name} — ${port.description}` : port.name;
-        item.appendChild(badge);
-        item.appendChild(text);
-        list.appendChild(item);
+    container_.appendChild(sectionHeading('Ports'));
+    for (const port of block.ports) {
+      const row = document.createElement('div');
+      row.className = 'port-row';
+
+      const dirSelect = document.createElement('select');
+      dirSelect.className = 'port-dir-select';
+      for (const dir of ['in', 'out']) {
+        const option = document.createElement('option');
+        option.value = dir;
+        option.textContent = dir.toUpperCase();
+        option.selected = dir === port.direction;
+        dirSelect.appendChild(option);
       }
-      container_.appendChild(list);
+      dirSelect.addEventListener('change', () => {
+        port.direction = dirSelect.value;
+        syncPortChange(block, requestRender, persist);
+      });
+
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.className = 'port-name-input';
+      nameInput.value = port.name;
+      nameInput.addEventListener('input', () => {
+        port.name = nameInput.value;
+        syncPortChange(block, requestRender);
+      });
+      nameInput.addEventListener('change', () => syncPortChange(block, requestRender, persist));
+
+      const deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.className = 'port-delete-button';
+      deleteButton.textContent = '×';
+      deleteButton.setAttribute('aria-label', `Delete port ${port.name}`);
+      deleteButton.addEventListener('click', () => {
+        removePort(block, port.id);
+        project.removeConnectionsForPort(port.id);
+        syncPortChange(block, requestRender, persist);
+      });
+
+      row.appendChild(dirSelect);
+      row.appendChild(nameInput);
+      row.appendChild(deleteButton);
+      container_.appendChild(row);
+
+      const descInput = document.createElement('input');
+      descInput.type = 'text';
+      descInput.className = 'port-desc-input';
+      descInput.placeholder = 'Description';
+      descInput.value = port.description || '';
+      descInput.addEventListener('input', () => {
+        port.description = descInput.value;
+        syncPortChange(block, requestRender);
+      });
+      descInput.addEventListener('change', () => syncPortChange(block, requestRender, persist));
+      container_.appendChild(descInput);
+    }
+
+    const addPortRow = document.createElement('div');
+    addPortRow.className = 'apply-row';
+    const addPortButton = document.createElement('button');
+    addPortButton.type = 'button';
+    addPortButton.textContent = '+ Add port';
+    addPortButton.addEventListener('click', () => {
+      addPort(block);
+      syncPortChange(block, requestRender, persist);
+    });
+    addPortRow.appendChild(addPortButton);
+    container_.appendChild(addPortRow);
+
+    if (block.ports.length) {
       const hint = document.createElement('p');
       hint.className = 'hint-text';
-      hint.textContent = 'Drag a port dot to reposition it; drag from the small handle beside it to wire a connection.';
+      hint.textContent = 'Drag a port dot on the canvas to reposition it, or from the small handle beside it to wire a connection. Click a block\'s border to add a port right there.';
       container_.appendChild(hint);
     }
 

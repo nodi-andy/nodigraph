@@ -1,4 +1,4 @@
-import { clamp, snap, sideNormal, sideAxis, getPortOffsetBounds, GRID_SIZE } from '../model/grid.js';
+import { clamp, snap, sideNormal, sideAxis, getPortOffsetBounds } from '../model/grid.js';
 import { getStateColor } from '../model/BlockDescription.js';
 
 const CORNER_RADIUS = 6;
@@ -79,34 +79,39 @@ export function projectPointToPerimeter(block, worldX, worldY) {
   return { side: best.side, offset: snap(clamp(best.offset, bounds.min, bounds.max)) };
 }
 
-const BOUNDARY_PADDING = GRID_SIZE * 2;
-const BOUNDARY_MIN_WIDTH = GRID_SIZE * 10;
-const BOUNDARY_MIN_HEIGHT = GRID_SIZE * 8;
+const BORDER_HIT_THRESHOLD = 8;
 
-// The frame you're "inside" at any given level: a box that grows to fit
-// whatever's currently there, padded so ports and wires have room, with a
-// floor so an empty or single-block level still gives you space to work in.
-export function computeBoundaryGeometry(blocks) {
-  if (!blocks.length) {
-    return { x: 0, y: 0, width: BOUNDARY_MIN_WIDTH, height: BOUNDARY_MIN_HEIGHT };
+// Detects a click near a rectangle's edge (any of the four sides, within
+// its actual span, not the infinite line) — used both to add a port right
+// where you click a block's border, and to find which edge of the boundary
+// frame a splitter-style drag should resize. Returns the same {side,
+// offset} shape a port itself uses, so a border click can become a port at
+// exactly that spot with no extra conversion.
+export function getBorderHit(geometry, worldX, worldY, threshold = BORDER_HIT_THRESHOLD) {
+  const { x, y, width, height } = geometry;
+  const withinX = worldX >= x - threshold && worldX <= x + width + threshold;
+  const withinY = worldY >= y - threshold && worldY <= y + height + threshold;
+  if (!withinX && !withinY) return null;
+
+  const candidates = [];
+  if (withinY) {
+    const distLeft = Math.abs(worldX - x);
+    const distRight = Math.abs(worldX - (x + width));
+    if (distLeft <= threshold) candidates.push({ side: 'left', dist: distLeft, offset: worldY - y });
+    if (distRight <= threshold) candidates.push({ side: 'right', dist: distRight, offset: worldY - y });
   }
-
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const block of blocks) {
-    minX = Math.min(minX, block.geometry.x);
-    minY = Math.min(minY, block.geometry.y);
-    maxX = Math.max(maxX, block.geometry.x + block.geometry.width);
-    maxY = Math.max(maxY, block.geometry.y + block.geometry.height);
+  if (withinX) {
+    const distTop = Math.abs(worldY - y);
+    const distBottom = Math.abs(worldY - (y + height));
+    if (distTop <= threshold) candidates.push({ side: 'top', dist: distTop, offset: worldX - x });
+    if (distBottom <= threshold) candidates.push({ side: 'bottom', dist: distBottom, offset: worldX - x });
   }
+  if (!candidates.length) return null;
 
-  const x = snap(minX - BOUNDARY_PADDING);
-  const y = snap(minY - BOUNDARY_PADDING);
-  const width = Math.max(BOUNDARY_MIN_WIDTH, snap(maxX + BOUNDARY_PADDING - x));
-  const height = Math.max(BOUNDARY_MIN_HEIGHT, snap(maxY + BOUNDARY_PADDING - y));
-  return { x, y, width, height };
+  candidates.sort((a, b) => a.dist - b.dist);
+  const best = candidates[0];
+  const bounds = getPortOffsetBounds(sideAxis(best.side) === 'x' ? height : width);
+  return { side: best.side, offset: snap(clamp(best.offset, bounds.min, bounds.max)) };
 }
 
 function drawPortLabel(ctx, port, pos) {
@@ -259,11 +264,14 @@ export function drawBlock(ctx, block, { selected = false } = {}) {
 
 // The frame representing "the current system" — the block you're inside,
 // drawn as a dashed outline (not a solid box: it's empty space you're
-// standing in, not an object) sized to fit its children via
-// computeBoundaryGeometry. Its ports are the container's own real ports,
-// rendered inverted (see drawPorts) so wiring them to a child never has to
-// cross back out over this outline. No resize handle, no enter icon, no
-// centered name-as-content — just a small label so it reads as a frame.
+// standing in, not an object). It's purely a container for the block's own
+// IOs — its geometry is whatever the user has dragged it to (see
+// DragStateMachine's boundary-edge splitter drag) and has no relationship
+// to where children happen to sit. Its ports are the container's own real
+// ports, rendered inverted (see drawPorts) so wiring them to a child never
+// has to cross back out over this outline. No resize handle, no enter
+// icon, no centered name-as-content — just a small label so it reads as a
+// frame.
 export function drawBoundary(ctx, block, geometry, { selected = false } = {}) {
   const { x, y, width, height } = geometry;
 

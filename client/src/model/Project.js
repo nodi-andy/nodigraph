@@ -1,4 +1,5 @@
 import { createBlock, hydrateBlockTree, serializeBlockTree } from './Block.js';
+import { createDefaultBoundaryGeometry } from './grid.js';
 
 /**
  * The whole product is itself a Block (`rootBlock`) — you're always inside
@@ -19,6 +20,7 @@ export class Project {
     } else {
       this.rootBlock = createBlock({ name });
       this.rootBlock.hasChildren = true;
+      this.rootBlock.boundaryGeometry = createDefaultBoundaryGeometry();
       this.rootBlock.children = {
         blocks: new Map(blocks.map((block) => [block.id, hydrateBlockTree(block)])),
         connections: new Map(connections.map((connection) => [connection.id, connection])),
@@ -54,6 +56,7 @@ export class Project {
       if (!block.children) {
         block.children = { blocks: new Map(), connections: new Map() };
         block.hasChildren = true;
+        block.boundaryGeometry = block.boundaryGeometry || createDefaultBoundaryGeometry();
       }
       level = block.children;
     }
@@ -149,6 +152,7 @@ export class Project {
     if (!block.children) {
       block.children = { blocks: new Map(), connections: new Map() };
       block.hasChildren = true;
+      block.boundaryGeometry = block.boundaryGeometry || createDefaultBoundaryGeometry();
     }
     this.path = [...this.path, blockId];
     return true;
