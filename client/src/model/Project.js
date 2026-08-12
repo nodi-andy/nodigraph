@@ -34,6 +34,11 @@ export class Project {
 
   removeBlock(id) {
     this.blocks.delete(id);
+    for (const [connId, connection] of this.connections) {
+      if (connection.sourceBlockId === id || connection.targetBlockId === id) {
+        this.connections.delete(connId);
+      }
+    }
   }
 
   getBlock(id) {

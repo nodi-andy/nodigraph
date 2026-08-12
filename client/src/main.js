@@ -30,6 +30,13 @@ function persist() {
   inspectorApi?.refresh();
 }
 
+function deleteBlock(blockId) {
+  project.removeBlock(blockId);
+  if (selection.selectedBlockId === blockId) selection.clear();
+  persist();
+  renderLoop.requestRender();
+}
+
 function draw() {
   const dpr = window.devicePixelRatio || 1;
   renderScene(ctx, camera, project, {
@@ -80,6 +87,23 @@ inspectorApi = mountInspector(inspectorEl, {
   selection,
   requestRender: () => renderLoop.requestRender(),
   persist,
+  deleteBlock,
+});
+
+// Delete/Backspace removes the selected block, but only when focus isn't in
+// a text field — otherwise editing the Name field or description would
+// delete the block out from under you.
+window.addEventListener('keydown', (event) => {
+  if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+  if (!selection.selectedBlockId) return;
+  const tag = document.activeElement?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+  event.preventDefault();
+  const block = project.getBlock(selection.selectedBlockId);
+  if (block && window.confirm(`Delete "${block.name}" and its connections? This can't be undone.`)) {
+    deleteBlock(block.id);
+  }
 });
 
 // Synchronous initial call covers the normal case (layout is already settled
