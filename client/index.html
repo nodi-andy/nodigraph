@@ -2,15 +2,23 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>gravis-sysml</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div id="app">
-    <div id="toolbar"></div>
+    <header id="topbar">
+      <span class="brand">gravis-sysml</span>
+      <span class="hint">Drag to move · corner handle to resize · wheel to zoom · drag background to pan</span>
+    </header>
     <canvas id="scene-canvas"></canvas>
     <div id="inspector"></div>
+    <button id="fab-add-block" class="fab" type="button" aria-label="Add block">
+      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+        <path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z" fill="currentColor" />
+      </svg>
+    </button>
   </div>
   <script type="module" src="src/main.js"></script>
 </body>

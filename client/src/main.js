@@ -11,7 +11,7 @@ import { mountInspector } from './ui/InspectorPanel.js';
 
 const canvas = document.getElementById('scene-canvas');
 const ctx = canvas.getContext('2d');
-const toolbarEl = document.getElementById('toolbar');
+const fabEl = document.getElementById('fab-add-block');
 const inspectorEl = document.getElementById('inspector');
 
 const project = loadProject() || new Project({ name: 'Untitled Product' });
@@ -58,7 +58,7 @@ const stateMachine = new DragStateMachine({
 attachInputRouter(canvas, camera, stateMachine);
 selection.onChange(() => renderLoop.requestRender());
 
-mountToolbar(toolbarEl, {
+mountToolbar(fabEl, {
   project,
   camera,
   canvas,

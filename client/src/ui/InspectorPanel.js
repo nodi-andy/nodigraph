@@ -10,9 +10,21 @@ function field(labelText, inputEl) {
   return wrapper;
 }
 
+function sheetHeader() {
+  // Purely a mobile affordance (drag grabber for the bottom sheet); hidden
+  // by CSS above the mobile breakpoint.
+  const header = document.createElement('div');
+  header.className = 'sheet-header';
+  const grabber = document.createElement('div');
+  grabber.className = 'grabber';
+  header.appendChild(grabber);
+  return header;
+}
+
 export function mountInspector(container, { project, selection, requestRender, persist }) {
   function renderEmpty() {
     container.innerHTML = '';
+    container.appendChild(sheetHeader());
     const heading = document.createElement('h3');
     heading.textContent = 'Inspector';
     const empty = document.createElement('p');
@@ -24,6 +36,7 @@ export function mountInspector(container, { project, selection, requestRender, p
 
   function renderBlock(block) {
     container.innerHTML = '';
+    container.appendChild(sheetHeader());
     const heading = document.createElement('h3');
     heading.textContent = 'Inspector';
     container.appendChild(heading);
@@ -82,6 +95,11 @@ export function mountInspector(container, { project, selection, requestRender, p
     const block = selection.selectedBlockId ? project.getBlock(selection.selectedBlockId) : null;
     if (block) renderBlock(block);
     else renderEmpty();
+
+    // Drives the mobile bottom-sheet slide + hides the FAB behind it so the
+    // two floating controls never overlap; a no-op above the breakpoint.
+    container.classList.toggle('open', Boolean(block));
+    document.body.classList.toggle('inspector-open', Boolean(block));
   }
 
   selection.onChange(refresh);
