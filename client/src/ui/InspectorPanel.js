@@ -1,4 +1,14 @@
-import { touchBlock } from '../model/Block.js';
+import { touchBlock, MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT } from '../model/Block.js';
+import { snap } from '../model/grid.js';
+import { applyDescriptionText, setPropValue } from '../model/BlockDescription.js';
+
+const DESCRIPTION_PLACEHOLDER = `Block: PowerUnit
+
+input.24V: This is the power input
+output.5V: This is the output
+
+prop.weight: 2kg
+prop.state: ON, OFF, Disabled, Error = ON`;
 
 function field(labelText, inputEl) {
   const wrapper = document.createElement('div');
@@ -8,6 +18,12 @@ function field(labelText, inputEl) {
   wrapper.appendChild(label);
   wrapper.appendChild(inputEl);
   return wrapper;
+}
+
+function sectionHeading(text) {
+  const heading = document.createElement('h4');
+  heading.textContent = text;
+  return heading;
 }
 
 function sheetHeader() {
@@ -58,6 +74,7 @@ export function mountInspector(container, { project, selection, requestRender, p
     const makeGeomInput = (key, min) => {
       const input = document.createElement('input');
       input.type = 'number';
+      input.step = 10;
       input.value = block.geometry[key];
       input.addEventListener('input', () => {
         const value = Number(input.value);
@@ -65,7 +82,14 @@ export function mountInspector(container, { project, selection, requestRender, p
         touchBlock(block);
         requestRender();
       });
-      input.addEventListener('change', persist);
+      input.addEventListener('change', () => {
+        // Snap on commit so a manually-typed value still lands on the grid,
+        // same as a drag would.
+        block.geometry[key] = key === 'width' || key === 'height'
+          ? Math.max(min, snap(block.geometry[key]))
+          : snap(block.geometry[key]);
+        persist();
+      });
       return input;
     };
 
@@ -75,8 +99,8 @@ export function mountInspector(container, { project, selection, requestRender, p
 
     const row2 = document.createElement('div');
     row2.className = 'row';
-    row2.appendChild(field('Width', makeGeomInput('width', 40)));
-    row2.appendChild(field('Height', makeGeomInput('height', 40)));
+    row2.appendChild(field('Width', makeGeomInput('width', MIN_BLOCK_WIDTH)));
+    row2.appendChild(field('Height', makeGeomInput('height', MIN_BLOCK_HEIGHT)));
     container.appendChild(row2);
 
     const colorInput = document.createElement('input');
@@ -89,6 +113,87 @@ export function mountInspector(container, { project, selection, requestRender, p
     });
     colorInput.addEventListener('change', persist);
     container.appendChild(field('Header color', colorInput));
+
+    // Properties get live controls here (the "simulation feel" the raw text
+    // editor alone can't give): flipping an enum prop like state re-renders
+    // immediately, and if it's named "state" the block's output ports
+    // recolor to match (see BlockDescription.getStateColor).
+    if (block.props.length) {
+      container.appendChild(sectionHeading('Properties'));
+      for (const prop of block.props) {
+        if (prop.kind === 'enum') {
+          const select = document.createElement('select');
+          for (const option of prop.options) {
+            const optionEl = document.createElement('option');
+            optionEl.value = option;
+            optionEl.textContent = option;
+            optionEl.selected = option === prop.value;
+            select.appendChild(optionEl);
+          }
+          select.addEventListener('change', () => {
+            setPropValue(block, prop.id, select.value);
+            touchBlock(block);
+            requestRender();
+            persist();
+          });
+          container.appendChild(field(prop.name, select));
+        } else {
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.value = prop.value;
+          input.addEventListener('input', () => {
+            setPropValue(block, prop.id, input.value);
+            touchBlock(block);
+            requestRender();
+          });
+          input.addEventListener('change', persist);
+          container.appendChild(field(prop.name, input));
+        }
+      }
+    }
+
+    if (block.ports.length) {
+      container.appendChild(sectionHeading('Ports'));
+      const list = document.createElement('ul');
+      list.className = 'ports-summary';
+      for (const port of block.ports) {
+        const item = document.createElement('li');
+        const badge = document.createElement('span');
+        badge.className = `port-badge port-badge-${port.direction}`;
+        badge.textContent = port.direction === 'in' ? 'IN' : 'OUT';
+        const text = document.createElement('span');
+        text.textContent = port.description ? `${port.name} — ${port.description}` : port.name;
+        item.appendChild(badge);
+        item.appendChild(text);
+        list.appendChild(item);
+      }
+      container.appendChild(list);
+    }
+
+    container.appendChild(sectionHeading('Description'));
+    const textarea = document.createElement('textarea');
+    textarea.className = 'description-editor';
+    textarea.rows = 7;
+    textarea.value = block.description || '';
+    textarea.placeholder = DESCRIPTION_PLACEHOLDER;
+    container.appendChild(textarea);
+
+    const applyDescription = () => {
+      applyDescriptionText(block, textarea.value);
+      touchBlock(block);
+      requestRender();
+      persist();
+    };
+    textarea.addEventListener('change', applyDescription);
+
+    const applyRow = document.createElement('div');
+    applyRow.className = 'apply-row';
+    const applyButton = document.createElement('button');
+    applyButton.type = 'button';
+    applyButton.textContent = 'Apply description';
+    applyButton.addEventListener('click', applyDescription);
+    applyRow.appendChild(applyButton);
+    container.appendChild(applyRow);
   }
 
   function refresh() {

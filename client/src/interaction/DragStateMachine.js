@@ -1,5 +1,6 @@
 import { hitTest } from './HitTest.js';
 import { touchBlock, MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT } from '../model/Block.js';
+import { snap } from '../model/grid.js';
 
 const STATES = {
   IDLE: 'idle',
@@ -62,8 +63,11 @@ export class DragStateMachine {
       case STATES.DRAGGING_BLOCK: {
         const block = this.project.getBlock(this.context.blockId);
         if (!block) break;
-        block.geometry.x = this.context.startGeom.x + (world.x - this.context.startWorld.x);
-        block.geometry.y = this.context.startGeom.y + (world.y - this.context.startWorld.y);
+        // Snapping the absolute result (not the delta) is what gives the
+        // Factorio/AoE feel of the block jumping between grid cells as you
+        // drag, rather than drifting off-grid by accumulated pixel deltas.
+        block.geometry.x = snap(this.context.startGeom.x + (world.x - this.context.startWorld.x));
+        block.geometry.y = snap(this.context.startGeom.y + (world.y - this.context.startWorld.y));
         this.requestRender();
         break;
       }
@@ -72,11 +76,11 @@ export class DragStateMachine {
         if (!block) break;
         block.geometry.width = Math.max(
           MIN_BLOCK_WIDTH,
-          this.context.startGeom.width + (world.x - this.context.startWorld.x),
+          snap(this.context.startGeom.width + (world.x - this.context.startWorld.x)),
         );
         block.geometry.height = Math.max(
           MIN_BLOCK_HEIGHT,
-          this.context.startGeom.height + (world.y - this.context.startWorld.y),
+          snap(this.context.startGeom.height + (world.y - this.context.startWorld.y)),
         );
         this.requestRender();
         break;

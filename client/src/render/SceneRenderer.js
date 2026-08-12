@@ -1,6 +1,6 @@
 import { drawBlock } from './BlockRenderer.js';
+import { GRID_SIZE } from '../model/grid.js';
 
-const GRID_SIZE = 40;
 const GRID_COLOR = '#1a212b';
 
 function drawGrid(ctx, camera, canvasWidth, canvasHeight) {

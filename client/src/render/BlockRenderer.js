@@ -1,6 +1,56 @@
+import { snap } from '../model/grid.js';
+import { getStateColor } from '../model/BlockDescription.js';
+
 const HEADER_HEIGHT = 26;
 const CORNER_RADIUS = 6;
 export const RESIZE_HANDLE_SIZE = 10;
+export const PORT_RADIUS = 5;
+const INPUT_PORT_COLOR = '#8b93a3';
+const DEFAULT_OUTPUT_PORT_COLOR = '#8b93a3';
+
+// Evenly distributes a side's ports along the block body, then snaps each to
+// the nearest grid line — real drag-to-reposition (Milestone 2) will move a
+// port between grid lines the same way blocks move between grid cells.
+export function getPortPositions(block, direction) {
+  const { x, y, width, height } = block.geometry;
+  const ports = (block.ports || []).filter((p) => p.direction === direction);
+  if (!ports.length) return [];
+
+  const edgeX = direction === 'in' ? x : x + width;
+  const top = y + HEADER_HEIGHT;
+  const usableHeight = height - HEADER_HEIGHT;
+  const step = usableHeight / (ports.length + 1);
+
+  return ports.map((port, i) => ({
+    port,
+    x: edgeX,
+    y: snap(top + step * (i + 1)),
+  }));
+}
+
+function drawPorts(ctx, block) {
+  const outputColor = getStateColor(block) || DEFAULT_OUTPUT_PORT_COLOR;
+
+  for (const { x: px, y: py } of getPortPositions(block, 'in')) {
+    ctx.beginPath();
+    ctx.arc(px, py, PORT_RADIUS, 0, Math.PI * 2);
+    ctx.fillStyle = INPUT_PORT_COLOR;
+    ctx.fill();
+    ctx.strokeStyle = '#12161d';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  for (const { x: px, y: py } of getPortPositions(block, 'out')) {
+    ctx.beginPath();
+    ctx.arc(px, py, PORT_RADIUS, 0, Math.PI * 2);
+    ctx.fillStyle = outputColor;
+    ctx.fill();
+    ctx.strokeStyle = '#12161d';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+}
 
 function roundRectPath(ctx, x, y, width, height, radius) {
   ctx.beginPath();
@@ -37,6 +87,8 @@ export function drawBlock(ctx, block, { selected = false } = {}) {
   ctx.fillText(block.name, x + 8, y + HEADER_HEIGHT / 2, width - 16);
 
   ctx.restore();
+
+  drawPorts(ctx, block);
 
   if (selected) {
     ctx.fillStyle = '#4f8cff';
