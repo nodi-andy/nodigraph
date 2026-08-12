@@ -10,6 +10,8 @@ output.5V: This is the output
 prop.weight: 2kg
 prop.state: ON, OFF, Disabled, Error = ON`;
 
+const TABS = ['Inspector', 'Description'];
+
 function field(labelText, inputEl) {
   const wrapper = document.createElement('div');
   wrapper.className = 'field';
@@ -37,7 +39,26 @@ function sheetHeader() {
   return header;
 }
 
+function tabBar(activeTab, onSelect) {
+  const bar = document.createElement('div');
+  bar.className = 'tab-bar';
+  for (const tab of TABS) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = tab;
+    button.className = 'tab-button' + (tab === activeTab ? ' active' : '');
+    button.addEventListener('click', () => onSelect(tab));
+    bar.appendChild(button);
+  }
+  return bar;
+}
+
 export function mountInspector(container, { project, selection, requestRender, persist }) {
+  // Shows either the structured Inspector or the raw Description editor at
+  // once, not both stacked — persists across refresh() calls (e.g. after
+  // every prop edit) since it lives outside the rebuild functions below.
+  let activeTab = 'Inspector';
+
   function renderEmpty() {
     container.innerHTML = '';
     container.appendChild(sheetHeader());
@@ -50,13 +71,7 @@ export function mountInspector(container, { project, selection, requestRender, p
     container.appendChild(empty);
   }
 
-  function renderBlock(block) {
-    container.innerHTML = '';
-    container.appendChild(sheetHeader());
-    const heading = document.createElement('h3');
-    heading.textContent = 'Inspector';
-    container.appendChild(heading);
-
+  function renderInspectorTab(container_, block) {
     const nameInput = document.createElement('input');
     nameInput.type = 'text';
     nameInput.value = block.name;
@@ -66,7 +81,7 @@ export function mountInspector(container, { project, selection, requestRender, p
       requestRender();
     });
     nameInput.addEventListener('change', persist);
-    container.appendChild(field('Name', nameInput));
+    container_.appendChild(field('Name', nameInput));
 
     const row = document.createElement('div');
     row.className = 'row';
@@ -95,13 +110,13 @@ export function mountInspector(container, { project, selection, requestRender, p
 
     row.appendChild(field('X', makeGeomInput('x', -Infinity)));
     row.appendChild(field('Y', makeGeomInput('y', -Infinity)));
-    container.appendChild(row);
+    container_.appendChild(row);
 
     const row2 = document.createElement('div');
     row2.className = 'row';
     row2.appendChild(field('Width', makeGeomInput('width', MIN_BLOCK_WIDTH)));
     row2.appendChild(field('Height', makeGeomInput('height', MIN_BLOCK_HEIGHT)));
-    container.appendChild(row2);
+    container_.appendChild(row2);
 
     const colorInput = document.createElement('input');
     colorInput.type = 'color';
@@ -112,14 +127,14 @@ export function mountInspector(container, { project, selection, requestRender, p
       requestRender();
     });
     colorInput.addEventListener('change', persist);
-    container.appendChild(field('Header color', colorInput));
+    container_.appendChild(field('Header color', colorInput));
 
     // Properties get live controls here (the "simulation feel" the raw text
     // editor alone can't give): flipping an enum prop like state re-renders
     // immediately, and if it's named "state" the block's output ports
     // recolor to match (see BlockDescription.getStateColor).
     if (block.props.length) {
-      container.appendChild(sectionHeading('Properties'));
+      container_.appendChild(sectionHeading('Properties'));
       for (const prop of block.props) {
         if (prop.kind === 'enum') {
           const select = document.createElement('select');
@@ -136,7 +151,7 @@ export function mountInspector(container, { project, selection, requestRender, p
             requestRender();
             persist();
           });
-          container.appendChild(field(prop.name, select));
+          container_.appendChild(field(prop.name, select));
         } else {
           const input = document.createElement('input');
           input.type = 'text';
@@ -147,13 +162,13 @@ export function mountInspector(container, { project, selection, requestRender, p
             requestRender();
           });
           input.addEventListener('change', persist);
-          container.appendChild(field(prop.name, input));
+          container_.appendChild(field(prop.name, input));
         }
       }
     }
 
     if (block.ports.length) {
-      container.appendChild(sectionHeading('Ports'));
+      container_.appendChild(sectionHeading('Ports'));
       const list = document.createElement('ul');
       list.className = 'ports-summary';
       for (const port of block.ports) {
@@ -167,19 +182,32 @@ export function mountInspector(container, { project, selection, requestRender, p
         item.appendChild(text);
         list.appendChild(item);
       }
-      container.appendChild(list);
+      container_.appendChild(list);
+      const hint = document.createElement('p');
+      hint.className = 'hint-text';
+      hint.textContent = 'Drag a port dot to reposition it; drag from the small handle beside it to wire a connection.';
+      container_.appendChild(hint);
     }
+  }
 
-    container.appendChild(sectionHeading('Description'));
+  function renderDescriptionTab(container_, block) {
     const textarea = document.createElement('textarea');
     textarea.className = 'description-editor';
-    textarea.rows = 7;
+    textarea.rows = 12;
     textarea.value = block.description || '';
     textarea.placeholder = DESCRIPTION_PLACEHOLDER;
-    container.appendChild(textarea);
+    container_.appendChild(textarea);
 
     const applyDescription = () => {
+      const previousPortIds = new Set(block.ports.map((p) => p.id));
       applyDescriptionText(block, textarea.value);
+      const currentPortIds = new Set(block.ports.map((p) => p.id));
+      for (const id of previousPortIds) {
+        // A port removed from the text no longer has anything valid to
+        // connect — drop any wires that referenced it rather than leave
+        // them dangling.
+        if (!currentPortIds.has(id)) project.removeConnectionsForPort(id);
+      }
       touchBlock(block);
       requestRender();
       persist();
@@ -193,7 +221,21 @@ export function mountInspector(container, { project, selection, requestRender, p
     applyButton.textContent = 'Apply description';
     applyButton.addEventListener('click', applyDescription);
     applyRow.appendChild(applyButton);
-    container.appendChild(applyRow);
+    container_.appendChild(applyRow);
+  }
+
+  function renderBlock(block) {
+    container.innerHTML = '';
+    container.appendChild(sheetHeader());
+    container.appendChild(
+      tabBar(activeTab, (tab) => {
+        activeTab = tab;
+        refresh();
+      }),
+    );
+
+    if (activeTab === 'Inspector') renderInspectorTab(container, block);
+    else renderDescriptionTab(container, block);
   }
 
   function refresh() {

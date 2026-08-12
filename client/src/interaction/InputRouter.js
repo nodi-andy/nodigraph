@@ -37,7 +37,9 @@ export function attachInputRouter(canvas, camera, stateMachine) {
 
   canvas.addEventListener('pointerup', (event) => {
     tryCapture(canvas.releasePointerCapture, event.pointerId);
-    stateMachine.onPointerUp();
+    const screen = toScreen(event);
+    const world = camera.screenToWorld(screen.x, screen.y);
+    stateMachine.onPointerUp(world);
   });
 
   canvas.addEventListener('pointercancel', () => {

@@ -37,7 +37,15 @@ function draw() {
     dpr,
     canvasWidth: canvas.clientWidth,
     canvasHeight: canvas.clientHeight,
+    pendingConnection: stateMachine.getPendingConnectionVisual(),
+    timestampMs: performance.now(),
   });
+
+  // The flow dot needs a continuous redraw loop, but only while there's
+  // something to animate — otherwise the canvas stays idle like before.
+  if (project.listConnections().length > 0) {
+    renderLoop.requestRender();
+  }
 }
 
 function resizeCanvas() {
