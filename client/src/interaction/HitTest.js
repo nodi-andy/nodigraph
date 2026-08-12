@@ -27,14 +27,14 @@ function pointInCircle(px, py, cx, cy, radius) {
   return dx * dx + dy * dy <= radius * radius;
 }
 
-function hitPortsAcrossBlocks(blocks, worldX, worldY) {
+function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false) {
   // Connector handles first — they're the outermost/smallest target, and
   // sit close enough to their port that ambiguity should favor "start a wire"
   // when the cursor is right at the tip.
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const block = blocks[i];
     for (const { port, x, y } of getAllPortPositions(block)) {
-      const handle = getConnectorHandlePosition({ x, y }, port.side);
+      const handle = getConnectorHandlePosition({ x, y }, port.side, inverted);
       if (pointInCircle(worldX, worldY, handle.x, handle.y, CONNECTOR_HANDLE_RADIUS + HANDLE_HIT_PADDING)) {
         return { type: 'connector', blockId: block.id, portId: port.id };
       }
@@ -55,14 +55,18 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY) {
 
 /**
  * Tests smallest/highest-priority targets first (resize handle, then port
- * connector/move handles across every block, then block body), over blocks
- * in reverse draw order (topmost first). Returns null if nothing was hit
- * (caller should try a wire trunk, then fall back to pan/marquee).
+ * connector/move handles across every block — including the surrounding
+ * boundary frame's own ports — then block body, then the boundary's empty
+ * body last since it covers the whole level). `boundary`, when the current
+ * level has one, is `{ block, geometry }` for the container you're inside.
+ * Returns null if nothing was hit (caller should try a wire trunk, then
+ * fall back to pan/marquee).
  */
-export function hitTest(project, worldX, worldY, selectedBlockId) {
+export function hitTest(project, worldX, worldY, selectedBlockId, boundary) {
   const blocks = project.listBlocks();
+  const isBoundarySelected = Boolean(boundary) && selectedBlockId === boundary.block.id;
 
-  if (selectedBlockId) {
+  if (selectedBlockId && !isBoundarySelected) {
     const selected = project.getBlock(selectedBlockId);
     if (selected) {
       const handleRect = getResizeHandleWorldRect(selected);
@@ -74,6 +78,12 @@ export function hitTest(project, worldX, worldY, selectedBlockId) {
 
   const portHit = hitPortsAcrossBlocks(blocks, worldX, worldY);
   if (portHit) return portHit;
+
+  if (boundary) {
+    const boundaryView = { ...boundary.block, geometry: boundary.geometry };
+    const boundaryPortHit = hitPortsAcrossBlocks([boundaryView], worldX, worldY, true);
+    if (boundaryPortHit) return boundaryPortHit;
+  }
 
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const block = blocks[i];
@@ -88,6 +98,10 @@ export function hitTest(project, worldX, worldY, selectedBlockId) {
     if (pointInRect(worldX, worldY, block.geometry)) {
       return { type: 'body', blockId: block.id };
     }
+  }
+
+  if (boundary && pointInRect(worldX, worldY, boundary.geometry)) {
+    return { type: 'boundaryBody', blockId: boundary.block.id };
   }
 
   return null;

@@ -36,11 +36,23 @@ function simplifyPath(rawPoints) {
  * axes — this is the one segment a user can pick up and drag). manualBend
  * overrides the trunk's auto-midpoint once someone has dragged it.
  */
-export function computeConnectionPath(sourcePos, sourceSide, targetPos, targetSide, manualBend) {
+export function computeConnectionPath(
+  sourcePos,
+  sourceSide,
+  targetPos,
+  targetSide,
+  manualBend,
+  sourceInverted = false,
+  targetInverted = false,
+) {
   const sNorm = sideNormal(sourceSide);
   const tNorm = sideNormal(targetSide);
-  const stubA = { x: sourcePos.x + sNorm.x * WIRE_STUB_LENGTH, y: sourcePos.y + sNorm.y * WIRE_STUB_LENGTH };
-  const stubB = { x: targetPos.x + tNorm.x * WIRE_STUB_LENGTH, y: targetPos.y + tNorm.y * WIRE_STUB_LENGTH };
+  // A boundary endpoint's stub points inward instead of outward (see
+  // BlockRenderer.getConnectorHandlePosition for the same flip on the nub).
+  const sSign = sourceInverted ? -1 : 1;
+  const tSign = targetInverted ? -1 : 1;
+  const stubA = { x: sourcePos.x + sNorm.x * sSign * WIRE_STUB_LENGTH, y: sourcePos.y + sNorm.y * sSign * WIRE_STUB_LENGTH };
+  const stubB = { x: targetPos.x + tNorm.x * tSign * WIRE_STUB_LENGTH, y: targetPos.y + tNorm.y * tSign * WIRE_STUB_LENGTH };
   const sourceAxis = sideAxis(sourceSide);
   const targetAxis = sideAxis(targetSide);
 
@@ -69,9 +81,10 @@ export function computeConnectionPath(sourcePos, sourceSide, targetPos, targetSi
 // The live "paving" preview while dragging from a connector handle — routes
 // toward the cursor the same way a real connection would, so what you see
 // while dragging is what you'll get on drop.
-export function previewPathToCursor(sourcePos, sourceSide, cursorPos) {
+export function previewPathToCursor(sourcePos, sourceSide, cursorPos, inverted = false) {
   const sNorm = sideNormal(sourceSide);
-  const stubA = { x: sourcePos.x + sNorm.x * WIRE_STUB_LENGTH, y: sourcePos.y + sNorm.y * WIRE_STUB_LENGTH };
+  const sign = inverted ? -1 : 1;
+  const stubA = { x: sourcePos.x + sNorm.x * sign * WIRE_STUB_LENGTH, y: sourcePos.y + sNorm.y * sign * WIRE_STUB_LENGTH };
   const axis = sideAxis(sourceSide);
   const corner = axis === 'x' ? { x: cursorPos.x, y: stubA.y } : { x: stubA.x, y: cursorPos.y };
   return simplifyPath([sourcePos, stubA, corner, cursorPos]);
@@ -80,20 +93,39 @@ export function previewPathToCursor(sourcePos, sourceSide, cursorPos) {
 // Resolves a stored Connection into live geometry against the *current*
 // block/port positions every time — nothing about the route is cached, so
 // moving a block just re-attaches the stubs without extra bookkeeping.
-export function getConnectionGeometry(project, connection) {
-  const sourceBlock = project.getBlock(connection.sourceBlockId);
-  const targetBlock = project.getBlock(connection.targetBlockId);
-  if (!sourceBlock || !targetBlock) return null;
+// `boundary` (optional, `{ block, geometry }`) is the container you're
+// currently inside — if either endpoint is that block, its boundary
+// geometry and inverted stub direction are used instead of its own
+// (irrelevant, outside-facing) stored geometry.
+export function getConnectionGeometry(project, connection, boundary) {
+  const resolve = (blockId) => {
+    const block = project.getBlock(blockId);
+    if (!block) return null;
+    const isBoundary = Boolean(boundary) && blockId === boundary.block.id;
+    return { block: isBoundary ? { ...block, geometry: boundary.geometry } : block, isBoundary };
+  };
 
-  const sourcePort = sourceBlock.ports.find((p) => p.id === connection.sourcePortId);
-  const targetPort = targetBlock.ports.find((p) => p.id === connection.targetPortId);
+  const source = resolve(connection.sourceBlockId);
+  const target = resolve(connection.targetBlockId);
+  if (!source || !target) return null;
+
+  const sourcePort = source.block.ports.find((p) => p.id === connection.sourcePortId);
+  const targetPort = target.block.ports.find((p) => p.id === connection.targetPortId);
   if (!sourcePort || !targetPort) return null;
 
-  const sourcePos = findPortPosition(sourceBlock, sourcePort.id);
-  const targetPos = findPortPosition(targetBlock, targetPort.id);
+  const sourcePos = findPortPosition(source.block, sourcePort.id);
+  const targetPos = findPortPosition(target.block, targetPort.id);
   if (!sourcePos || !targetPos) return null;
 
-  const routed = computeConnectionPath(sourcePos, sourcePort.side, targetPos, targetPort.side, connection.manualBend);
+  const routed = computeConnectionPath(
+    sourcePos,
+    sourcePort.side,
+    targetPos,
+    targetPort.side,
+    connection.manualBend,
+    source.isBoundary,
+    target.isBoundary,
+  );
   return { ...routed, sourcePos, targetPos };
 }
 

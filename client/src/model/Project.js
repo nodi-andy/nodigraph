@@ -1,45 +1,56 @@
 import { createBlock, hydrateBlockTree, serializeBlockTree } from './Block.js';
 
 /**
- * A recursive tree of levels: the root level plus, for any block that's
- * been "entered", that block's own nested level of blocks/connections
- * (Block.children). `path` is the list of block ids from the root down to
- * whichever level is currently being viewed/edited — every method below
- * (listBlocks, addBlock, addConnection, ...) transparently operates on
- * *that* level, so callers (rendering, hit-testing, the inspector) never
- * need to know whether they're at the root or three levels deep.
+ * The whole product is itself a Block (`rootBlock`) — you're always inside
+ * *some* block, even at the very top, so "the current system's interface"
+ * always means "this container's own ports," root included. `path` is the
+ * list of block ids from the root down to whichever level is currently
+ * being viewed/edited; every method below (listBlocks, addBlock,
+ * addConnection, ...) transparently operates on *that* level's children,
+ * so callers never need to know whether they're at the root or three
+ * levels deep. getBlock() additionally resolves the container itself (not
+ * just its children), since selecting "the current system" to edit its
+ * interface means selecting a block that isn't one of its own children.
  */
 export class Project {
-  constructor({ name = 'Untitled Product', blocks = [], connections = [] } = {}) {
-    this.name = name;
-    this.root = {
-      blocks: new Map(blocks.map((block) => [block.id, hydrateBlockTree(block)])),
-      connections: new Map(connections.map((connection) => [connection.id, connection])),
-    };
+  constructor({ name = 'Untitled Product', blocks = [], connections = [], rootBlock } = {}) {
+    if (rootBlock) {
+      this.rootBlock = hydrateBlockTree(rootBlock);
+    } else {
+      this.rootBlock = createBlock({ name });
+      this.rootBlock.hasChildren = true;
+      this.rootBlock.children = {
+        blocks: new Map(blocks.map((block) => [block.id, hydrateBlockTree(block)])),
+        connections: new Map(connections.map((connection) => [connection.id, connection])),
+      };
+    }
     this.path = [];
   }
 
   static fromJSON(data) {
     if (!data) return new Project();
+    if (data.rootBlock) return new Project({ rootBlock: data.rootBlock });
+    // Older saved shape (no rootBlock yet) — still loads, just starts with
+    // a blank product interface.
     return new Project({ name: data.name, blocks: data.blocks || [], connections: data.connections || [] });
   }
 
   toJSON() {
-    return {
-      name: this.name,
-      blocks: Array.from(this.root.blocks.values()).map(serializeBlockTree),
-      connections: Array.from(this.root.connections.values()),
-    };
+    return { rootBlock: serializeBlockTree(this.rootBlock) };
+  }
+
+  get name() {
+    return this.rootBlock.name;
   }
 
   // Walks from the root through `path`, auto-creating a children level for
   // any block that doesn't have one yet (defensive — enterBlock already
   // does this up front for the block being entered).
   getLevel(path = this.path) {
-    let level = this.root;
+    let level = this.rootBlock.children;
     for (const blockId of path) {
       const block = level.blocks.get(blockId);
-      if (!block) return this.root;
+      if (!block) return this.rootBlock.children;
       if (!block.children) {
         block.children = { blocks: new Map(), connections: new Map() };
         block.hasChildren = true;
@@ -51,6 +62,15 @@ export class Project {
 
   get current() {
     return this.getLevel();
+  }
+
+  // The block whose interior is currently being viewed — this.rootBlock at
+  // the top, otherwise the block at the end of `path` (found in the level
+  // one step up from `current`).
+  getContainerBlock() {
+    if (this.path.length === 0) return this.rootBlock;
+    const parentLevel = this.getLevel(this.path.slice(0, -1));
+    return parentLevel.blocks.get(this.path[this.path.length - 1]) || this.rootBlock;
   }
 
   addBlock(block) {
@@ -68,7 +88,10 @@ export class Project {
   }
 
   getBlock(id) {
-    return this.current.blocks.get(id) || null;
+    const block = this.current.blocks.get(id);
+    if (block) return block;
+    const container = this.getContainerBlock();
+    return container && container.id === id ? container : null;
   }
 
   listBlocks() {
@@ -120,6 +143,7 @@ export class Project {
   // out just pops. Both are no-ops on failure rather than throwing, since
   // they're driven directly by UI clicks that could race a deletion.
   enterBlock(blockId) {
+    if (blockId === this.getContainerBlock()?.id) return false;
     const block = this.getBlock(blockId);
     if (!block) return false;
     if (!block.children) {
@@ -141,8 +165,8 @@ export class Project {
   // One entry per level from the product root down to the current view,
   // for breadcrumb display — crumb.depth is what exitToDepth expects.
   getBreadcrumb() {
-    const crumbs = [{ name: this.name, depth: 0 }];
-    let level = this.root;
+    const crumbs = [{ name: this.rootBlock.name, depth: 0 }];
+    let level = this.rootBlock.children;
     this.path.forEach((blockId, i) => {
       const block = level.blocks.get(blockId);
       crumbs.push({ name: block?.name || '…', depth: i + 1 });

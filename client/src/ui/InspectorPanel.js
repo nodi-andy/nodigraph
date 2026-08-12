@@ -72,6 +72,15 @@ export function mountInspector(container, { project, selection, requestRender, p
   }
 
   function renderInspectorTab(container_, block) {
+    const isContainer = block.id === project.getContainerBlock()?.id;
+
+    if (isContainer) {
+      const hint = document.createElement('p');
+      hint.className = 'hint-text';
+      hint.textContent = "You're editing the interface of the current system — add input./output. lines in Description to change what shows up on the boundary frame.";
+      container_.appendChild(hint);
+    }
+
     const nameInput = document.createElement('input');
     nameInput.type = 'text';
     nameInput.value = block.name;
@@ -83,40 +92,46 @@ export function mountInspector(container, { project, selection, requestRender, p
     nameInput.addEventListener('change', persist);
     container_.appendChild(field('Name', nameInput));
 
-    const row = document.createElement('div');
-    row.className = 'row';
+    // Geometry/enter/delete only make sense for a block viewed as an
+    // object from outside — while editing the container you're currently
+    // inside, its own position/size on the *parent* canvas isn't relevant
+    // here, and you can't enter or delete the thing you're standing in.
+    if (!isContainer) {
+      const row = document.createElement('div');
+      row.className = 'row';
 
-    const makeGeomInput = (key, min) => {
-      const input = document.createElement('input');
-      input.type = 'number';
-      input.step = 10;
-      input.value = block.geometry[key];
-      input.addEventListener('input', () => {
-        const value = Number(input.value);
-        block.geometry[key] = Number.isFinite(value) ? Math.max(min, value) : block.geometry[key];
-        touchBlock(block);
-        requestRender();
-      });
-      input.addEventListener('change', () => {
-        // Snap on commit so a manually-typed value still lands on the grid,
-        // same as a drag would.
-        block.geometry[key] = key === 'width' || key === 'height'
-          ? Math.max(min, snap(block.geometry[key]))
-          : snap(block.geometry[key]);
-        persist();
-      });
-      return input;
-    };
+      const makeGeomInput = (key, min) => {
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.step = 10;
+        input.value = block.geometry[key];
+        input.addEventListener('input', () => {
+          const value = Number(input.value);
+          block.geometry[key] = Number.isFinite(value) ? Math.max(min, value) : block.geometry[key];
+          touchBlock(block);
+          requestRender();
+        });
+        input.addEventListener('change', () => {
+          // Snap on commit so a manually-typed value still lands on the grid,
+          // same as a drag would.
+          block.geometry[key] = key === 'width' || key === 'height'
+            ? Math.max(min, snap(block.geometry[key]))
+            : snap(block.geometry[key]);
+          persist();
+        });
+        return input;
+      };
 
-    row.appendChild(field('X', makeGeomInput('x', -Infinity)));
-    row.appendChild(field('Y', makeGeomInput('y', -Infinity)));
-    container_.appendChild(row);
+      row.appendChild(field('X', makeGeomInput('x', -Infinity)));
+      row.appendChild(field('Y', makeGeomInput('y', -Infinity)));
+      container_.appendChild(row);
 
-    const row2 = document.createElement('div');
-    row2.className = 'row';
-    row2.appendChild(field('Width', makeGeomInput('width', MIN_BLOCK_WIDTH)));
-    row2.appendChild(field('Height', makeGeomInput('height', MIN_BLOCK_HEIGHT)));
-    container_.appendChild(row2);
+      const row2 = document.createElement('div');
+      row2.className = 'row';
+      row2.appendChild(field('Width', makeGeomInput('width', MIN_BLOCK_WIDTH)));
+      row2.appendChild(field('Height', makeGeomInput('height', MIN_BLOCK_HEIGHT)));
+      container_.appendChild(row2);
+    }
 
     const colorInput = document.createElement('input');
     colorInput.type = 'color';
@@ -129,16 +144,18 @@ export function mountInspector(container, { project, selection, requestRender, p
     colorInput.addEventListener('change', persist);
     container_.appendChild(field('Accent color', colorInput));
 
-    const architectureRow = document.createElement('div');
-    architectureRow.className = 'apply-row';
-    const enterButton = document.createElement('button');
-    enterButton.type = 'button';
-    enterButton.textContent = block.hasChildren
-      ? `Enter block (${block.children?.blocks?.size ?? 0} inside) →`
-      : 'Enter block →';
-    enterButton.addEventListener('click', () => enterBlock(block.id));
-    architectureRow.appendChild(enterButton);
-    container_.appendChild(architectureRow);
+    if (!isContainer) {
+      const architectureRow = document.createElement('div');
+      architectureRow.className = 'apply-row';
+      const enterButton = document.createElement('button');
+      enterButton.type = 'button';
+      enterButton.textContent = block.hasChildren
+        ? `Enter block (${block.children?.blocks?.size ?? 0} inside) →`
+        : 'Enter block →';
+      enterButton.addEventListener('click', () => enterBlock(block.id));
+      architectureRow.appendChild(enterButton);
+      container_.appendChild(architectureRow);
+    }
 
     // Properties get live controls here (the "simulation feel" the raw text
     // editor alone can't give): flipping an enum prop like state re-renders
@@ -200,19 +217,21 @@ export function mountInspector(container, { project, selection, requestRender, p
       container_.appendChild(hint);
     }
 
-    const deleteRow = document.createElement('div');
-    deleteRow.className = 'delete-row';
-    const deleteButton = document.createElement('button');
-    deleteButton.type = 'button';
-    deleteButton.className = 'delete-button';
-    deleteButton.textContent = 'Delete block';
-    deleteButton.addEventListener('click', () => {
-      if (window.confirm(`Delete "${block.name}" and its connections? This can't be undone.`)) {
-        deleteBlock(block.id);
-      }
-    });
-    deleteRow.appendChild(deleteButton);
-    container_.appendChild(deleteRow);
+    if (!isContainer) {
+      const deleteRow = document.createElement('div');
+      deleteRow.className = 'delete-row';
+      const deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.className = 'delete-button';
+      deleteButton.textContent = 'Delete block';
+      deleteButton.addEventListener('click', () => {
+        if (window.confirm(`Delete "${block.name}" and its connections? This can't be undone.`)) {
+          deleteBlock(block.id);
+        }
+      });
+      deleteRow.appendChild(deleteButton);
+      container_.appendChild(deleteRow);
+    }
   }
 
   function renderDescriptionTab(container_, block) {
