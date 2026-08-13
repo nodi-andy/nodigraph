@@ -13,6 +13,57 @@ const GRID_COLOR = '#1a212b';
 const WIRE_COLOR = '#4f8cff';
 const WIRE_SELECTED_COLOR = '#ffb454';
 
+// A handful of visually-distinct colors, deterministically picked per
+// remote client id — enough to tell separate cursors apart without any
+// identity/accounts system to draw real names from.
+const CURSOR_COLORS = ['#ff6b6b', '#4f8cff', '#3ecf5d', '#ffb454', '#c77dff', '#5eead4', '#f472b6'];
+
+function colorForClientId(id) {
+  let hash = 0;
+  for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  return CURSOR_COLORS[hash % CURSOR_COLORS.length];
+}
+
+// Drawn in world space like everything else, but scaled by 1/zoom so the
+// cursor glyph stays a constant on-screen size regardless of zoom level —
+// the same trick drawGrid uses for its line width.
+function drawRemoteCursors(ctx, cursors, zoom) {
+  const scale = 1 / zoom;
+  for (const [clientId, cursor] of cursors) {
+    const color = colorForClientId(clientId);
+    ctx.save();
+    ctx.translate(cursor.x, cursor.y);
+    ctx.scale(scale, scale);
+
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, 15);
+    ctx.lineTo(4, 11.5);
+    ctx.lineTo(7, 17.5);
+    ctx.lineTo(9.5, 16.3);
+    ctx.lineTo(6.5, 10.3);
+    ctx.lineTo(11.5, 10.3);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    const label = clientId.slice(0, 4);
+    ctx.font = '11px -apple-system, Segoe UI, Roboto, sans-serif';
+    const textWidth = ctx.measureText(label).width;
+    ctx.fillStyle = color;
+    ctx.fillRect(15, 9, textWidth + 8, 16);
+    ctx.fillStyle = '#0b0e13';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, 19, 17);
+
+    ctx.restore();
+  }
+}
+
 function drawGrid(ctx, camera, canvasWidth, canvasHeight) {
   const topLeft = camera.screenToWorld(0, 0);
   const bottomRight = camera.screenToWorld(canvasWidth, canvasHeight);
@@ -75,6 +126,7 @@ export function renderScene(
     connectionSource,
     connectionTarget,
     wireSelection,
+    remoteCursors,
   },
 ) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -107,5 +159,10 @@ export function renderScene(
 
   if (pendingConnectionPath) {
     drawPath(ctx, pendingConnectionPath, { color: WIRE_COLOR, dashed: true });
+  }
+
+  // Drawn last so a remote cursor always reads on top of everything else.
+  if (remoteCursors?.size) {
+    drawRemoteCursors(ctx, remoteCursors, camera.zoom);
   }
 }
