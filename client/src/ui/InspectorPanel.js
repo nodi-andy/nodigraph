@@ -1,5 +1,6 @@
 import { touchBlock, MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT } from '../model/Block.js';
 import { snap } from '../model/grid.js';
+import { CLICK_DRAG_THRESHOLD } from '../interaction/DragStateMachine.js';
 import {
   applyDescriptionText,
   setPropValue,
@@ -79,9 +80,12 @@ export function mountInspector(container, { project, selection, requestRender, p
   // canvas — but selection happens on pointerdown (so a drag has the right
   // block from the start), and sliding the sheet up the instant you press
   // a block, before you've even moved it, fights with "I just wanted to
-  // drag this." Content still updates live; only the slide-open transition
-  // waits for the press to actually finish.
+  // drag this." Content still updates live; the slide-open transition
+  // waits for the press to finish, and only actually opens if the whole
+  // press turns out to have been a tap (barely moved) rather than a drag —
+  // a drag leaves the sheet exactly as it was, open or closed.
   let pointerDown = false;
+  let pointerDownPos = null;
 
   function renderEmpty() {
     container.innerHTML = '';
@@ -384,9 +388,23 @@ export function mountInspector(container, { project, selection, requestRender, p
   // Capture phase so this runs before the canvas's own pointerdown handler
   // selects a block/port — by the time selection changes, pointerDown is
   // already true and refresh() above knows to hold the sheet closed.
-  window.addEventListener('pointerdown', () => { pointerDown = true; }, { capture: true });
-  window.addEventListener('pointerup', () => { pointerDown = false; syncOpenState(); });
-  window.addEventListener('pointercancel', () => { pointerDown = false; syncOpenState(); });
+  window.addEventListener('pointerdown', (event) => {
+    pointerDown = true;
+    pointerDownPos = { x: event.clientX, y: event.clientY };
+  }, { capture: true });
+
+  window.addEventListener('pointerup', (event) => {
+    pointerDown = false;
+    const dx = event.clientX - (pointerDownPos?.x ?? event.clientX);
+    const dy = event.clientY - (pointerDownPos?.y ?? event.clientY);
+    pointerDownPos = null;
+    if (Math.hypot(dx, dy) <= CLICK_DRAG_THRESHOLD) syncOpenState();
+  });
+
+  window.addEventListener('pointercancel', () => {
+    pointerDown = false;
+    pointerDownPos = null;
+  });
 
   return { refresh };
 }
