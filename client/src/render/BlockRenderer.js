@@ -16,6 +16,15 @@ const DEFAULT_OUTPUT_PORT_COLOR = '#8b93a3';
 const CONNECTOR_HANDLE_COLOR = '#e6e9ef';
 const PORT_LABEL_COLOR = '#c3c9d4';
 const PORT_LABEL_GAP = 6;
+const PORT_RING_RADIUS = PORT_RADIUS + 4;
+// Selected (clicked, ready to delete) uses the same blue as a selected
+// block; an in-progress wire's own source stays that same "active" blue;
+// a hovered drop target turns green once it's actually compatible, or red
+// when it's a real port but the wrong effective direction to pair with.
+export const PORT_SELECTED_RING_COLOR = '#4f8cff';
+export const PORT_SOURCE_RING_COLOR = '#4f8cff';
+export const PORT_TARGET_VALID_RING_COLOR = '#3ecf5d';
+export const PORT_TARGET_INVALID_RING_COLOR = '#e5484d';
 
 function sideLength(block, side) {
   return sideAxis(side) === 'x' ? block.geometry.height : block.geometry.width;
@@ -170,12 +179,23 @@ function drawConnectorArrow(ctx, handlePos, side, inverted) {
   ctx.fill();
 }
 
+function drawPortRing(ctx, x, y, color) {
+  ctx.beginPath();
+  ctx.arc(x, y, PORT_RING_RADIUS, 0, Math.PI * 2);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
 // `inverted` is set when drawing a container's ports on its boundary frame:
 // a port that's an input from outside acts as a source from inside (data
 // is available to route to children), and an output acts as a sink (a
 // child's result flows into it, then out) — so which color/role a port
-// gets flips, on top of the nub/arrow direction flipping.
-function drawPorts(ctx, block, { inverted = false } = {}) {
+// gets flips, on top of the nub/arrow direction flipping. `portHighlights`
+// (optional) is a `Map` of `"blockId:portId" -> ringColor` covering
+// selection and in-progress-wire feedback, shared across every block/
+// boundary drawn this frame.
+function drawPorts(ctx, block, { inverted = false, portHighlights = null } = {}) {
   const outputColor = getStateColor(block) || DEFAULT_OUTPUT_PORT_COLOR;
 
   for (const { port, x: px, y: py } of getAllPortPositions(block)) {
@@ -200,6 +220,9 @@ function drawPorts(ctx, block, { inverted = false } = {}) {
 
     drawConnectorArrow(ctx, handle, port.side, inverted);
     drawPortLabel(ctx, port, { x: px, y: py }, inverted);
+
+    const ringColor = portHighlights?.get(`${block.id}:${port.id}`);
+    if (ringColor) drawPortRing(ctx, px, py, ringColor);
   }
 }
 
@@ -246,7 +269,7 @@ function roundRectPath(ctx, x, y, width, height, radius) {
 // Its Input/Output ports are handles on the border, on any of the four
 // sides. When you drill into a block, its own border becomes the frame
 // that shows those same ports (Milestone 3).
-export function drawBlock(ctx, block, { selected = false } = {}) {
+export function drawBlock(ctx, block, { selected = false, portHighlights = null } = {}) {
   const { x, y, width, height } = block.geometry;
   const accentColor = block.style?.color || '#3b6fa0';
 
@@ -269,7 +292,7 @@ export function drawBlock(ctx, block, { selected = false } = {}) {
 
   ctx.restore();
 
-  drawPorts(ctx, block);
+  drawPorts(ctx, block, { portHighlights });
   drawEnterIcon(ctx, block);
 
   if (selected) {
@@ -293,7 +316,7 @@ export function drawBlock(ctx, block, { selected = false } = {}) {
 // has to cross back out over this outline. No resize handle, no enter
 // icon, no centered name-as-content — just a small label so it reads as a
 // frame.
-export function drawBoundary(ctx, block, geometry, { selected = false } = {}) {
+export function drawBoundary(ctx, block, geometry, { selected = false, portHighlights = null } = {}) {
   const { x, y, width, height } = geometry;
 
   ctx.save();
@@ -309,7 +332,7 @@ export function drawBoundary(ctx, block, geometry, { selected = false } = {}) {
   ctx.textBaseline = 'bottom';
   ctx.fillText(block.name, x + 4, y - 6);
 
-  drawPorts(ctx, { ...block, geometry }, { inverted: true });
+  drawPorts(ctx, { ...block, geometry }, { inverted: true, portHighlights });
 }
 
 export function getResizeHandleWorldRect(block) {

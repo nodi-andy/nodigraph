@@ -102,7 +102,7 @@ export class DragStateMachine {
     if (hit?.type === 'port') {
       const isBoundary = Boolean(boundary) && hit.blockId === boundary.block.id;
       const block = this.project.getBlock(hit.blockId);
-      this.selection.select(block.id);
+      this.selection.selectPort(block.id, hit.portId);
       this.state = STATES.DRAGGING_PORT;
       this.context = { blockId: block.id, portId: hit.portId, isBoundary };
       this.requestRender();
@@ -347,29 +347,26 @@ export class DragStateMachine {
     this.context = null;
   }
 
-  tryCompleteConnection(world) {
-    if (!world) {
-      this.requestRender();
-      return;
-    }
+  // Shared by the live hover-highlight (so what's shown while dragging is
+  // exactly what dropping there will do) and the actual drop below. Returns
+  // null when the cursor isn't over any port/connector at all; otherwise a
+  // result that's either `valid` (with the normalized out/in sides ready to
+  // connect) or not (the port under the cursor is real but its effective
+  // direction can't pair with the source — e.g. a boundary port added on
+  // the wrong edge).
+  resolveConnectionTarget(world) {
+    if (!world) return null;
     const boundary = this.getBoundaryInfo();
     const { sourceBlockId, sourcePortId, sourceInverted } = this.context;
     const targetHit = hitTest(this.project, world.x, world.y, this.selection.selectedBlockId, boundary);
     const isPortHit = targetHit?.type === 'port' || targetHit?.type === 'connector';
-
-    if (!isPortHit || targetHit.blockId === sourceBlockId) {
-      this.requestRender();
-      return;
-    }
+    if (!isPortHit || targetHit.blockId === sourceBlockId) return null;
 
     const sourceBlock = this.project.getBlock(sourceBlockId);
     const targetBlock = this.project.getBlock(targetHit.blockId);
     const sourcePort = sourceBlock?.ports.find((p) => p.id === sourcePortId);
     const targetPort = targetBlock?.ports.find((p) => p.id === targetHit.portId);
-    if (!sourcePort || !targetPort) {
-      this.requestRender();
-      return;
-    }
+    if (!sourcePort || !targetPort) return null;
 
     // A boundary port's role is inverted from this level's point of view
     // (an outside input is an inside source, and vice versa) — comparing
@@ -378,30 +375,56 @@ export class DragStateMachine {
     const targetInverted = Boolean(boundary) && targetHit.blockId === boundary.block.id;
     const sourceEffective = sourceInverted ? invertDirection(sourcePort.direction) : sourcePort.direction;
     const targetEffective = targetInverted ? invertDirection(targetPort.direction) : targetPort.direction;
+    const blockId = targetHit.blockId;
+    const portId = targetHit.portId;
+
     if (sourceEffective === targetEffective) {
-      this.requestRender();
-      return;
+      return { valid: false, blockId, portId };
     }
 
     // Normalize so sourcePortId is always the effective source, regardless
     // of which handle the user actually grabbed first.
     const outSide = sourceEffective === 'out'
       ? { blockId: sourceBlockId, portId: sourcePortId }
-      : { blockId: targetHit.blockId, portId: targetHit.portId };
+      : { blockId, portId };
     const inSide = sourceEffective === 'out'
-      ? { blockId: targetHit.blockId, portId: targetHit.portId }
+      ? { blockId, portId }
       : { blockId: sourceBlockId, portId: sourcePortId };
+
+    return { valid: true, blockId, portId, outSide, inSide };
+  }
+
+  tryCompleteConnection(world) {
+    const target = this.resolveConnectionTarget(world);
+    if (!target?.valid) {
+      this.requestRender();
+      return;
+    }
 
     this.project.addConnection(
       createConnection({
-        sourceBlockId: outSide.blockId,
-        sourcePortId: outSide.portId,
-        targetBlockId: inSide.blockId,
-        targetPortId: inSide.portId,
+        sourceBlockId: target.outSide.blockId,
+        sourcePortId: target.outSide.portId,
+        targetBlockId: target.inSide.blockId,
+        targetPortId: target.inSide.portId,
       }),
     );
     this.requestRender();
     this.persist();
+  }
+
+  // While drawing a connection: the source port being dragged from, and
+  // whatever's currently under the cursor (if anything) with whether it's
+  // actually a valid drop target — lets the canvas mark both ends live
+  // instead of only revealing compatibility on drop.
+  getConnectionDragHighlights() {
+    if (this.state !== STATES.DRAWING_CONNECTION) return { source: null, target: null };
+    const { sourceBlockId, sourcePortId, currentWorld } = this.context;
+    const hover = this.resolveConnectionTarget(currentWorld);
+    return {
+      source: { blockId: sourceBlockId, portId: sourcePortId },
+      target: hover ? { blockId: hover.blockId, portId: hover.portId, valid: hover.valid } : null,
+    };
   }
 
   // The live paving preview: an auto-routed path from the source port to
