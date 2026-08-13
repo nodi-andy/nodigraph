@@ -129,34 +129,6 @@ export function getConnectionGeometry(project, connection, boundary) {
   return { ...routed, sourcePos, targetPos };
 }
 
-function pathLength(points) {
-  let total = 0;
-  for (let i = 0; i < points.length - 1; i += 1) {
-    total += Math.hypot(points[i + 1].x - points[i].x, points[i + 1].y - points[i].y);
-  }
-  return total;
-}
-
-export function pointOnPath(points, t) {
-  if (!points.length) return { x: 0, y: 0 };
-  if (points.length === 1) return points[0];
-
-  const total = pathLength(points);
-  let remaining = Math.min(1, Math.max(0, t)) * total;
-
-  for (let i = 0; i < points.length - 1; i += 1) {
-    const a = points[i];
-    const b = points[i + 1];
-    const segLen = Math.hypot(b.x - a.x, b.y - a.y);
-    if (remaining <= segLen || i === points.length - 2) {
-      const ratio = segLen === 0 ? 0 : remaining / segLen;
-      return { x: a.x + (b.x - a.x) * ratio, y: a.y + (b.y - a.y) * ratio };
-    }
-    remaining -= segLen;
-  }
-  return points[points.length - 1];
-}
-
 export function drawPath(ctx, points, { color = '#4f8cff', width = 3, dashed = false } = {}) {
   if (points.length < 2) return;
   ctx.save();
@@ -170,14 +142,6 @@ export function drawPath(ctx, points, { color = '#4f8cff', width = 3, dashed = f
   ctx.lineWidth = width;
   ctx.stroke();
   ctx.restore();
-}
-
-export function drawFlowDot(ctx, points, t, { color = '#e6e9ef', radius = 3.5 } = {}) {
-  const p = pointOnPath(points, t);
-  ctx.beginPath();
-  ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
-  ctx.fillStyle = color;
-  ctx.fill();
 }
 
 function distanceToSegment(px, py, ax, ay, bx, by) {

@@ -1,7 +1,7 @@
 /**
  * Single rAF loop, gated by a dirty flag so we don't burn CPU redrawing an
- * idle canvas. Milestone 3's FlowAnimator will call requestRender() every
- * frame while an animation is active instead of relying on this dirty flag.
+ * idle canvas — every mutation calls requestRender() explicitly rather than
+ * this looping continuously.
  */
 export class RenderLoop {
   constructor(drawFn) {
