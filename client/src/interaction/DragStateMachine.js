@@ -457,4 +457,10 @@ export class DragStateMachine {
     this.camera.zoomAt(screen.x, screen.y, factor);
     this.requestRender();
   }
+
+  // Used by the remote-sync poll (see store.js/main.js) to avoid replacing
+  // the model out from under an in-progress drag, resize, or wire draw.
+  isIdle() {
+    return this.state === STATES.IDLE;
+  }
 }

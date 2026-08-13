@@ -1,7 +1,7 @@
 import { Project } from './model/Project.js';
 import { touchBlock } from './model/Block.js';
 import { removePort } from './model/BlockDescription.js';
-import { loadProject, saveProject } from './model/store.js';
+import { loadProject, saveProject, fetchProjectSnapshot } from './model/store.js';
 import { Camera } from './render/Camera.js';
 import { RenderLoop } from './render/RenderLoop.js';
 import { renderScene } from './render/SceneRenderer.js';
@@ -34,9 +34,15 @@ async function bootstrap() {
   const wireSelection = new WireSelection();
   const renderLoop = new RenderLoop(draw);
 
+  // Tracks what the server should already contain, so the poll below can
+  // tell "someone else changed it" apart from "that's just my own last
+  // save" without waiting on the save's own network round trip.
+  let lastSyncedSnapshot = JSON.stringify(project.toJSON());
+
   let inspectorApi = null;
 
   function persist() {
+    lastSyncedSnapshot = JSON.stringify(project.toJSON());
     saveProject(project);
     inspectorApi?.refresh();
   }
@@ -186,6 +192,34 @@ async function bootstrap() {
       deleteBlock(block.id);
     }
   });
+
+  // Simple last-write-wins polling — good enough to see another open tab's
+  // (or another person's) saved changes show up without a manual reload.
+  // No conflict resolution beyond that: real concurrent-edit handling is
+  // still the later auth/multi-user milestone, not this. Skipped whenever
+  // this client itself is mid-interaction or mid-typing, so a poll can
+  // never yank the model out from under an unsaved local change.
+  const REMOTE_POLL_MS = 2000;
+
+  async function pollRemote() {
+    if (!stateMachine.isIdle()) return;
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+    const data = await fetchProjectSnapshot();
+    if (!data) return; // nothing saved remotely yet — never overwrite with that
+    const incoming = JSON.stringify(data);
+    if (incoming === lastSyncedSnapshot) return;
+
+    lastSyncedSnapshot = incoming;
+    project.applyRemoteRootBlock(data.rootBlock);
+    selection.clear();
+    wireSelection.clear();
+    updateNavigationUI();
+    renderLoop.requestRender();
+  }
+
+  setInterval(pollRemote, REMOTE_POLL_MS);
 
   // Synchronous initial call covers the normal case (layout is already settled
   // by the time this runs); ResizeObserver covers window resizes and any

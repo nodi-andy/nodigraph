@@ -6,17 +6,22 @@ const API_URL = '/api/project';
 // real file on disk (see data/project.json) — this replaced the earlier
 // localStorage version, which only worked in one browser and was easy to
 // lose entirely by clearing site data.
-export async function loadProject() {
+
+// Raw JSON, not yet hydrated into a Project — main.js's poll needs this to
+// compare against what it already has before deciding whether to re-hydrate.
+export async function fetchProjectSnapshot() {
   try {
     const res = await fetch(API_URL);
     if (!res.ok) return null;
-    const data = await res.json();
-    return data ? Project.fromJSON(data) : null;
+    return await res.json();
   } catch {
-    // Server not reachable — starting from a blank in-memory project is a
-    // reasonable fallback; saves will just silently no-op until it's back.
     return null;
   }
+}
+
+export async function loadProject() {
+  const data = await fetchProjectSnapshot();
+  return data ? Project.fromJSON(data) : null;
 }
 
 export async function saveProject(project) {
