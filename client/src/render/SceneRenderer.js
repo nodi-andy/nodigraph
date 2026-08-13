@@ -1,4 +1,11 @@
-import { drawBlock, drawBoundary } from './BlockRenderer.js';
+import {
+  drawBlock,
+  drawBoundary,
+  PORT_SELECTED_RING_COLOR,
+  PORT_SOURCE_RING_COLOR,
+  PORT_TARGET_VALID_RING_COLOR,
+  PORT_TARGET_INVALID_RING_COLOR,
+} from './BlockRenderer.js';
 import { drawPath, getConnectionGeometry } from './ConnectionRenderer.js';
 import { GRID_SIZE } from '../model/grid.js';
 
@@ -36,11 +43,39 @@ function drawConnections(ctx, project, wireSelection, boundary) {
   }
 }
 
+// One combined lookup so drawBlock/drawBoundary don't each need to know
+// about selection vs. in-progress-wire state separately — every port ring
+// this frame, keyed by "blockId:portId".
+function buildPortHighlights(selectedBlockId, selectedPortId, connectionSource, connectionTarget) {
+  const highlights = new Map();
+  if (selectedBlockId && selectedPortId) {
+    highlights.set(`${selectedBlockId}:${selectedPortId}`, PORT_SELECTED_RING_COLOR);
+  }
+  if (connectionSource) {
+    highlights.set(`${connectionSource.blockId}:${connectionSource.portId}`, PORT_SOURCE_RING_COLOR);
+  }
+  if (connectionTarget) {
+    const color = connectionTarget.valid ? PORT_TARGET_VALID_RING_COLOR : PORT_TARGET_INVALID_RING_COLOR;
+    highlights.set(`${connectionTarget.blockId}:${connectionTarget.portId}`, color);
+  }
+  return highlights;
+}
+
 export function renderScene(
   ctx,
   camera,
   project,
-  { selectedBlockId, dpr, canvasWidth, canvasHeight, pendingConnectionPath, wireSelection },
+  {
+    selectedBlockId,
+    selectedPortId,
+    dpr,
+    canvasWidth,
+    canvasHeight,
+    pendingConnectionPath,
+    connectionSource,
+    connectionTarget,
+    wireSelection,
+  },
 ) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
@@ -53,15 +88,19 @@ export function renderScene(
   const boundary = containerBlock?.boundaryGeometry
     ? { block: containerBlock, geometry: containerBlock.boundaryGeometry }
     : null;
+  const portHighlights = buildPortHighlights(selectedBlockId, selectedPortId, connectionSource, connectionTarget);
 
   // Drawn before the real blocks so they visually sit "inside" the frame
   // rather than the dashed outline cutting across them.
   if (boundary) {
-    drawBoundary(ctx, boundary.block, boundary.geometry, { selected: boundary.block.id === selectedBlockId });
+    drawBoundary(ctx, boundary.block, boundary.geometry, {
+      selected: boundary.block.id === selectedBlockId,
+      portHighlights,
+    });
   }
 
   for (const block of blocks) {
-    drawBlock(ctx, block, { selected: block.id === selectedBlockId });
+    drawBlock(ctx, block, { selected: block.id === selectedBlockId, portHighlights });
   }
 
   drawConnections(ctx, project, wireSelection, boundary);

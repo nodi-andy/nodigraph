@@ -1,4 +1,6 @@
 import { Project } from './model/Project.js';
+import { touchBlock } from './model/Block.js';
+import { removePort } from './model/BlockDescription.js';
 import { loadProject, saveProject } from './model/store.js';
 import { Camera } from './render/Camera.js';
 import { RenderLoop } from './render/RenderLoop.js';
@@ -53,6 +55,18 @@ async function bootstrap() {
     renderLoop.requestRender();
   }
 
+  function deleteSelectedPort() {
+    const block = project.getBlock(selection.selectedBlockId);
+    const portId = selection.selectedPortId;
+    if (!block || !portId) return;
+    removePort(block, portId);
+    project.removeConnectionsForPort(portId);
+    touchBlock(block);
+    selection.select(block.id);
+    persist();
+    renderLoop.requestRender();
+  }
+
   let breadcrumbApi = null;
 
   function updateNavigationUI() {
@@ -90,12 +104,16 @@ async function bootstrap() {
 
   function draw() {
     const dpr = window.devicePixelRatio || 1;
+    const dragHighlights = stateMachine.getConnectionDragHighlights();
     renderScene(ctx, camera, project, {
       selectedBlockId: selection.selectedBlockId,
+      selectedPortId: selection.selectedPortId,
       dpr,
       canvasWidth: canvas.clientWidth,
       canvasHeight: canvas.clientHeight,
       pendingConnectionPath: stateMachine.getPendingConnectionVisual(),
+      connectionSource: dragHighlights.source,
+      connectionTarget: dragHighlights.target,
       wireSelection,
     });
   }
@@ -152,6 +170,12 @@ async function bootstrap() {
     if (wireSelection.list().length > 0) {
       event.preventDefault();
       deleteSelectedWires();
+      return;
+    }
+
+    if (selection.selectedPortId) {
+      event.preventDefault();
+      deleteSelectedPort();
       return;
     }
 
