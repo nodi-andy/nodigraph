@@ -61,6 +61,16 @@ export function findPortPosition(block, portId) {
   return port ? getPortPosition(block, port) : null;
 }
 
+// Where a wire actually attaches — the connector handle out past the dot,
+// not the dot itself. The dot is purely a drag-to-reposition handle; a wire
+// that visually ran through it (rather than the handle it was dragged from)
+// read as attached to the wrong thing.
+export function findConnectorPosition(block, portId, inverted = false) {
+  const port = (block.ports || []).find((p) => p.id === portId);
+  if (!port) return null;
+  return getConnectorHandlePosition(getPortPosition(block, port), port.side, inverted);
+}
+
 // The connector handle sits just outside the block, past the port dot on
 // the border — a distinct, slightly harder-to-hit target so a drag can
 // reliably tell "reposition this port" from "start a wire" apart.

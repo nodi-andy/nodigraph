@@ -1,7 +1,7 @@
 import { hitTest } from './HitTest.js';
 import { touchBlock, MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT } from '../model/Block.js';
 import { snap, GRID_SIZE } from '../model/grid.js';
-import { findPortPosition, projectPointToPerimeter } from '../render/BlockRenderer.js';
+import { findConnectorPosition, projectPointToPerimeter } from '../render/BlockRenderer.js';
 import { getConnectionGeometry, previewPathToCursor, hitTestConnectionTrunk } from '../render/ConnectionRenderer.js';
 import { createConnection } from '../model/Connection.js';
 import { addPort } from '../model/BlockDescription.js';
@@ -439,7 +439,7 @@ export class DragStateMachine {
 
     const boundary = this.getBoundaryInfo();
     const geomBlock = sourceInverted && boundary ? { ...block, geometry: boundary.geometry } : block;
-    const sourcePos = findPortPosition(geomBlock, sourcePortId);
+    const sourcePos = findConnectorPosition(geomBlock, sourcePortId, sourceInverted);
     if (!sourcePos) return null;
     return previewPathToCursor(sourcePos, port.side, currentWorld, sourceInverted);
   }
