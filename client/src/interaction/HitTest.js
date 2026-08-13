@@ -1,5 +1,4 @@
 import {
-  getResizeHandleWorldRect,
   getAllPortPositions,
   getConnectorHandlePosition,
   getEnterIconCenter,
@@ -55,27 +54,16 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false) {
 }
 
 /**
- * Tests smallest/highest-priority targets first (resize handle, then port
- * connector/move handles across every block — including the surrounding
- * boundary frame's own ports — then block body, then the boundary's empty
- * body last since it covers the whole level). `boundary`, when the current
- * level has one, is `{ block, geometry }` for the container you're inside.
- * Returns null if nothing was hit (caller should try a wire trunk, then
- * fall back to pan/marquee).
+ * Tests smallest/highest-priority targets first (port connector/move
+ * handles across every block — including the surrounding boundary frame's
+ * own ports — then block body, then the boundary's empty body last since
+ * it covers the whole level). `boundary`, when the current level has one,
+ * is `{ block, geometry }` for the container you're inside. Returns null
+ * if nothing was hit (caller should try a wire trunk, then fall back to
+ * pan/marquee).
  */
-export function hitTest(project, worldX, worldY, selectedBlockId, boundary) {
+export function hitTest(project, worldX, worldY, boundary) {
   const blocks = project.listBlocks();
-  const isBoundarySelected = Boolean(boundary) && selectedBlockId === boundary.block.id;
-
-  if (selectedBlockId && !isBoundarySelected) {
-    const selected = project.getBlock(selectedBlockId);
-    if (selected) {
-      const handleRect = getResizeHandleWorldRect(selected);
-      if (pointInRect(worldX, worldY, handleRect, HANDLE_HIT_PADDING)) {
-        return { type: 'resize', blockId: selected.id };
-      }
-    }
-  }
 
   const portHit = hitPortsAcrossBlocks(blocks, worldX, worldY);
   if (portHit) return portHit;
@@ -94,9 +82,13 @@ export function hitTest(project, worldX, worldY, selectedBlockId, boundary) {
     }
   }
 
-  // A precise click right on a block's own border adds a port there —
-  // checked before the body so it doesn't get swallowed by "drag to move,"
-  // but after ports/enter-icon so it never shadows a more specific handle.
+  // A precise click right on a block's own border is ambiguous the same
+  // way the boundary's own edge already was (see 'boundaryEdge' below): a
+  // release without much movement adds a port there, a drag past the
+  // threshold resizes that edge instead (splitter-style — DragStateMachine
+  // handles both hit types the same way). Checked before the body so it
+  // doesn't get swallowed by "drag to move," but after ports/enter-icon so
+  // it never shadows a more specific handle.
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const block = blocks[i];
     const border = getBorderHit(block.geometry, worldX, worldY);
@@ -120,7 +112,7 @@ export function hitTest(project, worldX, worldY, selectedBlockId, boundary) {
     // through to a wire-trunk check and then panning.
     const edge = getBorderHit(boundary.geometry, worldX, worldY);
     if (edge) {
-      return { type: 'boundaryEdge', blockId: boundary.block.id, edge: edge.side, offset: edge.offset };
+      return { type: 'boundaryEdge', blockId: boundary.block.id, side: edge.side, offset: edge.offset };
     }
   }
 

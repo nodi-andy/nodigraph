@@ -10,15 +10,16 @@ const STATES = {
   IDLE: 'idle',
   PANNING: 'panning',
   DRAGGING_BLOCK: 'draggingBlock',
-  RESIZING_BLOCK: 'resizingBlock',
   DRAGGING_PORT: 'draggingPort',
   DRAWING_CONNECTION: 'drawingConnection',
   DRAGGING_WIRE_TRUNK: 'draggingWireTrunk',
-  // A click on the boundary's edge is ambiguous until the pointer either
-  // releases without moving much (add a port there) or moves past the
-  // threshold (become an actual splitter-resize drag).
-  PENDING_BOUNDARY_EDGE: 'pendingBoundaryEdge',
-  RESIZING_BOUNDARY_EDGE: 'resizingBoundaryEdge',
+  // A click on a block's or the boundary's edge is ambiguous until the
+  // pointer either releases without moving much (add a port there) or
+  // moves past the threshold (become an actual splitter-resize drag) —
+  // every edge of both is a resize splitter now, there's no separate
+  // corner-handle resize anymore.
+  PENDING_EDGE: 'pendingEdge',
+  RESIZING_EDGE: 'resizingEdge',
 };
 
 // Screen-space so the same finger/mouse movement counts as "a drag" the
@@ -34,8 +35,8 @@ function invertDirection(direction) {
 
 /**
  * Explicit finite states rather than ad-hoc booleans — this is what makes
- * "drag block body" vs "drag resize handle" vs "drag a port" vs "draw a
- * wire" vs "drag a wire's trunk" vs "pan background" unambiguous.
+ * "drag block body" vs "drag an edge to resize" vs "drag a port" vs "draw
+ * a wire" vs "drag a wire's trunk" vs "pan background" unambiguous.
  */
 export class DragStateMachine {
   constructor({ camera, project, selection, wireSelection, requestRender, persist, onEnterBlock, onLiveUpdate }) {
@@ -75,19 +76,12 @@ export class DragStateMachine {
     }
 
     const boundary = this.getBoundaryInfo();
-    const hit = hitTest(this.project, world.x, world.y, this.selection.selectedBlockId, boundary);
+    const hit = hitTest(this.project, world.x, world.y, boundary);
     if (hit) this.wireSelection.clear();
 
     if (hit?.type === 'enter') {
       // A discrete action, not a drag — fires immediately like a button.
       this.onEnterBlock?.(hit.blockId);
-      return;
-    }
-
-    if (hit?.type === 'resize') {
-      const block = this.project.getBlock(hit.blockId);
-      this.state = STATES.RESIZING_BLOCK;
-      this.context = { blockId: block.id, startWorld: world, startGeom: { ...block.geometry } };
       return;
     }
 
@@ -116,22 +110,20 @@ export class DragStateMachine {
       return;
     }
 
-    if (hit?.type === 'border') {
-      // A precise click on a normal block's own edge — no drag ambiguity
-      // to resolve here (unlike the boundary, an ordinary block's border
-      // isn't also a resize splitter), so it just adds the port right away.
-      this.addPortAt(hit.blockId, hit.side, hit.offset);
-      return;
-    }
-
-    if (hit?.type === 'boundaryEdge') {
-      this.state = STATES.PENDING_BOUNDARY_EDGE;
+    if (hit?.type === 'border' || hit?.type === 'boundaryEdge') {
+      // Ambiguous until release: a tap adds a port right there, a drag
+      // resizes that edge (splitter-style — the opposite edge stays put),
+      // same as the boundary's own edge already worked.
+      const isBoundary = hit.type === 'boundaryEdge';
+      const startGeometry = isBoundary ? boundary.geometry : this.project.getBlock(hit.blockId).geometry;
+      this.state = STATES.PENDING_EDGE;
       this.context = {
         blockId: hit.blockId,
-        edge: hit.edge,
+        edge: hit.side,
         offset: hit.offset,
         startScreen: screen,
-        startGeometry: { ...boundary.geometry },
+        startGeometry: { ...startGeometry },
+        isBoundary,
       };
       return;
     }
@@ -222,21 +214,6 @@ export class DragStateMachine {
         this.onLiveUpdate?.({ kind: 'block', blockId: block.id, geometry: block.geometry });
         break;
       }
-      case STATES.RESIZING_BLOCK: {
-        const block = this.project.getBlock(this.context.blockId);
-        if (!block) break;
-        block.geometry.width = Math.max(
-          MIN_BLOCK_WIDTH,
-          snap(this.context.startGeom.width + (world.x - this.context.startWorld.x)),
-        );
-        block.geometry.height = Math.max(
-          MIN_BLOCK_HEIGHT,
-          snap(this.context.startGeom.height + (world.y - this.context.startWorld.y)),
-        );
-        this.requestRender();
-        this.onLiveUpdate?.({ kind: 'block', blockId: block.id, geometry: block.geometry });
-        break;
-      }
       case STATES.DRAGGING_PORT: {
         const block = this.project.getBlock(this.context.blockId);
         const port = block?.ports.find((p) => p.id === this.context.portId);
@@ -275,50 +252,82 @@ export class DragStateMachine {
         this.requestRender();
         break;
       }
-      case STATES.PENDING_BOUNDARY_EDGE: {
+      case STATES.PENDING_EDGE: {
         const dx = screen.x - this.context.startScreen.x;
         const dy = screen.y - this.context.startScreen.y;
         if (Math.hypot(dx, dy) > CLICK_DRAG_THRESHOLD) {
-          this.state = STATES.RESIZING_BOUNDARY_EDGE;
-          this.resizeBoundaryEdge(world);
+          this.state = STATES.RESIZING_EDGE;
+          this.resizeEdge(world);
         }
         break;
       }
-      case STATES.RESIZING_BOUNDARY_EDGE: {
-        this.resizeBoundaryEdge(world);
+      case STATES.RESIZING_EDGE: {
+        this.resizeEdge(world);
         break;
       }
-      default:
+      default: {
+        // Idle hover: recompute which cursor to show (see getCursor()) so
+        // an edge you can resize looks like one before you've pressed
+        // anything, not just once you're mid-drag.
+        this.hoverCursor = this.computeHoverCursor(world);
         break;
+      }
     }
   }
 
-  // Splitter-style: dragging one edge of the boundary moves only that
-  // edge, keeping the opposite one fixed, rather than resizing uniformly
-  // from a corner the way a normal block does.
-  resizeBoundaryEdge(world) {
+  computeHoverCursor(world) {
+    const boundary = this.getBoundaryInfo();
+    const hit = hitTest(this.project, world.x, world.y, boundary);
+    if (hit?.type === 'border' || hit?.type === 'boundaryEdge') {
+      return hit.side === 'left' || hit.side === 'right' ? 'ew-resize' : 'ns-resize';
+    }
+    return 'default';
+  }
+
+  // What InputRouter should set canvas.style.cursor to right now — a
+  // resize cursor stays on for the whole drag once one starts (not just
+  // while the pointer sits exactly on the edge pixel), otherwise whatever
+  // the last hover pass computed.
+  getCursor() {
+    if (this.state === STATES.PENDING_EDGE || this.state === STATES.RESIZING_EDGE) {
+      return this.context.edge === 'left' || this.context.edge === 'right' ? 'ew-resize' : 'ns-resize';
+    }
+    return this.hoverCursor || 'default';
+  }
+
+  // Splitter-style: dragging one edge moves only that edge, keeping the
+  // opposite one fixed, rather than resizing uniformly from a corner.
+  // Works the same for an ordinary block's own geometry and the boundary's
+  // — only which geometry object and minimum size apply differs.
+  resizeEdge(world) {
     const block = this.project.getBlock(this.context.blockId);
-    if (!block || !block.boundaryGeometry) return;
-    const { edge, startGeometry } = this.context;
-    const geom = block.boundaryGeometry;
+    const { edge, startGeometry, isBoundary } = this.context;
+    const geom = isBoundary ? block?.boundaryGeometry : block?.geometry;
+    if (!geom) return;
+    const minWidth = isBoundary ? BOUNDARY_MIN_SIZE : MIN_BLOCK_WIDTH;
+    const minHeight = isBoundary ? BOUNDARY_MIN_SIZE : MIN_BLOCK_HEIGHT;
 
     if (edge === 'left') {
       const rightEdge = startGeometry.x + startGeometry.width;
-      const newX = Math.min(rightEdge - BOUNDARY_MIN_SIZE, snap(world.x));
+      const newX = Math.min(rightEdge - minWidth, snap(world.x));
       geom.x = newX;
       geom.width = rightEdge - newX;
     } else if (edge === 'right') {
-      geom.width = Math.max(BOUNDARY_MIN_SIZE, snap(world.x) - startGeometry.x);
+      geom.width = Math.max(minWidth, snap(world.x) - startGeometry.x);
     } else if (edge === 'top') {
       const bottomEdge = startGeometry.y + startGeometry.height;
-      const newY = Math.min(bottomEdge - BOUNDARY_MIN_SIZE, snap(world.y));
+      const newY = Math.min(bottomEdge - minHeight, snap(world.y));
       geom.y = newY;
       geom.height = bottomEdge - newY;
     } else if (edge === 'bottom') {
-      geom.height = Math.max(BOUNDARY_MIN_SIZE, snap(world.y) - startGeometry.y);
+      geom.height = Math.max(minHeight, snap(world.y) - startGeometry.y);
     }
     this.requestRender();
-    this.onLiveUpdate?.({ kind: 'boundary', blockId: block.id, boundaryGeometry: geom });
+    if (isBoundary) {
+      this.onLiveUpdate?.({ kind: 'boundary', blockId: block.id, boundaryGeometry: geom });
+    } else {
+      this.onLiveUpdate?.({ kind: 'block', blockId: block.id, geometry: geom });
+    }
   }
 
   addPortAt(blockId, side, offset) {
@@ -335,7 +344,6 @@ export class DragStateMachine {
   onPointerUp(world) {
     if (
       this.state === STATES.DRAGGING_BLOCK ||
-      this.state === STATES.RESIZING_BLOCK ||
       this.state === STATES.DRAGGING_PORT
     ) {
       const block = this.project.getBlock(this.context.blockId);
@@ -345,11 +353,11 @@ export class DragStateMachine {
       this.tryCompleteConnection(world);
     } else if (this.state === STATES.DRAGGING_WIRE_TRUNK) {
       this.persist();
-    } else if (this.state === STATES.PENDING_BOUNDARY_EDGE) {
+    } else if (this.state === STATES.PENDING_EDGE) {
       // Released without ever crossing the drag threshold — resolve the
-      // ambiguity as a click: add a port right where the boundary was hit.
+      // ambiguity as a click: add a port right where the edge was hit.
       this.addPortAt(this.context.blockId, this.context.edge, this.context.offset);
-    } else if (this.state === STATES.RESIZING_BOUNDARY_EDGE) {
+    } else if (this.state === STATES.RESIZING_EDGE) {
       const block = this.project.getBlock(this.context.blockId);
       if (block) touchBlock(block);
       this.persist();
@@ -370,7 +378,7 @@ export class DragStateMachine {
     if (!world) return null;
     const boundary = this.getBoundaryInfo();
     const { sourceBlockId, sourcePortId, sourceInverted } = this.context;
-    const targetHit = hitTest(this.project, world.x, world.y, this.selection.selectedBlockId, boundary);
+    const targetHit = hitTest(this.project, world.x, world.y, boundary);
     const isPortHit = targetHit?.type === 'port' || targetHit?.type === 'connector';
     if (!isPortHit || targetHit.blockId === sourceBlockId) return null;
 
@@ -459,7 +467,7 @@ export class DragStateMachine {
   // Double-clicking a block is a shortcut for its enter icon — either way
   // gets you in, so it doesn't matter which one someone discovers first.
   onDoubleClick(world) {
-    const hit = hitTest(this.project, world.x, world.y, this.selection.selectedBlockId);
+    const hit = hitTest(this.project, world.x, world.y);
     if (hit?.type === 'body' || hit?.type === 'enter') {
       this.onEnterBlock?.(hit.blockId);
     }
