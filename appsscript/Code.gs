@@ -1,170 +1,118 @@
 /**
- * Google Apps Script Web App backing gravis-sysml's "Save" feature. Paste
- * this into the target Google Doc's own Apps Script editor (Extensions >
- * Apps Script — the script is bound directly to the Doc, so there's no id
- * to configure), then Deploy > New deployment > Web app. See
- * ../appsscript/README.md for the full setup walkthrough and
+ * Google Apps Script Web App backing gravis-sysml's "Update Doc" feature.
+ * Paste this into the target Google Doc's own Apps Script editor
+ * (Extensions > Apps Script — the script is bound directly to the Doc, so
+ * there's no id to configure), then Deploy > New deployment > Web app.
+ * See ../appsscript/README.md for the full setup walkthrough and
  * ../client/src/model/docSync.js for the client side of this contract.
  *
- * Why Apps Script at all, instead of the Docs REST API directly: it needs
- * no Google Cloud project, no OAuth client, no service account — just a
- * Doc you already own and a one-time "allow" click. The Web App URL it
- * hands you is a normal public HTTPS endpoint the app calls with fetch().
+ * The Doc is yours — write whatever you want in it. Anywhere you want a
+ * block's description + diagram to live, paste a region:
  *
- * The Doc holds two things, regenerated together on every Save:
- *  - a human-readable section per block (heading, description, diagram)
- *  - a "Raw Data" appendix of three tables (Blocks/Ports/Connections) that
- *    this script itself reads back on Load — the Doc IS the database, not
- *    just a report generated from one.
+ *   [gravis-sysml:begin id=<block id>]
+ *   Block: GRAVIS
+ *
+ *   input.Upper Structure:
+ *   input.HMI A/D/CAN:
+ *
+ *   {diagram}
+ *   [gravis-sysml:end id=<block id>]
+ *
+ * (the app's Inspector has a "Copy Doc region" button that copies this for
+ * whichever block you have selected, with the real id already filled in —
+ * you can't type that id by hand). Everything strictly between a matching
+ * begin/end pair is replaced on every Update; everything outside every
+ * region — all your own writing — is never touched. A block with no region
+ * in the Doc is just skipped, not auto-inserted anywhere.
  */
-
-const BLOCKS_HEADERS = [
-  'id', 'parentBlockId', 'name', 'description', 'color',
-  'geometry_x', 'geometry_y', 'geometry_width', 'geometry_height',
-  'boundary_x', 'boundary_y', 'boundary_width', 'boundary_height',
-  'createdAt', 'updatedAt',
-];
-const PORTS_HEADERS = ['id', 'blockId', 'direction', 'name', 'description', 'side', 'offset'];
-const CONNECTIONS_HEADERS = ['id', 'parentBlockId', 'sourceBlockId', 'sourcePortId', 'targetBlockId', 'targetPortId', 'manualBend'];
 
 function jsonResponse(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-// The revision lives in the Doc's own properties, not its body — so
-// clearing and rebuilding the body on every Save never touches it.
-function getRevision() {
-  const value = PropertiesService.getDocumentProperties().getProperty('revision');
-  return value ? parseInt(value, 10) : 0;
+function doGet() {
+  return ContentService.createTextOutput('gravis-sysml Doc sync endpoint — POST only.').setMimeType(ContentService.MimeType.TEXT);
 }
 
-function setRevision(revision) {
-  PropertiesService.getDocumentProperties().setProperty('revision', String(revision));
+function beginMarkerFor(id) {
+  return '[gravis-sysml:begin id=' + id + ']';
+}
+function endMarkerFor(id) {
+  return '[gravis-sysml:end id=' + id + ']';
 }
 
-// Reads one data table back into row objects keyed by its header row.
-// Docs table cells are always plain text; callers (client-side) are
-// already responsible for coercing numeric fields back from strings.
-function tableToObjects(table, headers) {
-  const rows = [];
-  for (let r = 1; r < table.getNumRows(); r += 1) {
-    const row = table.getRow(r);
-    const obj = {};
-    headers.forEach((header, c) => {
-      obj[header] = row.getCell(c).getText();
-    });
-    rows.push(obj);
+function findParagraphIndex(body, text, fromIndex) {
+  const n = body.getNumChildren();
+  for (let i = fromIndex; i < n; i += 1) {
+    const child = body.getChild(i);
+    if (child.getType() === DocumentApp.ElementType.PARAGRAPH && child.asParagraph().getText().trim() === text) {
+      return i;
+    }
   }
-  return rows;
+  return -1;
 }
 
-function objectsToTableArray(headers, rows) {
-  const data = [headers];
-  rows.forEach((row) => {
-    data.push(headers.map((h) => (row[h] === undefined || row[h] === null ? '' : String(row[h]))));
+// Inserts the description text (one paragraph per line) and, if present,
+// the diagram image, starting right after `afterIndex` — used for both the
+// initial fill of a freshly-pasted region and every subsequent Update.
+function insertRegionContent(body, afterIndex, description, imageDataUrl) {
+  let index = afterIndex + 1;
+  const lines = (description || '').split('\n');
+  lines.forEach((line) => {
+    body.insertParagraph(index, line).setFontFamily('Courier New');
+    index += 1;
   });
-  return data;
-}
 
-// The three data tables always exist in this fixed order (see
-// regenerateDoc) — a brand-new Doc that's never been saved to just has no
-// tables yet, which reads back as empty rows and revision 0.
-function loadCurrentState() {
-  const tables = DocumentApp.getActiveDocument().getBody().getTables();
-  return {
-    blocks: tables[0] ? tableToObjects(tables[0], BLOCKS_HEADERS) : [],
-    ports: tables[1] ? tableToObjects(tables[1], PORTS_HEADERS) : [],
-    connections: tables[2] ? tableToObjects(tables[2], CONNECTIONS_HEADERS) : [],
-    revision: getRevision(),
-  };
-}
-
-function doGet(e) {
-  if (e.parameter.action === 'load') {
-    return jsonResponse(loadCurrentState());
+  if (imageDataUrl) {
+    body.insertParagraph(index, '');
+    index += 1;
+    const base64 = imageDataUrl.split(',')[1];
+    const blob = Utilities.newBlob(Utilities.base64Decode(base64), 'image/png', 'diagram.png');
+    const image = body.insertImage(index, blob);
+    const maxWidth = 500; // keeps large diagrams from overflowing the page
+    if (image.getWidth() > maxWidth) {
+      const scale = maxWidth / image.getWidth();
+      image.setWidth(maxWidth);
+      image.setHeight(Math.round(image.getHeight() * scale));
+    }
   }
-  return jsonResponse({ error: 'Unknown action' });
+}
+
+// Replaces one block's region content in place. Returns false (no write)
+// if the block has no region in this Doc, or its region is malformed
+// (a begin with no matching end) — either way, left untouched rather than
+// guessed at.
+function updateRegion(body, block) {
+  const beginIndex = findParagraphIndex(body, beginMarkerFor(block.id), 0);
+  if (beginIndex === -1) return false;
+
+  const endIndex = findParagraphIndex(body, endMarkerFor(block.id), beginIndex + 1);
+  if (endIndex === -1) return false;
+
+  for (let i = endIndex - 1; i > beginIndex; i -= 1) {
+    body.getChild(i).removeFromParent();
+  }
+
+  insertRegionContent(body, beginIndex, block.description, block.imageDataUrl);
+  return true;
 }
 
 function doPost(e) {
   const message = JSON.parse(e.postData.contents);
-  if (message.action !== 'save') {
+  if (message.action !== 'update') {
     return jsonResponse({ error: 'Unknown action' });
   }
 
-  const currentRevision = getRevision();
-  if (message.expectedRevision !== currentRevision) {
-    return jsonResponse({ ok: false, conflict: true, current: loadCurrentState() });
-  }
-
-  regenerateDoc(message.blocks, message.ports, message.connections, message.images || []);
-  const newRevision = currentRevision + 1;
-  setRevision(newRevision);
-
-  return jsonResponse({ ok: true, revision: newRevision });
-}
-
-// Wipes the whole body and rebuilds it: narrative first (walking the block
-// tree depth-first, root first — heading, diagram, description per block),
-// then the raw data tables as an appendix. Never surgical — simpler, and
-// can't drift from a partial-write bug, since nothing here is meant to
-// survive hand-editing anyway (the tables are read back on Load, but only
-// ever written by this function).
-function regenerateDoc(blockRows, portRows, connectionRows, images) {
   const doc = DocumentApp.getActiveDocument();
   const body = doc.getBody();
-  body.clear();
 
-  const imagesByBlockId = {};
-  images.forEach((img) => {
-    imagesByBlockId[img.blockId] = img.dataUrl;
+  const updated = [];
+  const skipped = [];
+  (message.blocks || []).forEach((block) => {
+    if (updateRegion(body, block)) updated.push(block.id);
+    else skipped.push(block.id);
   });
-
-  const byParent = {};
-  blockRows.forEach((row) => {
-    const key = row.parentBlockId || '';
-    if (!byParent[key]) byParent[key] = [];
-    byParent[key].push(row);
-  });
-  const rootRow = blockRows.filter((row) => !row.parentBlockId)[0];
-
-  function appendBlock(row, depth) {
-    const headingLevel = Math.min(depth + 1, 6);
-    const heading = body.appendParagraph(row.name);
-    heading.setHeading(DocumentApp.ParagraphHeading['HEADING' + headingLevel]);
-
-    const dataUrl = imagesByBlockId[row.id];
-    if (dataUrl) {
-      const base64 = dataUrl.split(',')[1];
-      const blob = Utilities.newBlob(Utilities.base64Decode(base64), 'image/png', row.name + '.png');
-      const image = body.appendImage(blob);
-      const maxWidth = 500; // keeps large diagrams from overflowing the page
-      if (image.getWidth() > maxWidth) {
-        const scale = maxWidth / image.getWidth();
-        image.setWidth(maxWidth);
-        image.setHeight(Math.round(image.getHeight() * scale));
-      }
-    }
-
-    if (row.description) {
-      body.appendParagraph(row.description).setFontFamily('Courier New');
-    }
-
-    (byParent[row.id] || []).forEach((child) => appendBlock(child, depth + 1));
-  }
-
-  if (rootRow) appendBlock(rootRow, 0);
-
-  body.appendPageBreak();
-  body.appendParagraph('Raw Data').setHeading(DocumentApp.ParagraphHeading.HEADING2);
-  body.appendParagraph('Regenerated on every Save — editing these tables directly has no effect until the next Save overwrites them.');
-
-  body.appendParagraph('Blocks').setHeading(DocumentApp.ParagraphHeading.HEADING3);
-  body.appendTable(objectsToTableArray(BLOCKS_HEADERS, blockRows));
-  body.appendParagraph('Ports').setHeading(DocumentApp.ParagraphHeading.HEADING3);
-  body.appendTable(objectsToTableArray(PORTS_HEADERS, portRows));
-  body.appendParagraph('Connections').setHeading(DocumentApp.ParagraphHeading.HEADING3);
-  body.appendTable(objectsToTableArray(CONNECTIONS_HEADERS, connectionRows));
 
   doc.saveAndClose();
+  return jsonResponse({ ok: true, updated: updated, skipped: skipped });
 }

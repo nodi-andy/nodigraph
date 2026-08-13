@@ -1,7 +1,8 @@
-// Small topbar control cluster for the Google Doc sync feature: a status
-// readout, a Save button, and a settings gear for the one thing that needs
-// configuring — the Apps Script Web App URL (see appsscript/Code.gs). Kept
-// out of Toolbar.js since that's specifically canvas actions (add block).
+// Small topbar control cluster for the Google Doc publish feature: a
+// status readout, an "Update Doc" button, and a settings gear for the one
+// thing that needs configuring — the Apps Script Web App URL (see
+// appsscript/Code.gs). Kept out of Toolbar.js since that's specifically
+// canvas actions (add block).
 const STORAGE_KEY = 'gravis-sysml:docWebAppUrl';
 
 function getStoredUrl() {
@@ -23,24 +24,23 @@ function setStoredUrl(url) {
 
 const STATUS_LABELS = {
   idle: 'Not connected',
-  synced: 'Synced',
-  saving: 'Saving…',
-  loading: 'Loading…',
+  updating: 'Updating…',
+  updated: 'Updated',
   error: 'Sync error',
 };
 
-export function mountDocSync(container, { onSave }) {
+export function mountDocSync(container, { onUpdate }) {
   container.innerHTML = '';
   container.className = 'doc-sync';
 
   const status = document.createElement('span');
   status.className = 'doc-sync-status';
 
-  const saveButton = document.createElement('button');
-  saveButton.type = 'button';
-  saveButton.className = 'doc-sync-button';
-  saveButton.textContent = 'Save';
-  saveButton.addEventListener('click', () => onSave());
+  const updateButton = document.createElement('button');
+  updateButton.type = 'button';
+  updateButton.className = 'doc-sync-button';
+  updateButton.textContent = 'Update Doc';
+  updateButton.addEventListener('click', () => onUpdate());
 
   const settingsButton = document.createElement('button');
   settingsButton.type = 'button';
@@ -49,7 +49,7 @@ export function mountDocSync(container, { onSave }) {
   settingsButton.textContent = '⚙';
   settingsButton.addEventListener('click', () => promptForUrl());
 
-  container.append(status, saveButton, settingsButton);
+  container.append(status, updateButton, settingsButton);
 
   function setStatus(state, detail) {
     const label = STATUS_LABELS[state] || state;
@@ -71,59 +71,11 @@ export function mountDocSync(container, { onSave }) {
     setStatus('idle');
   }
 
-  let overlay = null;
-
-  function hideConflict() {
-    overlay?.remove();
-    overlay = null;
-  }
-
-  function showConflict({ onKeepMine, onTakeTheirs }) {
-    hideConflict();
-    overlay = document.createElement('div');
-    overlay.className = 'sync-conflict-overlay';
-
-    const dialog = document.createElement('div');
-    dialog.className = 'sync-conflict-dialog';
-
-    const heading = document.createElement('h3');
-    heading.textContent = 'Doc changed since you loaded it';
-    const body = document.createElement('p');
-    body.textContent = "Someone else saved to the Doc while you were editing. Choose which version to keep — this can't be undone.";
-
-    const row = document.createElement('div');
-    row.className = 'sync-conflict-actions';
-
-    const keepMineBtn = document.createElement('button');
-    keepMineBtn.type = 'button';
-    keepMineBtn.className = 'sync-conflict-keep-mine';
-    keepMineBtn.textContent = 'Keep mine (overwrite)';
-    keepMineBtn.addEventListener('click', () => {
-      hideConflict();
-      onKeepMine();
-    });
-
-    const takeTheirsBtn = document.createElement('button');
-    takeTheirsBtn.type = 'button';
-    takeTheirsBtn.className = 'sync-conflict-take-theirs';
-    takeTheirsBtn.textContent = 'Take theirs (discard my changes)';
-    takeTheirsBtn.addEventListener('click', () => {
-      hideConflict();
-      onTakeTheirs();
-    });
-
-    row.append(keepMineBtn, takeTheirsBtn);
-    dialog.append(heading, body, row);
-    overlay.appendChild(dialog);
-    document.body.appendChild(overlay);
-  }
-
   setStatus('idle');
 
   return {
     getWebAppUrl: getStoredUrl,
     promptForUrl,
     setStatus,
-    showConflict,
   };
 }

@@ -105,65 +105,6 @@ html, body {
   border-color: #3a4556;
 }
 
-.sync-conflict-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(8, 10, 14, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 50;
-}
-
-.sync-conflict-dialog {
-  background: #1a1f28;
-  border: 1px solid #2c3644;
-  border-radius: 10px;
-  padding: 20px;
-  max-width: 380px;
-  color: #e6e9ef;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
-}
-
-.sync-conflict-dialog h3 {
-  margin: 0 0 10px;
-  font-size: 15px;
-}
-
-.sync-conflict-dialog p {
-  margin: 0 0 16px;
-  font-size: 13px;
-  color: #a8b1c2;
-  line-height: 1.5;
-}
-
-.sync-conflict-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.sync-conflict-actions button {
-  border-radius: 6px;
-  padding: 9px;
-  font-size: 13px;
-  cursor: pointer;
-  border: 1px solid #2c3644;
-  background: #10151c;
-  color: #e6e9ef;
-}
-
-.sync-conflict-keep-mine {
-  background: #2f6fed !important;
-  border-color: #2f6fed !important;
-  color: white !important;
-}
-
-.sync-conflict-take-theirs:hover {
-  border-color: #e5484d;
-  color: #e5484d;
-}
-
 .back-button {
   flex-shrink: 0;
   width: 28px;

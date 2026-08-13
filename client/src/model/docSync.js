@@ -1,158 +1,28 @@
-// Bridges the in-memory Project tree to a flat, relational shape (three
-// tables: Blocks/Ports/Connections) a Google Doc can hold, and talks
-// directly to a Google Apps Script Web App — bound to that Doc — which
-// reads/writes those tables and regenerates the Doc's narrative + diagram
-// sections. See gravis-sysml/appsscript/Code.gs for the server side of
-// this contract, and appsscript/README.md for why Apps Script (no Google
-// Cloud project needed) rather than the Docs REST API.
-import { generateId } from './Block.js';
-import { parseBlockDescription } from './BlockDescription.js';
+// Publishes block descriptions + diagrams into a Google Doc, wherever the
+// user has manually placed an anchored region for that block — see
+// gravis-sysml/appsscript/Code.gs for the server side of this contract and
+// appsscript/README.md for the region syntax and setup. The tool stays the
+// only source of truth for structure/layout; the Doc is a one-way,
+// on-demand publish target, not something loaded back from.
 import { Camera } from '../render/Camera.js';
 import { renderScene } from '../render/SceneRenderer.js';
 
-function collectBlocks(block, parentBlockId, out) {
-  out.blocks.push({
-    id: block.id,
-    parentBlockId: parentBlockId || '',
-    name: block.name,
-    description: block.description || '',
-    color: block.style?.color || '',
-    geometry_x: block.geometry.x,
-    geometry_y: block.geometry.y,
-    geometry_width: block.geometry.width,
-    geometry_height: block.geometry.height,
-    boundary_x: block.boundaryGeometry ? block.boundaryGeometry.x : '',
-    boundary_y: block.boundaryGeometry ? block.boundaryGeometry.y : '',
-    boundary_width: block.boundaryGeometry ? block.boundaryGeometry.width : '',
-    boundary_height: block.boundaryGeometry ? block.boundaryGeometry.height : '',
-    createdAt: block.createdAt || '',
-    updatedAt: block.updatedAt || '',
-  });
-
-  for (const port of block.ports || []) {
-    out.ports.push({
-      id: port.id,
-      blockId: block.id,
-      direction: port.direction,
-      name: port.name,
-      description: port.description || '',
-      side: port.side,
-      offset: port.offset ?? '',
-    });
+// The exact text a region needs — the app's own per-block description DSL
+// (already parsed/serialized elsewhere, see BlockDescription.js) plus a
+// diagram placeholder. `id` is what lets a later Update find this same
+// region again regardless of what prose the user has since written around
+// it. Copy this into the Doc anywhere; the surrounding text is never
+// touched.
+export function buildRegionSnippet(block) {
+  const lines = [
+    `[gravis-sysml:begin id=${block.id}]`,
+    block.description || `Block: ${block.name}`,
+  ];
+  if (block.hasChildren) {
+    lines.push('', '{diagram}');
   }
-
-  if (block.children) {
-    for (const connection of block.children.connections.values()) {
-      out.connections.push({
-        id: connection.id,
-        parentBlockId: block.id,
-        sourceBlockId: connection.sourceBlockId,
-        sourcePortId: connection.sourcePortId,
-        targetBlockId: connection.targetBlockId,
-        targetPortId: connection.targetPortId,
-        manualBend: connection.manualBend ?? '',
-      });
-    }
-    for (const child of block.children.blocks.values()) {
-      collectBlocks(child, block.id, out);
-    }
-  }
-}
-
-// Project (in-memory, Map-based tree) -> flat rows for the three Doc tables.
-export function flattenProjectToRows(project) {
-  const out = { blocks: [], ports: [], connections: [] };
-  collectBlocks(project.rootBlock, '', out);
-  return out;
-}
-
-// The inverse: flat rows -> a single nested root Block, in the same plain
-// (array-based children, not yet hydrated into Maps) shape
-// `serializeBlockTree`/`hydrateBlockTree` already use — callers pass this
-// straight into `project.applyRemoteRootBlock(...)` or `new Project({rootBlock})`.
-export function buildRootBlockFromRows({ blocks, ports, connections }) {
-  const portsByBlock = new Map();
-  for (const row of ports) {
-    if (!portsByBlock.has(row.blockId)) portsByBlock.set(row.blockId, []);
-    portsByBlock.get(row.blockId).push({
-      id: row.id,
-      direction: row.direction,
-      name: row.name,
-      description: row.description || '',
-      side: row.side,
-      offset: row.offset === '' || row.offset == null ? undefined : Number(row.offset),
-      manualOffset: true,
-    });
-  }
-
-  const connectionsByParent = new Map();
-  for (const row of connections) {
-    if (!connectionsByParent.has(row.parentBlockId)) connectionsByParent.set(row.parentBlockId, []);
-    connectionsByParent.get(row.parentBlockId).push({
-      id: row.id,
-      sourceBlockId: row.sourceBlockId,
-      sourcePortId: row.sourcePortId,
-      targetBlockId: row.targetBlockId,
-      targetPortId: row.targetPortId,
-      manualBend: row.manualBend === '' || row.manualBend == null ? null : Number(row.manualBend),
-    });
-  }
-
-  const childrenByParent = new Map();
-  for (const row of blocks) {
-    const key = row.parentBlockId || '';
-    if (!childrenByParent.has(key)) childrenByParent.set(key, []);
-    childrenByParent.get(key).push(row);
-  }
-
-  function buildBlock(row) {
-    // A block's own boundary is only ever set when it has children (see
-    // Block.js's hydrateBlock), so its presence in the row is the signal —
-    // no separate hasChildren column needed.
-    const hasChildren = row.boundary_x !== '' && row.boundary_x != null;
-    // The DSL text already encodes props (see BlockDescription.js); ports
-    // come from the Ports tab instead of a re-parse, since re-parsing would
-    // mint fresh ids that wouldn't match what Connections rows reference.
-    const props = parseBlockDescription(row.description || '').props.map((prop) => ({ id: generateId('prp'), ...prop }));
-
-    return {
-      id: row.id,
-      name: row.name,
-      type: 'block',
-      description: row.description || '',
-      geometry: {
-        x: Number(row.geometry_x) || 0,
-        y: Number(row.geometry_y) || 0,
-        width: Number(row.geometry_width) || 0,
-        height: Number(row.geometry_height) || 0,
-      },
-      style: { color: row.color || '#3b6fa0' },
-      ports: portsByBlock.get(row.id) || [],
-      props,
-      hasChildren,
-      boundaryGeometry: hasChildren
-        ? {
-            x: Number(row.boundary_x) || 0,
-            y: Number(row.boundary_y) || 0,
-            width: Number(row.boundary_width) || 0,
-            height: Number(row.boundary_height) || 0,
-          }
-        : null,
-      children: hasChildren
-        ? {
-            blocks: (childrenByParent.get(row.id) || []).map(buildBlock),
-            connections: connectionsByParent.get(row.id) || [],
-          }
-        : null,
-      requirementIds: [],
-      createdAt: row.createdAt || new Date().toISOString(),
-      updatedAt: row.updatedAt || new Date().toISOString(),
-    };
-  }
-
-  const rootRow = blocks.find((row) => !row.parentBlockId);
-  if (!rootRow) throw new Error('Doc has no root block (a Blocks row with an empty parentBlockId is required)');
-  return buildBlock(rootRow);
+  lines.push(`[gravis-sysml:end id=${block.id}]`);
+  return lines.join('\n');
 }
 
 function pathToBlock(rootBlock, targetId) {
@@ -185,18 +55,22 @@ function computeLevelBounds(project, boundary) {
   return { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
 }
 
-const LEVEL_IMAGE_WIDTH = 1200;
-const LEVEL_IMAGE_HEIGHT = 800;
-const LEVEL_IMAGE_PADDING = 60;
-const LEVEL_IMAGE_MAX_ZOOM = 1.5;
+const LEVEL_IMAGE_PADDING = 40;
+// A diagram renders at native 1:1 scale (zoom stays 1) so text/port sizing
+// looks identical to the live canvas — the image is CROPPED TO CONTENT
+// instead of squeezing arbitrary content into a fixed frame. Only scaled
+// down (never up) if a diagram is large enough that 1:1 would produce an
+// unreasonably huge file.
+const LEVEL_IMAGE_MAX_DIMENSION = 2200;
 
 // One PNG per hierarchy level (every block with children), reusing the
 // exact renderScene the live canvas uses — "using this tool as renderer."
 // Works by briefly pointing the REAL project's `path` at each level in
 // turn and restoring it synchronously afterward, so the live view never
-// visibly changes and no second Project instance is needed.
+// visibly changes and no second Project instance is needed. Transparent
+// background (no grid, no canvas fill) so it drops cleanly onto a Doc page.
 export function renderLevelImages(project) {
-  const images = [];
+  const images = new Map();
   const originalPath = project.path;
 
   function capture(block) {
@@ -208,31 +82,34 @@ export function renderLevelImages(project) {
       ? { block: containerBlock, geometry: containerBlock.boundaryGeometry }
       : null;
     const bounds = computeLevelBounds(project, boundary);
-    const zoom = Math.min(
-      (LEVEL_IMAGE_WIDTH - LEVEL_IMAGE_PADDING * 2) / bounds.width,
-      (LEVEL_IMAGE_HEIGHT - LEVEL_IMAGE_PADDING * 2) / bounds.height,
-      LEVEL_IMAGE_MAX_ZOOM,
-    );
+
+    const rawWidth = bounds.width + LEVEL_IMAGE_PADDING * 2;
+    const rawHeight = bounds.height + LEVEL_IMAGE_PADDING * 2;
+    const zoom = Math.min(1, LEVEL_IMAGE_MAX_DIMENSION / rawWidth, LEVEL_IMAGE_MAX_DIMENSION / rawHeight);
+    const width = Math.round(rawWidth * zoom);
+    const height = Math.round(rawHeight * zoom);
+
     const camera = new Camera();
     camera.zoom = zoom;
-    camera.offsetX = LEVEL_IMAGE_PADDING - bounds.x * zoom;
-    camera.offsetY = LEVEL_IMAGE_PADDING - bounds.y * zoom;
+    camera.offsetX = LEVEL_IMAGE_PADDING * zoom - bounds.x * zoom;
+    camera.offsetY = LEVEL_IMAGE_PADDING * zoom - bounds.y * zoom;
 
     const canvas = document.createElement('canvas');
-    canvas.width = LEVEL_IMAGE_WIDTH;
-    canvas.height = LEVEL_IMAGE_HEIGHT;
+    canvas.width = width;
+    canvas.height = height;
     renderScene(canvas.getContext('2d'), camera, project, {
       selectedBlockId: null,
       selectedPortId: null,
       dpr: 1,
-      canvasWidth: LEVEL_IMAGE_WIDTH,
-      canvasHeight: LEVEL_IMAGE_HEIGHT,
+      canvasWidth: width,
+      canvasHeight: height,
       pendingConnectionPath: null,
       connectionSource: null,
       connectionTarget: null,
       wireSelection: null,
+      showGrid: false,
     });
-    images.push({ blockId: block.id, dataUrl: canvas.toDataURL('image/png') });
+    images.set(block.id, canvas.toDataURL('image/png'));
 
     for (const child of block.children.blocks.values()) capture(child);
   }
@@ -242,21 +119,30 @@ export function renderLevelImages(project) {
   return images;
 }
 
-export async function loadFromDoc(webAppUrl) {
-  const res = await fetch(`${webAppUrl}?action=load&t=${Date.now()}`, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`Load failed (${res.status})`);
-  return res.json(); // { blocks, ports, connections, revision }
+// Every block in the tree, with the diagram (if any) attached — Apps
+// Script decides which ones actually have a region to update; sending the
+// whole tree keeps this simple rather than needing the client to somehow
+// know in advance what's been placed in the Doc.
+export function buildUpdatePayload(project) {
+  const images = renderLevelImages(project);
+  const blocks = [];
+  function walk(block) {
+    blocks.push({ id: block.id, description: block.description || '', imageDataUrl: images.get(block.id) || null });
+    if (block.children) for (const child of block.children.blocks.values()) walk(child);
+  }
+  walk(project.rootBlock);
+  return blocks;
 }
 
-export async function saveToDoc(webAppUrl, rows, images, expectedRevision) {
+export async function updateDoc(webAppUrl, blocks) {
   const res = await fetch(webAppUrl, {
     method: 'POST',
     // A plain-text content type keeps this a CORS "simple request" — Apps
     // Script Web Apps can't answer a preflight OPTIONS request the way a
     // normal server can, so anything that would trigger one just fails.
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action: 'save', ...rows, images, expectedRevision }),
+    body: JSON.stringify({ action: 'update', blocks }),
   });
-  if (!res.ok) throw new Error(`Save failed (${res.status})`);
-  return res.json(); // { ok:true, revision } | { ok:false, conflict:true, current }
+  if (!res.ok) throw new Error(`Update failed (${res.status})`);
+  return res.json(); // { ok:true, updated:[ids], skipped:[ids] }
 }
