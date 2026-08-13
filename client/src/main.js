@@ -1,7 +1,8 @@
 import { Project } from './model/Project.js';
 import { touchBlock } from './model/Block.js';
 import { removePort } from './model/BlockDescription.js';
-import { loadProject, saveProject, fetchProjectSnapshot } from './model/store.js';
+import { loadProject, saveProject } from './model/store.js';
+import { connectLiveSync } from './model/liveSync.js';
 import { Camera } from './render/Camera.js';
 import { RenderLoop } from './render/RenderLoop.js';
 import { renderScene } from './render/SceneRenderer.js';
@@ -34,9 +35,9 @@ async function bootstrap() {
   const wireSelection = new WireSelection();
   const renderLoop = new RenderLoop(draw);
 
-  // Tracks what the server should already contain, so the poll below can
-  // tell "someone else changed it" apart from "that's just my own last
-  // save" without waiting on the save's own network round trip.
+  // Tracks what the server should already contain, so a pushed update (see
+  // liveSync below) can tell "someone else changed it" apart from "that's
+  // just my own last save echoed back" without waiting on a round trip.
   let lastSyncedSnapshot = JSON.stringify(project.toJSON());
 
   let inspectorApi = null;
@@ -108,6 +109,51 @@ async function bootstrap() {
     renderLoop.requestRender();
   }
 
+  // A full, persisted change pushed from another client — replaces the
+  // whole tree, so it's held back while this client is itself mid-drag or
+  // mid-typing (that unsaved local change has no representation in the
+  // incoming snapshot and would otherwise just vanish).
+  function applyRemoteProject(data) {
+    if (!stateMachine.isIdle()) return;
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+    const incoming = JSON.stringify(data);
+    if (incoming === lastSyncedSnapshot) return;
+
+    lastSyncedSnapshot = incoming;
+    project.applyRemoteRootBlock(data.rootBlock);
+    selection.clear();
+    wireSelection.clear();
+    updateNavigationUI();
+    renderLoop.requestRender();
+  }
+
+  // An in-progress drag from another client — patches just the one thing
+  // that moved, never the whole tree, so it's safe to apply immediately
+  // even while this client is dragging something else of its own (or, for
+  // that matter, the same thing — last write simply wins, same as a save).
+  function applyLiveUpdate(message) {
+    if (message.kind === 'block') {
+      const block = project.getBlock(message.blockId);
+      if (block) Object.assign(block.geometry, message.geometry);
+    } else if (message.kind === 'port') {
+      const block = project.getBlock(message.blockId);
+      const port = block?.ports.find((p) => p.id === message.portId);
+      if (port) {
+        port.side = message.side;
+        port.offset = message.offset;
+      }
+    } else if (message.kind === 'connection') {
+      const connection = project.getConnection(message.connectionId);
+      if (connection) connection.manualBend = message.manualBend;
+    } else if (message.kind === 'boundary') {
+      const block = project.getBlock(message.blockId);
+      if (block?.boundaryGeometry) Object.assign(block.boundaryGeometry, message.boundaryGeometry);
+    }
+    renderLoop.requestRender();
+  }
+
   function draw() {
     const dpr = window.devicePixelRatio || 1;
     const dragHighlights = stateMachine.getConnectionDragHighlights();
@@ -131,6 +177,8 @@ async function bootstrap() {
     renderLoop.requestRender();
   }
 
+  const liveSync = connectLiveSync({ onProject: applyRemoteProject, onLive: applyLiveUpdate });
+
   const stateMachine = new DragStateMachine({
     camera,
     project,
@@ -139,6 +187,7 @@ async function bootstrap() {
     requestRender: () => renderLoop.requestRender(),
     persist,
     onEnterBlock: enterBlock,
+    onLiveUpdate: (message) => liveSync.sendLive(message),
   });
 
   attachInputRouter(canvas, camera, stateMachine);
@@ -192,34 +241,6 @@ async function bootstrap() {
       deleteBlock(block.id);
     }
   });
-
-  // Simple last-write-wins polling — good enough to see another open tab's
-  // (or another person's) saved changes show up without a manual reload.
-  // No conflict resolution beyond that: real concurrent-edit handling is
-  // still the later auth/multi-user milestone, not this. Skipped whenever
-  // this client itself is mid-interaction or mid-typing, so a poll can
-  // never yank the model out from under an unsaved local change.
-  const REMOTE_POLL_MS = 2000;
-
-  async function pollRemote() {
-    if (!stateMachine.isIdle()) return;
-    const tag = document.activeElement?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-
-    const data = await fetchProjectSnapshot();
-    if (!data) return; // nothing saved remotely yet — never overwrite with that
-    const incoming = JSON.stringify(data);
-    if (incoming === lastSyncedSnapshot) return;
-
-    lastSyncedSnapshot = incoming;
-    project.applyRemoteRootBlock(data.rootBlock);
-    selection.clear();
-    wireSelection.clear();
-    updateNavigationUI();
-    renderLoop.requestRender();
-  }
-
-  setInterval(pollRemote, REMOTE_POLL_MS);
 
   // Synchronous initial call covers the normal case (layout is already settled
   // by the time this runs); ResizeObserver covers window resizes and any

@@ -22,8 +22,10 @@ const STATES = {
 };
 
 // Screen-space so the same finger/mouse movement counts as "a drag" the
-// same way regardless of current zoom level.
-const CLICK_DRAG_THRESHOLD = 5;
+// same way regardless of current zoom level. Exported since InspectorPanel
+// uses the same threshold to decide whether a press was a tap (open the
+// mobile sheet) or a drag (leave it alone).
+export const CLICK_DRAG_THRESHOLD = 5;
 const BOUNDARY_MIN_SIZE = GRID_SIZE * 3;
 
 function invertDirection(direction) {
@@ -36,7 +38,7 @@ function invertDirection(direction) {
  * wire" vs "drag a wire's trunk" vs "pan background" unambiguous.
  */
 export class DragStateMachine {
-  constructor({ camera, project, selection, wireSelection, requestRender, persist, onEnterBlock }) {
+  constructor({ camera, project, selection, wireSelection, requestRender, persist, onEnterBlock, onLiveUpdate }) {
     this.camera = camera;
     this.project = project;
     this.selection = selection;
@@ -44,6 +46,11 @@ export class DragStateMachine {
     this.requestRender = requestRender;
     this.persist = persist;
     this.onEnterBlock = onEnterBlock;
+    // Fired on every pointermove while dragging something positional (a
+    // block, a port, a wire trunk, a boundary edge) — this is what lets
+    // another open client see the move as it happens instead of only once
+    // you release and it's actually saved to disk (see main.js/liveSync.js).
+    this.onLiveUpdate = onLiveUpdate;
     this.state = STATES.IDLE;
     this.context = null;
   }
@@ -212,6 +219,7 @@ export class DragStateMachine {
         block.geometry.x = snap(this.context.startGeom.x + (world.x - this.context.startWorld.x));
         block.geometry.y = snap(this.context.startGeom.y + (world.y - this.context.startWorld.y));
         this.requestRender();
+        this.onLiveUpdate?.({ kind: 'block', blockId: block.id, geometry: block.geometry });
         break;
       }
       case STATES.RESIZING_BLOCK: {
@@ -226,6 +234,7 @@ export class DragStateMachine {
           snap(this.context.startGeom.height + (world.y - this.context.startWorld.y)),
         );
         this.requestRender();
+        this.onLiveUpdate?.({ kind: 'block', blockId: block.id, geometry: block.geometry });
         break;
       }
       case STATES.DRAGGING_PORT: {
@@ -242,6 +251,7 @@ export class DragStateMachine {
         port.offset = projected.offset;
         port.manualOffset = true;
         this.requestRender();
+        this.onLiveUpdate?.({ kind: 'port', blockId: block.id, portId: port.id, side: port.side, offset: port.offset });
         break;
       }
       case STATES.DRAWING_CONNECTION: {
@@ -260,6 +270,7 @@ export class DragStateMachine {
           // correctly instead of fighting over a single shared axis.
           const delta = item.axis === 'x' ? dx : dy;
           connection.manualBend = snap(item.startBend + delta);
+          this.onLiveUpdate?.({ kind: 'connection', connectionId: connection.id, manualBend: connection.manualBend });
         }
         this.requestRender();
         break;
@@ -307,6 +318,7 @@ export class DragStateMachine {
       geom.height = Math.max(BOUNDARY_MIN_SIZE, snap(world.y) - startGeometry.y);
     }
     this.requestRender();
+    this.onLiveUpdate?.({ kind: 'boundary', blockId: block.id, boundaryGeometry: geom });
   }
 
   addPortAt(blockId, side, offset) {

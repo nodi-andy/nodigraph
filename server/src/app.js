@@ -1,10 +1,11 @@
-// Deliberately dependency-free (Node builtins only), matching the same
-// spirit as client/dev-server.js — this just replaces that file, now also
-// persisting the project to a real file on disk instead of localStorage.
+// Node builtins for everything except real-time push, where a raw
+// hand-rolled WebSocket server would be a lot of fragile code for no
+// benefit — `ws` is the one dependency this server has.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { WebSocketServer } from 'ws';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT_DIR = path.join(here, '..', '..', 'client');
@@ -56,8 +57,9 @@ function handlePutProject(req, res) {
     body += chunk;
   });
   req.on('end', () => {
+    let parsed;
     try {
-      JSON.parse(body);
+      parsed = JSON.parse(body);
     } catch {
       res.writeHead(400);
       res.end('Invalid JSON');
@@ -77,6 +79,12 @@ function handlePutProject(req, res) {
         }
         res.writeHead(204);
         res.end();
+        // The PUT and this client's WebSocket are unrelated connections
+        // (no client-id handshake ties them together), so this broadcasts
+        // to every open socket including the saver's own — harmless, since
+        // the client already skips re-applying a snapshot that matches
+        // what it just sent (see main.js's lastSyncedSnapshot).
+        broadcast({ type: 'project', data: parsed });
       });
     });
   });
@@ -100,6 +108,33 @@ const server = http.createServer((req, res) => {
 
   res.writeHead(404);
   res.end('Not found');
+});
+
+// A block being dragged broadcasts its position over this on every move,
+// not just on release — that's what makes another open client see it move
+// live instead of only once it lands. These are never written to disk;
+// only a real PUT (on pointerup) persists anything, same as before.
+const wss = new WebSocketServer({ server });
+
+function broadcast(message, exclude) {
+  const payload = JSON.stringify(message);
+  for (const client of wss.clients) {
+    if (client !== exclude && client.readyState === client.OPEN) client.send(payload);
+  }
+}
+
+wss.on('connection', (socket) => {
+  socket.on('message', (raw) => {
+    let message;
+    try {
+      message = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    // Only 'live' (ephemeral, unpersisted drag positions) travels this way
+    // from the client — relayed to everyone else as-is, no disk write.
+    if (message?.type === 'live') broadcast(message, socket);
+  });
 });
 
 server.listen(PORT, () => {
