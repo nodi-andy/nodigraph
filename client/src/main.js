@@ -3,7 +3,7 @@ import { touchBlock } from './model/Block.js';
 import { removePort } from './model/BlockDescription.js';
 import { loadProject, saveProject } from './model/store.js';
 import { connectLiveSync } from './model/liveSync.js';
-import { flattenProjectToRows, buildRootBlockFromSheetRows, renderLevelImages, loadFromSheet, saveToSheet } from './model/sheetsSync.js';
+import { flattenProjectToRows, buildRootBlockFromRows, renderLevelImages, loadFromDoc, saveToDoc } from './model/docSync.js';
 import { Camera } from './render/Camera.js';
 import { RenderLoop } from './render/RenderLoop.js';
 import { renderScene } from './render/SceneRenderer.js';
@@ -14,7 +14,7 @@ import { attachInputRouter } from './interaction/InputRouter.js';
 import { mountToolbar } from './ui/Toolbar.js';
 import { mountInspector } from './ui/InspectorPanel.js';
 import { mountBreadcrumb } from './ui/Breadcrumb.js';
-import { mountSheetsSync } from './ui/SheetsSyncPanel.js';
+import { mountDocSync } from './ui/DocSyncPanel.js';
 
 const canvas = document.getElementById('scene-canvas');
 const ctx = canvas.getContext('2d');
@@ -22,7 +22,7 @@ const fabEl = document.getElementById('fab-add-block');
 const inspectorEl = document.getElementById('inspector');
 const breadcrumbEl = document.getElementById('breadcrumb');
 const backButtonEl = document.getElementById('btn-back');
-const sheetsSyncEl = document.getElementById('sheets-sync');
+const docSyncEl = document.getElementById('doc-sync');
 
 // A per-tab identity purely for telling cursors apart on other clients'
 // screens — there's no accounts system to draw a real name from yet.
@@ -38,10 +38,10 @@ function pathsEqual(a, b) {
 async function bootstrap() {
   const project = (await loadProject()) || new Project({ name: 'Untitled Product' });
 
-  // Revision last seen from the Sheet — null until a Sheet load succeeds
-  // (or sync isn't configured at all). Save sends this as `expectedRevision`
-  // so the Apps Script side can detect "someone else saved since I loaded."
-  let sheetRevision = null;
+  // Revision last seen from the Doc — null until a Doc load succeeds (or
+  // sync isn't configured at all). Save sends this as `expectedRevision` so
+  // the Apps Script side can detect "someone else saved since I loaded."
+  let docRevision = null;
 
   const camera = new Camera();
   const selection = new SelectionManager();
@@ -63,7 +63,7 @@ async function bootstrap() {
   let lastSyncedSnapshot = JSON.stringify(project.toJSON());
 
   let inspectorApi = null;
-  let sheetsSyncApi = null;
+  let docSyncApi = null;
 
   function persist() {
     lastSyncedSnapshot = JSON.stringify(project.toJSON());
@@ -97,79 +97,92 @@ async function bootstrap() {
     renderLoop.requestRender();
   }
 
-  // Pulls the current Sheet state and replaces the local model with it —
+  // Pulls the current Doc state and replaces the local model with it —
   // used at startup, and to discard local changes on a Save conflict.
   // Returns false (and leaves the local model untouched) if sync isn't
-  // configured or the load fails, so callers can fall back gracefully.
-  async function trySheetLoad() {
-    const url = sheetsSyncApi.getWebAppUrl();
+  // configured, the Doc has nothing saved yet, or the load fails — callers
+  // fall back to the local project either way.
+  async function tryDocLoad() {
+    const url = docSyncApi.getWebAppUrl();
     if (!url) return false;
-    sheetsSyncApi.setStatus('loading');
+    docSyncApi.setStatus('loading');
     try {
-      const data = await loadFromSheet(url);
-      project.applyRemoteRootBlock(buildRootBlockFromSheetRows(data));
-      sheetRevision = data.revision;
+      const data = await loadFromDoc(url);
+      // Capture the revision even on a brand-new, never-saved Doc (empty
+      // tables) — otherwise the first-ever Save would send `null` and the
+      // Apps Script side would read that as a conflict against its real
+      // revision of 0.
+      docRevision = data.revision;
+      if (data.blocks.length === 0) {
+        docSyncApi.setStatus('idle');
+        return false;
+      }
+      project.applyRemoteRootBlock(buildRootBlockFromRows(data));
       selection.clear();
       wireSelection.clear();
       updateNavigationUI();
       renderLoop.requestRender();
-      sheetsSyncApi.setStatus('synced');
+      docSyncApi.setStatus('synced');
       return true;
     } catch (err) {
-      sheetsSyncApi.setStatus('error', err.message);
+      docSyncApi.setStatus('error', err.message);
       return false;
     }
   }
 
   // The only thing that reaches Google: gathers the current model + a
   // rendered PNG per hierarchy level, and pushes it as one Save. Optimistic
-  // concurrency — if the Sheet moved on since `sheetRevision` was captured,
-  // the Apps Script side rejects the write and hands back its current
-  // state instead, surfaced here as a keep-mine/take-theirs choice.
+  // concurrency — if the Doc moved on since `docRevision` was captured, the
+  // Apps Script side rejects the write and hands back its current state
+  // instead, surfaced here as a keep-mine/take-theirs choice.
   async function handleSave() {
-    const url = sheetsSyncApi.getWebAppUrl();
+    const url = docSyncApi.getWebAppUrl();
     if (!url) {
-      sheetsSyncApi.promptForUrl();
+      docSyncApi.promptForUrl();
       return;
     }
-    sheetsSyncApi.setStatus('saving');
+    docSyncApi.setStatus('saving');
     try {
       const rows = flattenProjectToRows(project);
       const images = renderLevelImages(project);
-      const result = await saveToSheet(url, rows, images, sheetRevision);
+      const result = await saveToDoc(url, rows, images, docRevision);
       if (result.ok) {
-        sheetRevision = result.revision;
-        sheetsSyncApi.setStatus('synced');
+        docRevision = result.revision;
+        docSyncApi.setStatus('synced');
         return;
       }
-      sheetsSyncApi.showConflict({
+      docSyncApi.showConflict({
         onKeepMine: async () => {
-          sheetsSyncApi.setStatus('saving');
+          docSyncApi.setStatus('saving');
           try {
-            const retry = await saveToSheet(url, rows, images, result.current.revision);
+            const retry = await saveToDoc(url, rows, images, result.current.revision);
             if (retry.ok) {
-              sheetRevision = retry.revision;
-              sheetsSyncApi.setStatus('synced');
+              docRevision = retry.revision;
+              docSyncApi.setStatus('synced');
             } else {
-              sheetsSyncApi.setStatus('error', 'changed again — try Save once more');
+              docSyncApi.setStatus('error', 'changed again — try Save once more');
             }
           } catch (err) {
-            sheetsSyncApi.setStatus('error', err.message);
+            docSyncApi.setStatus('error', err.message);
           }
         },
         onTakeTheirs: () => {
-          project.applyRemoteRootBlock(buildRootBlockFromSheetRows(result.current));
-          sheetRevision = result.current.revision;
-          selection.clear();
-          wireSelection.clear();
-          updateNavigationUI();
-          persist();
-          renderLoop.requestRender();
-          sheetsSyncApi.setStatus('synced');
+          try {
+            project.applyRemoteRootBlock(buildRootBlockFromRows(result.current));
+            docRevision = result.current.revision;
+            selection.clear();
+            wireSelection.clear();
+            updateNavigationUI();
+            persist();
+            renderLoop.requestRender();
+            docSyncApi.setStatus('synced');
+          } catch (err) {
+            docSyncApi.setStatus('error', err.message);
+          }
         },
       });
     } catch (err) {
-      sheetsSyncApi.setStatus('error', err.message);
+      docSyncApi.setStatus('error', err.message);
     }
   }
 
@@ -354,7 +367,7 @@ async function bootstrap() {
   breadcrumbApi = mountBreadcrumb(breadcrumbEl, { project, onNavigate: navigateToDepth });
   backButtonEl.addEventListener('click', () => navigateToDepth(project.path.length - 1));
 
-  sheetsSyncApi = mountSheetsSync(sheetsSyncEl, { onSave: handleSave });
+  docSyncApi = mountDocSync(docSyncEl, { onSave: handleSave });
 
   // Delete/Backspace removes the selected block or wire(s), but only when
   // focus isn't in a text field — otherwise editing the Name field or
@@ -384,12 +397,12 @@ async function bootstrap() {
     }
   });
 
-  // If Sheets sync is configured, it's the source of truth — pull it in
+  // If Doc sync is configured, it's the source of truth — pull it in
   // before falling back to "start with an empty default block," so a
-  // freshly opened tab shows what's actually in the Sheet rather than
+  // freshly opened tab shows what's actually in the Doc rather than
   // racing it.
-  const loadedFromSheet = await trySheetLoad();
-  if (!loadedFromSheet && project.listBlocks().length === 0) {
+  const loadedFromDoc = await tryDocLoad();
+  if (!loadedFromDoc && project.listBlocks().length === 0) {
     project.createDefaultBlock(80, 80);
   }
 

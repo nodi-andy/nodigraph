@@ -47,7 +47,7 @@ html, body {
   white-space: nowrap;
 }
 
-.sheets-sync {
+.doc-sync {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -55,26 +55,26 @@ html, body {
   flex-shrink: 0;
 }
 
-.sheets-sync-status {
+.doc-sync-status {
   font-size: 11px;
   color: #8b93a3;
   white-space: nowrap;
 }
 
-.sheets-sync-status[data-state="synced"] {
+.doc-sync-status[data-state="synced"] {
   color: #3ecf5d;
 }
 
-.sheets-sync-status[data-state="error"] {
+.doc-sync-status[data-state="error"] {
   color: #e5484d;
 }
 
-.sheets-sync-status[data-state="saving"],
-.sheets-sync-status[data-state="loading"] {
+.doc-sync-status[data-state="saving"],
+.doc-sync-status[data-state="loading"] {
   color: #ffb454;
 }
 
-.sheets-sync-button {
+.doc-sync-button {
   background: #2f6fed;
   color: white;
   border: none;
@@ -84,11 +84,11 @@ html, body {
   cursor: pointer;
 }
 
-.sheets-sync-button:hover {
+.doc-sync-button:hover {
   background: #3f7bf5;
 }
 
-.sheets-sync-settings {
+.doc-sync-settings {
   background: none;
   border: 1px solid #2c3644;
   border-radius: 5px;
@@ -100,7 +100,7 @@ html, body {
   line-height: 1;
 }
 
-.sheets-sync-settings:hover {
+.doc-sync-settings:hover {
   color: #e6e9ef;
   border-color: #3a4556;
 }

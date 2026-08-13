@@ -23,12 +23,13 @@ See the build plan for full architecture and the milestone roadmap.
   see each other's changes live over a WebSocket, including a block's
   position while it's still being dragged, not just once it's dropped —
   see "Real-time sync" below for how this works and its limits.
-- Docs/Sheets sync (optional): a Google Sheet can be the durable source of
-  truth for a project, with a companion Google Doc kept as a generated,
-  always-current description + diagrams. Editing stays exactly as fast and
-  local as always — only pressing **Save** reaches Google, with a
-  conflict prompt if the Sheet changed since you last loaded it. See
-  `appsscript/README.md` for setup (no Google Cloud project needed).
+- Doc sync (optional): a single Google Doc can be the durable source of
+  truth for a project — a generated, always-current description +
+  diagrams, backed by the exact structured data that produced them, all in
+  one file. Editing stays exactly as fast and local as always — only
+  pressing **Save** reaches Google, with a conflict prompt if the Doc
+  changed since you last loaded it. See `appsscript/README.md` for setup
+  (no Google Cloud project needed).
 
 ### Run it
 
