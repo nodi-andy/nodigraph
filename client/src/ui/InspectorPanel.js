@@ -75,6 +75,13 @@ export function mountInspector(container, { project, selection, requestRender, p
   // once, not both stacked — persists across refresh() calls (e.g. after
   // every prop edit) since it lives outside the rebuild functions below.
   let activeTab = 'Inspector';
+  // On mobile the inspector is a bottom sheet that slides up over the
+  // canvas — but selection happens on pointerdown (so a drag has the right
+  // block from the start), and sliding the sheet up the instant you press
+  // a block, before you've even moved it, fights with "I just wanted to
+  // drag this." Content still updates live; only the slide-open transition
+  // waits for the press to actually finish.
+  let pointerDown = false;
 
   function renderEmpty() {
     container.innerHTML = '';
@@ -354,19 +361,32 @@ export function mountInspector(container, { project, selection, requestRender, p
     else renderDescriptionTab(container, block);
   }
 
+  // Drives the mobile bottom-sheet slide + hides the FAB behind it so the
+  // two floating controls never overlap; a no-op above the breakpoint,
+  // since nothing there references these classes outside that media query.
+  function syncOpenState() {
+    const isOpen = Boolean(selection.selectedBlockId);
+    container.classList.toggle('open', isOpen);
+    document.body.classList.toggle('inspector-open', isOpen);
+  }
+
   function refresh() {
     const block = selection.selectedBlockId ? project.getBlock(selection.selectedBlockId) : null;
     if (block) renderBlock(block);
     else renderEmpty();
 
-    // Drives the mobile bottom-sheet slide + hides the FAB behind it so the
-    // two floating controls never overlap; a no-op above the breakpoint.
-    container.classList.toggle('open', Boolean(block));
-    document.body.classList.toggle('inspector-open', Boolean(block));
+    if (!pointerDown) syncOpenState();
   }
 
   selection.onChange(refresh);
   refresh();
+
+  // Capture phase so this runs before the canvas's own pointerdown handler
+  // selects a block/port — by the time selection changes, pointerDown is
+  // already true and refresh() above knows to hold the sheet closed.
+  window.addEventListener('pointerdown', () => { pointerDown = true; }, { capture: true });
+  window.addEventListener('pointerup', () => { pointerDown = false; syncOpenState(); });
+  window.addEventListener('pointercancel', () => { pointerDown = false; syncOpenState(); });
 
   return { refresh };
 }

@@ -166,6 +166,25 @@ export class Project {
     this.path = this.path.slice(0, Math.max(0, depth));
   }
 
+  // Re-hydrates the tree in place from a freshly-fetched snapshot (see
+  // store.js's polling) rather than replacing this Project instance —
+  // every module that holds a reference to it (state machine, inspector,
+  // toolbar, ...) expects that reference to stay stable for the session.
+  // `path` is trimmed to whatever longest prefix still resolves, in case
+  // another client deleted a block you were currently inside.
+  applyRemoteRootBlock(rootBlockData) {
+    this.rootBlock = hydrateBlockTree(rootBlockData);
+    const validPath = [];
+    let level = this.rootBlock.children;
+    for (const blockId of this.path) {
+      const block = level?.blocks.get(blockId);
+      if (!block) break;
+      validPath.push(blockId);
+      level = block.children;
+    }
+    this.path = validPath;
+  }
+
   // One entry per level from the product root down to the current view,
   // for breadcrumb display — crumb.depth is what exitToDepth expects.
   getBreadcrumb() {
