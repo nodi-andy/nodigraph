@@ -127,13 +127,18 @@ export function renderScene(
     connectionTarget,
     wireSelection,
     remoteCursors,
+    // Off for exported diagram images (see docSync.js) — the grid is an
+    // editing aid, not part of the diagram, and leaving it out keeps the
+    // exported PNG's background genuinely transparent instead of a faint
+    // lattice of grid lines on a light Doc page.
+    showGrid = true,
   },
 ) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
   camera.applyTransform(ctx, dpr);
-  drawGrid(ctx, camera, canvasWidth, canvasHeight);
+  if (showGrid) drawGrid(ctx, camera, canvasWidth, canvasHeight);
 
   const blocks = project.listBlocks();
   const containerBlock = project.getContainerBlock();

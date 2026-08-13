@@ -23,13 +23,12 @@ See the build plan for full architecture and the milestone roadmap.
   see each other's changes live over a WebSocket, including a block's
   position while it's still being dragged, not just once it's dropped —
   see "Real-time sync" below for how this works and its limits.
-- Doc sync (optional): a single Google Doc can be the durable source of
-  truth for a project — a generated, always-current description +
-  diagrams, backed by the exact structured data that produced them, all in
-  one file. Editing stays exactly as fast and local as always — only
-  pressing **Save** reaches Google, with a conflict prompt if the Doc
-  changed since you last loaded it. See `appsscript/README.md` for setup
-  (no Google Cloud project needed).
+- Doc sync (optional): the tool stays the source of truth; a Google Doc is
+  a one-way publish target you write freely — paste a "Copy Doc region"
+  snippet (from the Inspector) anywhere you want a block's description +
+  diagram to live, and **Update Doc** refreshes just those spots in place.
+  Everything else you've written in the Doc is never touched. See
+  `appsscript/README.md` for setup (no Google Cloud project needed).
 
 ### Run it
 

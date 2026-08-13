@@ -3,7 +3,7 @@ import { touchBlock } from './model/Block.js';
 import { removePort } from './model/BlockDescription.js';
 import { loadProject, saveProject } from './model/store.js';
 import { connectLiveSync } from './model/liveSync.js';
-import { flattenProjectToRows, buildRootBlockFromRows, renderLevelImages, loadFromDoc, saveToDoc } from './model/docSync.js';
+import { buildUpdatePayload, updateDoc, buildRegionSnippet } from './model/docSync.js';
 import { Camera } from './render/Camera.js';
 import { RenderLoop } from './render/RenderLoop.js';
 import { renderScene } from './render/SceneRenderer.js';
@@ -37,11 +37,9 @@ function pathsEqual(a, b) {
 // `project` — waits inside here instead of running at module top level.
 async function bootstrap() {
   const project = (await loadProject()) || new Project({ name: 'Untitled Product' });
-
-  // Revision last seen from the Doc — null until a Doc load succeeds (or
-  // sync isn't configured at all). Save sends this as `expectedRevision` so
-  // the Apps Script side can detect "someone else saved since I loaded."
-  let docRevision = null;
+  if (project.listBlocks().length === 0) {
+    project.createDefaultBlock(80, 80);
+  }
 
   const camera = new Camera();
   const selection = new SelectionManager();
@@ -97,93 +95,34 @@ async function bootstrap() {
     renderLoop.requestRender();
   }
 
-  // Pulls the current Doc state and replaces the local model with it —
-  // used at startup, and to discard local changes on a Save conflict.
-  // Returns false (and leaves the local model untouched) if sync isn't
-  // configured, the Doc has nothing saved yet, or the load fails — callers
-  // fall back to the local project either way.
-  async function tryDocLoad() {
-    const url = docSyncApi.getWebAppUrl();
-    if (!url) return false;
-    docSyncApi.setStatus('loading');
-    try {
-      const data = await loadFromDoc(url);
-      // Capture the revision even on a brand-new, never-saved Doc (empty
-      // tables) — otherwise the first-ever Save would send `null` and the
-      // Apps Script side would read that as a conflict against its real
-      // revision of 0.
-      docRevision = data.revision;
-      if (data.blocks.length === 0) {
-        docSyncApi.setStatus('idle');
-        return false;
-      }
-      project.applyRemoteRootBlock(buildRootBlockFromRows(data));
-      selection.clear();
-      wireSelection.clear();
-      updateNavigationUI();
-      renderLoop.requestRender();
-      docSyncApi.setStatus('synced');
-      return true;
-    } catch (err) {
-      docSyncApi.setStatus('error', err.message);
-      return false;
-    }
-  }
-
-  // The only thing that reaches Google: gathers the current model + a
-  // rendered PNG per hierarchy level, and pushes it as one Save. Optimistic
-  // concurrency — if the Doc moved on since `docRevision` was captured, the
-  // Apps Script side rejects the write and hands back its current state
-  // instead, surfaced here as a keep-mine/take-theirs choice.
-  async function handleSave() {
+  // The only thing that reaches Google: renders a fresh diagram per level
+  // and pushes every block's current description + diagram. Apps Script
+  // finds whichever blocks actually have a region placed in the Doc and
+  // updates just those in place; anything without a region is skipped, and
+  // everything outside every region — the user's own writing — is never
+  // touched (see appsscript/Code.gs).
+  async function handleUpdateDoc() {
     const url = docSyncApi.getWebAppUrl();
     if (!url) {
       docSyncApi.promptForUrl();
       return;
     }
-    docSyncApi.setStatus('saving');
+    docSyncApi.setStatus('updating');
     try {
-      const rows = flattenProjectToRows(project);
-      const images = renderLevelImages(project);
-      const result = await saveToDoc(url, rows, images, docRevision);
-      if (result.ok) {
-        docRevision = result.revision;
-        docSyncApi.setStatus('synced');
-        return;
-      }
-      docSyncApi.showConflict({
-        onKeepMine: async () => {
-          docSyncApi.setStatus('saving');
-          try {
-            const retry = await saveToDoc(url, rows, images, result.current.revision);
-            if (retry.ok) {
-              docRevision = retry.revision;
-              docSyncApi.setStatus('synced');
-            } else {
-              docSyncApi.setStatus('error', 'changed again — try Save once more');
-            }
-          } catch (err) {
-            docSyncApi.setStatus('error', err.message);
-          }
-        },
-        onTakeTheirs: () => {
-          try {
-            project.applyRemoteRootBlock(buildRootBlockFromRows(result.current));
-            docRevision = result.current.revision;
-            selection.clear();
-            wireSelection.clear();
-            updateNavigationUI();
-            persist();
-            renderLoop.requestRender();
-            docSyncApi.setStatus('synced');
-          } catch (err) {
-            docSyncApi.setStatus('error', err.message);
-          }
-        },
-      });
+      const result = await updateDoc(url, buildUpdatePayload(project));
+      docSyncApi.setStatus('updated', `${result.updated.length} region${result.updated.length === 1 ? '' : 's'}`);
     } catch (err) {
       docSyncApi.setStatus('error', err.message);
     }
+  }
+
+  // Copies a ready-to-paste region snippet for one block to the clipboard —
+  // the only practical way to get its real (internal, unguessable) id into
+  // the Doc, since regions are placed by hand, not auto-inserted.
+  async function copyDocRegionSnippet(blockId) {
+    const block = project.getBlock(blockId);
+    if (!block) return;
+    await navigator.clipboard.writeText(buildRegionSnippet(block));
   }
 
   let breadcrumbApi = null;
@@ -362,12 +301,13 @@ async function bootstrap() {
     persist,
     deleteBlock,
     enterBlock,
+    copyDocRegionSnippet,
   });
 
   breadcrumbApi = mountBreadcrumb(breadcrumbEl, { project, onNavigate: navigateToDepth });
   backButtonEl.addEventListener('click', () => navigateToDepth(project.path.length - 1));
 
-  docSyncApi = mountDocSync(docSyncEl, { onSave: handleSave });
+  docSyncApi = mountDocSync(docSyncEl, { onUpdate: handleUpdateDoc });
 
   // Delete/Backspace removes the selected block or wire(s), but only when
   // focus isn't in a text field — otherwise editing the Name field or
@@ -396,15 +336,6 @@ async function bootstrap() {
       deleteBlock(block.id);
     }
   });
-
-  // If Doc sync is configured, it's the source of truth — pull it in
-  // before falling back to "start with an empty default block," so a
-  // freshly opened tab shows what's actually in the Doc rather than
-  // racing it.
-  const loadedFromDoc = await tryDocLoad();
-  if (!loadedFromDoc && project.listBlocks().length === 0) {
-    project.createDefaultBlock(80, 80);
-  }
 
   // Synchronous initial call covers the normal case (layout is already settled
   // by the time this runs); ResizeObserver covers window resizes and any
