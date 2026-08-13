@@ -3,6 +3,7 @@ import { touchBlock } from './model/Block.js';
 import { removePort } from './model/BlockDescription.js';
 import { loadProject, saveProject } from './model/store.js';
 import { connectLiveSync } from './model/liveSync.js';
+import { flattenProjectToRows, buildRootBlockFromSheetRows, renderLevelImages, loadFromSheet, saveToSheet } from './model/sheetsSync.js';
 import { Camera } from './render/Camera.js';
 import { RenderLoop } from './render/RenderLoop.js';
 import { renderScene } from './render/SceneRenderer.js';
@@ -13,6 +14,7 @@ import { attachInputRouter } from './interaction/InputRouter.js';
 import { mountToolbar } from './ui/Toolbar.js';
 import { mountInspector } from './ui/InspectorPanel.js';
 import { mountBreadcrumb } from './ui/Breadcrumb.js';
+import { mountSheetsSync } from './ui/SheetsSyncPanel.js';
 
 const canvas = document.getElementById('scene-canvas');
 const ctx = canvas.getContext('2d');
@@ -20,6 +22,7 @@ const fabEl = document.getElementById('fab-add-block');
 const inspectorEl = document.getElementById('inspector');
 const breadcrumbEl = document.getElementById('breadcrumb');
 const backButtonEl = document.getElementById('btn-back');
+const sheetsSyncEl = document.getElementById('sheets-sync');
 
 // A per-tab identity purely for telling cursors apart on other clients'
 // screens — there's no accounts system to draw a real name from yet.
@@ -34,9 +37,11 @@ function pathsEqual(a, b) {
 // `project` — waits inside here instead of running at module top level.
 async function bootstrap() {
   const project = (await loadProject()) || new Project({ name: 'Untitled Product' });
-  if (project.listBlocks().length === 0) {
-    project.createDefaultBlock(80, 80);
-  }
+
+  // Revision last seen from the Sheet — null until a Sheet load succeeds
+  // (or sync isn't configured at all). Save sends this as `expectedRevision`
+  // so the Apps Script side can detect "someone else saved since I loaded."
+  let sheetRevision = null;
 
   const camera = new Camera();
   const selection = new SelectionManager();
@@ -58,6 +63,7 @@ async function bootstrap() {
   let lastSyncedSnapshot = JSON.stringify(project.toJSON());
 
   let inspectorApi = null;
+  let sheetsSyncApi = null;
 
   function persist() {
     lastSyncedSnapshot = JSON.stringify(project.toJSON());
@@ -89,6 +95,82 @@ async function bootstrap() {
     selection.select(block.id);
     persist();
     renderLoop.requestRender();
+  }
+
+  // Pulls the current Sheet state and replaces the local model with it —
+  // used at startup, and to discard local changes on a Save conflict.
+  // Returns false (and leaves the local model untouched) if sync isn't
+  // configured or the load fails, so callers can fall back gracefully.
+  async function trySheetLoad() {
+    const url = sheetsSyncApi.getWebAppUrl();
+    if (!url) return false;
+    sheetsSyncApi.setStatus('loading');
+    try {
+      const data = await loadFromSheet(url);
+      project.applyRemoteRootBlock(buildRootBlockFromSheetRows(data));
+      sheetRevision = data.revision;
+      selection.clear();
+      wireSelection.clear();
+      updateNavigationUI();
+      renderLoop.requestRender();
+      sheetsSyncApi.setStatus('synced');
+      return true;
+    } catch (err) {
+      sheetsSyncApi.setStatus('error', err.message);
+      return false;
+    }
+  }
+
+  // The only thing that reaches Google: gathers the current model + a
+  // rendered PNG per hierarchy level, and pushes it as one Save. Optimistic
+  // concurrency — if the Sheet moved on since `sheetRevision` was captured,
+  // the Apps Script side rejects the write and hands back its current
+  // state instead, surfaced here as a keep-mine/take-theirs choice.
+  async function handleSave() {
+    const url = sheetsSyncApi.getWebAppUrl();
+    if (!url) {
+      sheetsSyncApi.promptForUrl();
+      return;
+    }
+    sheetsSyncApi.setStatus('saving');
+    try {
+      const rows = flattenProjectToRows(project);
+      const images = renderLevelImages(project);
+      const result = await saveToSheet(url, rows, images, sheetRevision);
+      if (result.ok) {
+        sheetRevision = result.revision;
+        sheetsSyncApi.setStatus('synced');
+        return;
+      }
+      sheetsSyncApi.showConflict({
+        onKeepMine: async () => {
+          sheetsSyncApi.setStatus('saving');
+          try {
+            const retry = await saveToSheet(url, rows, images, result.current.revision);
+            if (retry.ok) {
+              sheetRevision = retry.revision;
+              sheetsSyncApi.setStatus('synced');
+            } else {
+              sheetsSyncApi.setStatus('error', 'changed again — try Save once more');
+            }
+          } catch (err) {
+            sheetsSyncApi.setStatus('error', err.message);
+          }
+        },
+        onTakeTheirs: () => {
+          project.applyRemoteRootBlock(buildRootBlockFromSheetRows(result.current));
+          sheetRevision = result.current.revision;
+          selection.clear();
+          wireSelection.clear();
+          updateNavigationUI();
+          persist();
+          renderLoop.requestRender();
+          sheetsSyncApi.setStatus('synced');
+        },
+      });
+    } catch (err) {
+      sheetsSyncApi.setStatus('error', err.message);
+    }
   }
 
   let breadcrumbApi = null;
@@ -272,6 +354,8 @@ async function bootstrap() {
   breadcrumbApi = mountBreadcrumb(breadcrumbEl, { project, onNavigate: navigateToDepth });
   backButtonEl.addEventListener('click', () => navigateToDepth(project.path.length - 1));
 
+  sheetsSyncApi = mountSheetsSync(sheetsSyncEl, { onSave: handleSave });
+
   // Delete/Backspace removes the selected block or wire(s), but only when
   // focus isn't in a text field — otherwise editing the Name field or
   // description would delete something out from under you.
@@ -299,6 +383,15 @@ async function bootstrap() {
       deleteBlock(block.id);
     }
   });
+
+  // If Sheets sync is configured, it's the source of truth — pull it in
+  // before falling back to "start with an empty default block," so a
+  // freshly opened tab shows what's actually in the Sheet rather than
+  // racing it.
+  const loadedFromSheet = await trySheetLoad();
+  if (!loadedFromSheet && project.listBlocks().length === 0) {
+    project.createDefaultBlock(80, 80);
+  }
 
   // Synchronous initial call covers the normal case (layout is already settled
   // by the time this runs); ResizeObserver covers window resizes and any
