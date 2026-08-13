@@ -1,5 +1,5 @@
 import { WIRE_STUB_LENGTH, sideNormal, sideAxis, snap } from '../model/grid.js';
-import { findPortPosition } from './BlockRenderer.js';
+import { findConnectorPosition } from './BlockRenderer.js';
 
 // Drops points that don't actually bend the path (collinear with their
 // neighbors) and collapses zero-length segments — this is what turns the
@@ -113,8 +113,8 @@ export function getConnectionGeometry(project, connection, boundary) {
   const targetPort = target.block.ports.find((p) => p.id === connection.targetPortId);
   if (!sourcePort || !targetPort) return null;
 
-  const sourcePos = findPortPosition(source.block, sourcePort.id);
-  const targetPos = findPortPosition(target.block, targetPort.id);
+  const sourcePos = findConnectorPosition(source.block, sourcePort.id, source.isBoundary);
+  const targetPos = findConnectorPosition(target.block, targetPort.id, target.isBoundary);
   if (!sourcePos || !targetPos) return null;
 
   const routed = computeConnectionPath(
