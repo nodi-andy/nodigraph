@@ -31,12 +31,14 @@ export function attachInputRouter(canvas, camera, stateMachine) {
     const screen = toScreen(event);
     const world = camera.screenToWorld(screen.x, screen.y);
     stateMachine.onPointerDown(screen, world, { shiftKey: event.shiftKey, button: event.button });
+    canvas.style.cursor = stateMachine.getCursor();
   });
 
   canvas.addEventListener('pointermove', (event) => {
     const screen = toScreen(event);
     const world = camera.screenToWorld(screen.x, screen.y);
     stateMachine.onPointerMove(screen, world);
+    canvas.style.cursor = stateMachine.getCursor();
   });
 
   canvas.addEventListener('pointerup', (event) => {
@@ -44,6 +46,7 @@ export function attachInputRouter(canvas, camera, stateMachine) {
     const screen = toScreen(event);
     const world = camera.screenToWorld(screen.x, screen.y);
     stateMachine.onPointerUp(world);
+    canvas.style.cursor = stateMachine.getCursor();
   });
 
   canvas.addEventListener('pointercancel', () => {

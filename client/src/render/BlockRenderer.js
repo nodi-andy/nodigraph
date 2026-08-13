@@ -2,7 +2,6 @@ import { clamp, snap, sideNormal, sideAxis, getPortOffsetBounds } from '../model
 import { getStateColor } from '../model/BlockDescription.js';
 
 const CORNER_RADIUS = 6;
-export const RESIZE_HANDLE_SIZE = 10;
 export const PORT_RADIUS = 5;
 // The drawn arrowhead is smaller than this — it's the hit-test radius
 // around the handle's tip, padded like every other small handle.
@@ -304,16 +303,6 @@ export function drawBlock(ctx, block, { selected = false, portHighlights = null 
 
   drawPorts(ctx, block, { portHighlights });
   drawEnterIcon(ctx, block);
-
-  if (selected) {
-    ctx.fillStyle = '#4f8cff';
-    ctx.fillRect(
-      x + width - RESIZE_HANDLE_SIZE / 2,
-      y + height - RESIZE_HANDLE_SIZE / 2,
-      RESIZE_HANDLE_SIZE,
-      RESIZE_HANDLE_SIZE,
-    );
-  }
 }
 
 // The frame representing "the current system" — the block you're inside,
@@ -343,14 +332,4 @@ export function drawBoundary(ctx, block, geometry, { selected = false, portHighl
   ctx.fillText(block.name, x + 4, y - 6);
 
   drawPorts(ctx, { ...block, geometry }, { inverted: true, portHighlights });
-}
-
-export function getResizeHandleWorldRect(block) {
-  const { x, y, width, height } = block.geometry;
-  return {
-    x: x + width - RESIZE_HANDLE_SIZE / 2,
-    y: y + height - RESIZE_HANDLE_SIZE / 2,
-    width: RESIZE_HANDLE_SIZE,
-    height: RESIZE_HANDLE_SIZE,
-  };
 }
