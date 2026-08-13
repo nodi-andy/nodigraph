@@ -1,27 +1,22 @@
 /**
- * Google Apps Script Web App backing the gravis-sysml "Save to Sheets"
- * feature. Paste this into the Apps Script editor of the Google Sheet that
- * holds the project (Extensions > Apps Script), fill in DOC_ID below, then
- * Deploy > New deployment > Web app. See ../README.md for the full setup
- * walkthrough and ../client/src/model/sheetsSync.js for the client side of
- * this exact contract.
+ * Google Apps Script Web App backing gravis-sysml's "Save" feature. Paste
+ * this into the target Google Doc's own Apps Script editor (Extensions >
+ * Apps Script — the script is bound directly to the Doc, so there's no id
+ * to configure), then Deploy > New deployment > Web app. See
+ * ../appsscript/README.md for the full setup walkthrough and
+ * ../client/src/model/docSync.js for the client side of this contract.
  *
- * Why Apps Script at all, instead of the Docs/Sheets REST APIs directly:
- * it needs no Google Cloud project, no OAuth client, no service account —
- * just a Sheet you already own and a one-time "allow" click. The Web App
- * URL it hands you is a normal public HTTPS endpoint the app calls with
- * plain fetch().
+ * Why Apps Script at all, instead of the Docs REST API directly: it needs
+ * no Google Cloud project, no OAuth client, no service account — just a
+ * Doc you already own and a one-time "allow" click. The Web App URL it
+ * hands you is a normal public HTTPS endpoint the app calls with fetch().
+ *
+ * The Doc holds two things, regenerated together on every Save:
+ *  - a human-readable section per block (heading, description, diagram)
+ *  - a "Raw Data" appendix of three tables (Blocks/Ports/Connections) that
+ *    this script itself reads back on Load — the Doc IS the database, not
+ *    just a report generated from one.
  */
-
-// The target Doc's file id (from its URL: .../document/d/<THIS PART>/edit).
-// The Doc is fully regenerated on every successful Save — it's presentation
-// output, never a second source of truth, so there's nothing to preserve.
-const DOC_ID = 'PASTE_YOUR_DOC_ID_HERE';
-
-const BLOCKS_SHEET = 'Blocks';
-const PORTS_SHEET = 'Ports';
-const CONNECTIONS_SHEET = 'Connections';
-const META_SHEET = 'Meta';
 
 const BLOCKS_HEADERS = [
   'id', 'parentBlockId', 'name', 'description', 'color',
@@ -36,58 +31,50 @@ function jsonResponse(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function getOrCreateSheet(name, headers) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(name);
-  if (!sheet) {
-    sheet = ss.insertSheet(name);
-    sheet.appendRow(headers);
-  }
-  return sheet;
-}
-
-// Rows as plain objects keyed by the header row — lets the rest of this
-// script (and the client) work with named fields instead of column indexes.
-function readSheetAsObjects(name, headers) {
-  const sheet = getOrCreateSheet(name, headers);
-  const values = sheet.getDataRange().getValues();
-  if (values.length <= 1) return [];
-  const headerRow = values[0];
-  return values.slice(1).map((row) => {
-    const obj = {};
-    headerRow.forEach((header, i) => {
-      obj[header] = row[i] === undefined ? '' : row[i];
-    });
-    return obj;
-  });
-}
-
-function writeObjectsToSheet(name, headers, rows) {
-  const sheet = getOrCreateSheet(name, headers);
-  sheet.clearContents();
-  sheet.appendRow(headers);
-  if (rows.length) {
-    const values = rows.map((row) => headers.map((h) => (row[h] === undefined || row[h] === null ? '' : row[h])));
-    sheet.getRange(2, 1, values.length, headers.length).setValues(values);
-  }
-}
-
+// The revision lives in the Doc's own properties, not its body — so
+// clearing and rebuilding the body on every Save never touches it.
 function getRevision() {
-  const sheet = getOrCreateSheet(META_SHEET, ['revision']);
-  const value = sheet.getRange('A2').getValue();
-  return typeof value === 'number' ? value : 0;
+  const value = PropertiesService.getDocumentProperties().getProperty('revision');
+  return value ? parseInt(value, 10) : 0;
 }
 
 function setRevision(revision) {
-  const sheet = getOrCreateSheet(META_SHEET, ['revision']);
-  sheet.getRange('A2').setValue(revision);
+  PropertiesService.getDocumentProperties().setProperty('revision', String(revision));
 }
 
+// Reads one data table back into row objects keyed by its header row.
+// Docs table cells are always plain text; callers (client-side) are
+// already responsible for coercing numeric fields back from strings.
+function tableToObjects(table, headers) {
+  const rows = [];
+  for (let r = 1; r < table.getNumRows(); r += 1) {
+    const row = table.getRow(r);
+    const obj = {};
+    headers.forEach((header, c) => {
+      obj[header] = row.getCell(c).getText();
+    });
+    rows.push(obj);
+  }
+  return rows;
+}
+
+function objectsToTableArray(headers, rows) {
+  const data = [headers];
+  rows.forEach((row) => {
+    data.push(headers.map((h) => (row[h] === undefined || row[h] === null ? '' : String(row[h]))));
+  });
+  return data;
+}
+
+// The three data tables always exist in this fixed order (see
+// regenerateDoc) — a brand-new Doc that's never been saved to just has no
+// tables yet, which reads back as empty rows and revision 0.
 function loadCurrentState() {
+  const tables = DocumentApp.getActiveDocument().getBody().getTables();
   return {
-    blocks: readSheetAsObjects(BLOCKS_SHEET, BLOCKS_HEADERS),
-    ports: readSheetAsObjects(PORTS_SHEET, PORTS_HEADERS),
-    connections: readSheetAsObjects(CONNECTIONS_SHEET, CONNECTIONS_HEADERS),
+    blocks: tables[0] ? tableToObjects(tables[0], BLOCKS_HEADERS) : [],
+    ports: tables[1] ? tableToObjects(tables[1], PORTS_HEADERS) : [],
+    connections: tables[2] ? tableToObjects(tables[2], CONNECTIONS_HEADERS) : [],
     revision: getRevision(),
   };
 }
@@ -110,27 +97,21 @@ function doPost(e) {
     return jsonResponse({ ok: false, conflict: true, current: loadCurrentState() });
   }
 
-  writeObjectsToSheet(BLOCKS_SHEET, BLOCKS_HEADERS, message.blocks);
-  writeObjectsToSheet(PORTS_SHEET, PORTS_HEADERS, message.ports);
-  writeObjectsToSheet(CONNECTIONS_SHEET, CONNECTIONS_HEADERS, message.connections);
-
+  regenerateDoc(message.blocks, message.ports, message.connections, message.images || []);
   const newRevision = currentRevision + 1;
   setRevision(newRevision);
-
-  regenerateDoc(message.blocks, message.images || []);
 
   return jsonResponse({ ok: true, revision: newRevision });
 }
 
-// ---- Doc regeneration ----
-// Wipes the whole body and rebuilds it top-to-bottom by walking the block
-// tree depth-first, root first — one heading + description per block, and
-// the level's diagram right after any block that has children. Never
-// surgical: the Doc is generated output, so a full rebuild every Save is
-// simpler and can't drift from a partial-write bug.
-
-function regenerateDoc(blockRows, images) {
-  const doc = DocumentApp.openById(DOC_ID);
+// Wipes the whole body and rebuilds it: narrative first (walking the block
+// tree depth-first, root first — heading, diagram, description per block),
+// then the raw data tables as an appendix. Never surgical — simpler, and
+// can't drift from a partial-write bug, since nothing here is meant to
+// survive hand-editing anyway (the tables are read back on Load, but only
+// ever written by this function).
+function regenerateDoc(blockRows, portRows, connectionRows, images) {
+  const doc = DocumentApp.getActiveDocument();
   const body = doc.getBody();
   body.clear();
 
@@ -146,24 +127,18 @@ function regenerateDoc(blockRows, images) {
     byParent[key].push(row);
   });
   const rootRow = blockRows.filter((row) => !row.parentBlockId)[0];
-  if (!rootRow) return;
 
   function appendBlock(row, depth) {
     const headingLevel = Math.min(depth + 1, 6);
     const heading = body.appendParagraph(row.name);
     heading.setHeading(DocumentApp.ParagraphHeading['HEADING' + headingLevel]);
 
-    if (row.description) {
-      body.appendParagraph(row.description).setFontFamily('Courier New');
-    }
-
     const dataUrl = imagesByBlockId[row.id];
     if (dataUrl) {
       const base64 = dataUrl.split(',')[1];
       const blob = Utilities.newBlob(Utilities.base64Decode(base64), 'image/png', row.name + '.png');
       const image = body.appendImage(blob);
-      // Keep large diagrams from overflowing the page width.
-      const maxWidth = 500;
+      const maxWidth = 500; // keeps large diagrams from overflowing the page
       if (image.getWidth() > maxWidth) {
         const scale = maxWidth / image.getWidth();
         image.setWidth(maxWidth);
@@ -171,9 +146,25 @@ function regenerateDoc(blockRows, images) {
       }
     }
 
+    if (row.description) {
+      body.appendParagraph(row.description).setFontFamily('Courier New');
+    }
+
     (byParent[row.id] || []).forEach((child) => appendBlock(child, depth + 1));
   }
 
-  appendBlock(rootRow, 0);
+  if (rootRow) appendBlock(rootRow, 0);
+
+  body.appendPageBreak();
+  body.appendParagraph('Raw Data').setHeading(DocumentApp.ParagraphHeading.HEADING2);
+  body.appendParagraph('Regenerated on every Save — editing these tables directly has no effect until the next Save overwrites them.');
+
+  body.appendParagraph('Blocks').setHeading(DocumentApp.ParagraphHeading.HEADING3);
+  body.appendTable(objectsToTableArray(BLOCKS_HEADERS, blockRows));
+  body.appendParagraph('Ports').setHeading(DocumentApp.ParagraphHeading.HEADING3);
+  body.appendTable(objectsToTableArray(PORTS_HEADERS, portRows));
+  body.appendParagraph('Connections').setHeading(DocumentApp.ParagraphHeading.HEADING3);
+  body.appendTable(objectsToTableArray(CONNECTIONS_HEADERS, connectionRows));
+
   doc.saveAndClose();
 }

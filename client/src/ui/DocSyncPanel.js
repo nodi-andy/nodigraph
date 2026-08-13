@@ -1,8 +1,8 @@
-// Small topbar control cluster for the Sheets/Docs sync feature: a status
+// Small topbar control cluster for the Google Doc sync feature: a status
 // readout, a Save button, and a settings gear for the one thing that needs
 // configuring — the Apps Script Web App URL (see appsscript/Code.gs). Kept
 // out of Toolbar.js since that's specifically canvas actions (add block).
-const STORAGE_KEY = 'gravis-sysml:sheetsWebAppUrl';
+const STORAGE_KEY = 'gravis-sysml:docWebAppUrl';
 
 function getStoredUrl() {
   try {
@@ -29,23 +29,23 @@ const STATUS_LABELS = {
   error: 'Sync error',
 };
 
-export function mountSheetsSync(container, { onSave }) {
+export function mountDocSync(container, { onSave }) {
   container.innerHTML = '';
-  container.className = 'sheets-sync';
+  container.className = 'doc-sync';
 
   const status = document.createElement('span');
-  status.className = 'sheets-sync-status';
+  status.className = 'doc-sync-status';
 
   const saveButton = document.createElement('button');
   saveButton.type = 'button';
-  saveButton.className = 'sheets-sync-button';
+  saveButton.className = 'doc-sync-button';
   saveButton.textContent = 'Save';
   saveButton.addEventListener('click', () => onSave());
 
   const settingsButton = document.createElement('button');
   settingsButton.type = 'button';
-  settingsButton.className = 'sheets-sync-settings';
-  settingsButton.setAttribute('aria-label', 'Configure Google Sheets sync');
+  settingsButton.className = 'doc-sync-settings';
+  settingsButton.setAttribute('aria-label', 'Configure Google Doc sync');
   settingsButton.textContent = '⚙';
   settingsButton.addEventListener('click', () => promptForUrl());
 
@@ -62,7 +62,7 @@ export function mountSheetsSync(container, { onSave }) {
     // A plain prompt() rather than a form — this is a one-time paste-in of
     // a URL, not something that needs its own settings screen.
     const next = window.prompt(
-      'Google Apps Script Web App URL for Sheets/Docs sync (leave blank to disable):',
+      'Google Apps Script Web App URL for Doc sync (leave blank to disable):',
       current,
     );
     if (next === null) return; // cancelled
@@ -87,9 +87,9 @@ export function mountSheetsSync(container, { onSave }) {
     dialog.className = 'sync-conflict-dialog';
 
     const heading = document.createElement('h3');
-    heading.textContent = 'Sheet changed since you loaded it';
+    heading.textContent = 'Doc changed since you loaded it';
     const body = document.createElement('p');
-    body.textContent = "Someone else saved to the Sheet while you were editing. Choose which version to keep — this can't be undone.";
+    body.textContent = "Someone else saved to the Doc while you were editing. Choose which version to keep — this can't be undone.";
 
     const row = document.createElement('div');
     row.className = 'sync-conflict-actions';

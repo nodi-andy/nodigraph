@@ -1,9 +1,10 @@
-// Bridges the in-memory Project tree to a flat, relational shape a Google
-// Sheet can hold as three tabs (Blocks/Ports/Connections), and talks
-// directly to a Google Apps Script Web App that reads/writes that Sheet
-// and regenerates a companion Doc. See gravis-sysml/appsscript/Code.gs for
-// the server side of this contract, and the plan doc for why Apps Script
-// (no Google Cloud project needed) rather than the Docs/Sheets REST APIs.
+// Bridges the in-memory Project tree to a flat, relational shape (three
+// tables: Blocks/Ports/Connections) a Google Doc can hold, and talks
+// directly to a Google Apps Script Web App — bound to that Doc — which
+// reads/writes those tables and regenerates the Doc's narrative + diagram
+// sections. See gravis-sysml/appsscript/Code.gs for the server side of
+// this contract, and appsscript/README.md for why Apps Script (no Google
+// Cloud project needed) rather than the Docs REST API.
 import { generateId } from './Block.js';
 import { parseBlockDescription } from './BlockDescription.js';
 import { Camera } from '../render/Camera.js';
@@ -58,7 +59,7 @@ function collectBlocks(block, parentBlockId, out) {
   }
 }
 
-// Project (in-memory, Map-based tree) -> flat rows for the three Sheet tabs.
+// Project (in-memory, Map-based tree) -> flat rows for the three Doc tables.
 export function flattenProjectToRows(project) {
   const out = { blocks: [], ports: [], connections: [] };
   collectBlocks(project.rootBlock, '', out);
@@ -69,7 +70,7 @@ export function flattenProjectToRows(project) {
 // (array-based children, not yet hydrated into Maps) shape
 // `serializeBlockTree`/`hydrateBlockTree` already use — callers pass this
 // straight into `project.applyRemoteRootBlock(...)` or `new Project({rootBlock})`.
-export function buildRootBlockFromSheetRows({ blocks, ports, connections }) {
+export function buildRootBlockFromRows({ blocks, ports, connections }) {
   const portsByBlock = new Map();
   for (const row of ports) {
     if (!portsByBlock.has(row.blockId)) portsByBlock.set(row.blockId, []);
@@ -150,7 +151,7 @@ export function buildRootBlockFromSheetRows({ blocks, ports, connections }) {
   }
 
   const rootRow = blocks.find((row) => !row.parentBlockId);
-  if (!rootRow) throw new Error('Sheet has no root block (a Blocks row with an empty parentBlockId is required)');
+  if (!rootRow) throw new Error('Doc has no root block (a Blocks row with an empty parentBlockId is required)');
   return buildBlock(rootRow);
 }
 
@@ -241,13 +242,13 @@ export function renderLevelImages(project) {
   return images;
 }
 
-export async function loadFromSheet(webAppUrl) {
+export async function loadFromDoc(webAppUrl) {
   const res = await fetch(`${webAppUrl}?action=load&t=${Date.now()}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`Load failed (${res.status})`);
   return res.json(); // { blocks, ports, connections, revision }
 }
 
-export async function saveToSheet(webAppUrl, rows, images, expectedRevision) {
+export async function saveToDoc(webAppUrl, rows, images, expectedRevision) {
   const res = await fetch(webAppUrl, {
     method: 'POST',
     // A plain-text content type keeps this a CORS "simple request" — Apps
