@@ -18,150 +18,157 @@ const inspectorEl = document.getElementById('inspector');
 const breadcrumbEl = document.getElementById('breadcrumb');
 const backButtonEl = document.getElementById('btn-back');
 
-const project = loadProject() || new Project({ name: 'Untitled Product' });
-if (project.listBlocks().length === 0) {
-  project.createDefaultBlock(80, 80);
-}
+// Loading now means a network round-trip to the data server (see
+// model/store.js), so the rest of setup — everything that touches
+// `project` — waits inside here instead of running at module top level.
+async function bootstrap() {
+  const project = (await loadProject()) || new Project({ name: 'Untitled Product' });
+  if (project.listBlocks().length === 0) {
+    project.createDefaultBlock(80, 80);
+  }
 
-const camera = new Camera();
-const selection = new SelectionManager();
-const wireSelection = new WireSelection();
-const renderLoop = new RenderLoop(draw);
+  const camera = new Camera();
+  const selection = new SelectionManager();
+  const wireSelection = new WireSelection();
+  const renderLoop = new RenderLoop(draw);
 
-let inspectorApi = null;
+  let inspectorApi = null;
 
-function persist() {
-  saveProject(project);
-  inspectorApi?.refresh();
-}
+  function persist() {
+    saveProject(project);
+    inspectorApi?.refresh();
+  }
 
-function deleteBlock(blockId) {
-  project.removeBlock(blockId);
-  if (selection.selectedBlockId === blockId) selection.clear();
-  persist();
-  renderLoop.requestRender();
-}
+  function deleteBlock(blockId) {
+    project.removeBlock(blockId);
+    if (selection.selectedBlockId === blockId) selection.clear();
+    persist();
+    renderLoop.requestRender();
+  }
 
-function deleteSelectedWires() {
-  for (const id of wireSelection.list()) project.removeConnection(id);
-  wireSelection.clear();
-  persist();
-  renderLoop.requestRender();
-}
+  function deleteSelectedWires() {
+    for (const id of wireSelection.list()) project.removeConnection(id);
+    wireSelection.clear();
+    persist();
+    renderLoop.requestRender();
+  }
 
-let breadcrumbApi = null;
+  let breadcrumbApi = null;
 
-function updateNavigationUI() {
-  breadcrumbApi?.refresh();
-  backButtonEl.hidden = project.path.length === 0;
-}
+  function updateNavigationUI() {
+    breadcrumbApi?.refresh();
+    backButtonEl.hidden = project.path.length === 0;
+  }
 
-// Navigation is deliberately not persisted — reloading always starts back
-// at the product root, like most apps default to a home view.
-function resetCameraForNewLevel() {
-  camera.offsetX = 0;
-  camera.offsetY = 0;
-  camera.zoom = 1;
-}
+  // Navigation is deliberately not persisted — reloading always starts back
+  // at the product root, like most apps default to a home view.
+  function resetCameraForNewLevel() {
+    camera.offsetX = 0;
+    camera.offsetY = 0;
+    camera.zoom = 1;
+  }
 
-function enterBlock(blockId) {
-  if (!project.enterBlock(blockId)) return;
-  selection.clear();
-  wireSelection.clear();
-  resetCameraForNewLevel();
-  updateNavigationUI();
-  persist();
-  renderLoop.requestRender();
-}
+  function enterBlock(blockId) {
+    if (!project.enterBlock(blockId)) return;
+    selection.clear();
+    wireSelection.clear();
+    resetCameraForNewLevel();
+    updateNavigationUI();
+    persist();
+    renderLoop.requestRender();
+  }
 
-function navigateToDepth(depth) {
-  project.exitToDepth(depth);
-  selection.clear();
-  wireSelection.clear();
-  resetCameraForNewLevel();
-  updateNavigationUI();
-  persist();
-  renderLoop.requestRender();
-}
+  function navigateToDepth(depth) {
+    project.exitToDepth(depth);
+    selection.clear();
+    wireSelection.clear();
+    resetCameraForNewLevel();
+    updateNavigationUI();
+    persist();
+    renderLoop.requestRender();
+  }
 
-function draw() {
-  const dpr = window.devicePixelRatio || 1;
-  renderScene(ctx, camera, project, {
-    selectedBlockId: selection.selectedBlockId,
-    dpr,
-    canvasWidth: canvas.clientWidth,
-    canvasHeight: canvas.clientHeight,
-    pendingConnectionPath: stateMachine.getPendingConnectionVisual(),
+  function draw() {
+    const dpr = window.devicePixelRatio || 1;
+    renderScene(ctx, camera, project, {
+      selectedBlockId: selection.selectedBlockId,
+      dpr,
+      canvasWidth: canvas.clientWidth,
+      canvasHeight: canvas.clientHeight,
+      pendingConnectionPath: stateMachine.getPendingConnectionVisual(),
+      wireSelection,
+    });
+  }
+
+  function resizeCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = canvas.clientWidth * dpr;
+    canvas.height = canvas.clientHeight * dpr;
+    renderLoop.requestRender();
+  }
+
+  const stateMachine = new DragStateMachine({
+    camera,
+    project,
+    selection,
     wireSelection,
+    requestRender: () => renderLoop.requestRender(),
+    persist,
+    onEnterBlock: enterBlock,
   });
-}
 
-function resizeCanvas() {
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = canvas.clientWidth * dpr;
-  canvas.height = canvas.clientHeight * dpr;
-  renderLoop.requestRender();
-}
+  attachInputRouter(canvas, camera, stateMachine);
+  selection.onChange(() => renderLoop.requestRender());
 
-const stateMachine = new DragStateMachine({
-  camera,
-  project,
-  selection,
-  wireSelection,
-  requestRender: () => renderLoop.requestRender(),
-  persist,
-  onEnterBlock: enterBlock,
-});
+  mountToolbar(fabEl, {
+    project,
+    camera,
+    canvas,
+    selection,
+    requestRender: () => renderLoop.requestRender(),
+    persist,
+  });
 
-attachInputRouter(canvas, camera, stateMachine);
-selection.onChange(() => renderLoop.requestRender());
+  inspectorApi = mountInspector(inspectorEl, {
+    project,
+    selection,
+    requestRender: () => renderLoop.requestRender(),
+    persist,
+    deleteBlock,
+    enterBlock,
+  });
 
-mountToolbar(fabEl, {
-  project,
-  camera,
-  canvas,
-  selection,
-  requestRender: () => renderLoop.requestRender(),
-  persist,
-});
+  breadcrumbApi = mountBreadcrumb(breadcrumbEl, { project, onNavigate: navigateToDepth });
+  backButtonEl.addEventListener('click', () => navigateToDepth(project.path.length - 1));
 
-inspectorApi = mountInspector(inspectorEl, {
-  project,
-  selection,
-  requestRender: () => renderLoop.requestRender(),
-  persist,
-  deleteBlock,
-  enterBlock,
-});
+  // Delete/Backspace removes the selected block or wire(s), but only when
+  // focus isn't in a text field — otherwise editing the Name field or
+  // description would delete something out from under you.
+  window.addEventListener('keydown', (event) => {
+    if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
-breadcrumbApi = mountBreadcrumb(breadcrumbEl, { project, onNavigate: navigateToDepth });
-backButtonEl.addEventListener('click', () => navigateToDepth(project.path.length - 1));
+    if (wireSelection.list().length > 0) {
+      event.preventDefault();
+      deleteSelectedWires();
+      return;
+    }
 
-// Delete/Backspace removes the selected block or wire(s), but only when
-// focus isn't in a text field — otherwise editing the Name field or
-// description would delete something out from under you.
-window.addEventListener('keydown', (event) => {
-  if (event.key !== 'Delete' && event.key !== 'Backspace') return;
-  const tag = document.activeElement?.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-
-  if (wireSelection.list().length > 0) {
+    if (!selection.selectedBlockId) return;
     event.preventDefault();
-    deleteSelectedWires();
-    return;
-  }
+    const block = project.getBlock(selection.selectedBlockId);
+    if (block && window.confirm(`Delete "${block.name}" and its connections? This can't be undone.`)) {
+      deleteBlock(block.id);
+    }
+  });
 
-  if (!selection.selectedBlockId) return;
-  event.preventDefault();
-  const block = project.getBlock(selection.selectedBlockId);
-  if (block && window.confirm(`Delete "${block.name}" and its connections? This can't be undone.`)) {
-    deleteBlock(block.id);
-  }
-});
+  // Synchronous initial call covers the normal case (layout is already settled
+  // by the time this runs); ResizeObserver covers window resizes and any
+  // layout pass still mid-flight in edge cases.
+  resizeCanvas();
+  new ResizeObserver(resizeCanvas).observe(canvas);
+  renderLoop.start();
+}
 
-// Synchronous initial call covers the normal case (layout is already settled
-// by the time a deferred module script runs); ResizeObserver covers window
-// resizes and any layout pass still mid-flight in edge cases.
-resizeCanvas();
-new ResizeObserver(resizeCanvas).observe(canvas);
-renderLoop.start();
+bootstrap();
