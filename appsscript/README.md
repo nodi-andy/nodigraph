@@ -24,26 +24,26 @@ you've written is never touched.
    script — this is a one-time "allow" click tied to your own account, not
    a new app registration.
 5. Copy the **Web app URL** it gives you.
-6. In gravis-sysml, click the **⚙** button next to Update Doc (top right)
+6. In block-modeler, click the **⚙** button next to Update Doc (top right)
    and paste that URL in.
 
 ## Placing a region
 
 Write whatever you want in the Doc. Wherever you want a specific block's
-description + diagram to live, select that block in gravis-sysml's
+description + diagram to live, select that block in block-modeler's
 Inspector and click **Copy Doc region**, then paste. You'll get something
 like:
 
 ```
-[gravis-sysml:begin id=blk_msr7njhj1]
-Block: GRAVIS
+[block-modeler:begin id=blk_msr7njhj1]
+Block: EXAMPLE
 
 input.Upper Structure:
 input.HMI A/D/CAN:
 input.ECU A/D/CAN:
 
 {diagram}
-[gravis-sysml:end id=blk_msr7njhj1]
+[block-modeler:end id=blk_msr7njhj1]
 ```
 
 The `id=...` is the block's real internal id — there's no way to type that

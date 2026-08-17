@@ -1,4 +1,4 @@
-# gravis-sysml
+# block-modeler
 
 Browser-based visual editor for product specification: define a product,
 its interfaces, requirements, and architecture, with components
@@ -39,7 +39,7 @@ node src/app.js
 
 Then open the printed URL (default `http://localhost:8080`). Project data
 is read from and written to `data/project.json` (created on first save).
-Override the folder with `GRAVIS_DATA_DIR`, and the port with `PORT`.
+Override the folder with `BLOCK_MODELER_DATA_DIR`, and the port with `PORT`.
 
 ### Real-time sync
 

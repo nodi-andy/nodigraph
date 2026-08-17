@@ -1,6 +1,6 @@
 // Publishes block descriptions + diagrams into a Google Doc, wherever the
 // user has manually placed an anchored region for that block — see
-// gravis-sysml/appsscript/Code.gs for the server side of this contract and
+// appsscript/Code.gs for the server side of this contract and
 // appsscript/README.md for the region syntax and setup. The tool stays the
 // only source of truth for structure/layout; the Doc is a one-way,
 // on-demand publish target, not something loaded back from.
@@ -15,13 +15,13 @@ import { renderScene } from '../render/SceneRenderer.js';
 // touched.
 export function buildRegionSnippet(block) {
   const lines = [
-    `[gravis-sysml:begin id=${block.id}]`,
+    `[block-modeler:begin id=${block.id}]`,
     block.description || `Block: ${block.name}`,
   ];
   if (block.hasChildren) {
     lines.push('', '{diagram}');
   }
-  lines.push(`[gravis-sysml:end id=${block.id}]`);
+  lines.push(`[block-modeler:end id=${block.id}]`);
   return lines.join('\n');
 }
 

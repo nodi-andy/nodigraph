@@ -1,5 +1,5 @@
 /**
- * Google Apps Script Web App backing gravis-sysml's "Update Doc" feature.
+ * Google Apps Script Web App backing block-modeler's "Update Doc" feature.
  * Paste this into the target Google Doc's own Apps Script editor
  * (Extensions > Apps Script — the script is bound directly to the Doc, so
  * there's no id to configure), then Deploy > New deployment > Web app.
@@ -9,14 +9,14 @@
  * The Doc is yours — write whatever you want in it. Anywhere you want a
  * block's description + diagram to live, paste a region:
  *
- *   [gravis-sysml:begin id=<block id>]
- *   Block: GRAVIS
+ *   [block-modeler:begin id=<block id>]
+ *   Block: EXAMPLE
  *
  *   input.Upper Structure:
  *   input.HMI A/D/CAN:
  *
  *   {diagram}
- *   [gravis-sysml:end id=<block id>]
+ *   [block-modeler:end id=<block id>]
  *
  * (the app's Inspector has a "Copy Doc region" button that copies this for
  * whichever block you have selected, with the real id already filled in —
@@ -31,14 +31,14 @@ function jsonResponse(obj) {
 }
 
 function doGet() {
-  return ContentService.createTextOutput('gravis-sysml Doc sync endpoint — POST only.').setMimeType(ContentService.MimeType.TEXT);
+  return ContentService.createTextOutput('block-modeler Doc sync endpoint — POST only.').setMimeType(ContentService.MimeType.TEXT);
 }
 
 function beginMarkerFor(id) {
-  return '[gravis-sysml:begin id=' + id + ']';
+  return '[block-modeler:begin id=' + id + ']';
 }
 function endMarkerFor(id) {
-  return '[gravis-sysml:end id=' + id + ']';
+  return '[block-modeler:end id=' + id + ']';
 }
 
 function findParagraphIndex(body, text, fromIndex) {

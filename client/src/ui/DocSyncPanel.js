@@ -3,7 +3,7 @@
 // thing that needs configuring — the Apps Script Web App URL (see
 // appsscript/Code.gs). Kept out of Toolbar.js since that's specifically
 // canvas actions (add block).
-const STORAGE_KEY = 'gravis-sysml:docWebAppUrl';
+const STORAGE_KEY = 'block-modeler:docWebAppUrl';
 
 function getStoredUrl() {
   try {

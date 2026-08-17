@@ -1,5 +1,5 @@
 {
-  "name": "gravis-sysml-server",
+  "name": "block-modeler-server",
   "private": true,
   "type": "module",
   "dependencies": {
