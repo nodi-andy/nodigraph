@@ -36,7 +36,7 @@ like:
 
 ```
 [block-modeler:begin id=blk_msr7njhj1]
-Block: BLOCK_MODELER
+Block: EXAMPLE
 
 input.Upper Structure:
 input.HMI A/D/CAN:

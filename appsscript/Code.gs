@@ -10,7 +10,7 @@
  * block's description + diagram to live, paste a region:
  *
  *   [block-modeler:begin id=<block id>]
- *   Block: BLOCK_MODELER
+ *   Block: EXAMPLE
  *
  *   input.Upper Structure:
  *   input.HMI A/D/CAN:
