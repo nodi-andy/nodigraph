@@ -2,6 +2,7 @@ import {
   getAllPortPositions,
   getConnectorHandlePosition,
   getBorderHit,
+  getPortSlotRect,
   PORT_RADIUS,
   CONNECTOR_HANDLE_RADIUS,
 } from '../render/BlockRenderer.js';
@@ -42,7 +43,15 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false) {
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const block = blocks[i];
     for (const { port, x, y } of getAllPortPositions(block)) {
-      if (pointInCircle(worldX, worldY, x, y, PORT_RADIUS + HANDLE_HIT_PADDING)) {
+      // An ordinary block's port is drawn as a slot inset into the face
+      // (see BlockRenderer's getSlotRectFromBorderPoint), not a dot on the
+      // border — hit-test the actual rect drawn, not just a small circle
+      // at its outer edge, or most of the visible square wouldn't be
+      // clickable. The boundary frame's ports still render as plain dots.
+      const hit = inverted
+        ? pointInCircle(worldX, worldY, x, y, PORT_RADIUS + HANDLE_HIT_PADDING)
+        : pointInRect(worldX, worldY, getPortSlotRect(block, port), HANDLE_HIT_PADDING);
+      if (hit) {
         return { type: 'port', blockId: block.id, portId: port.id };
       }
     }

@@ -1,5 +1,5 @@
 import { generateId } from './Block.js';
-import { snap, sideAxis, getPortOffsetBounds, GRID_SIZE } from './grid.js';
+import { sideAxis, getPortSlotOffsets } from './grid.js';
 
 /**
  * A block's ports and properties are edited as plain text in this small,
@@ -161,17 +161,16 @@ export function assignDefaultPortOffsets(block) {
     if (!autoPorts.length) continue;
 
     const sideLength = sideAxis(side) === 'x' ? height : width;
-    const bounds = getPortOffsetBounds(sideLength);
-    const step = (bounds.max - bounds.min) / (autoPorts.length + 1);
     // Manually-placed ports on this side are fixed points auto-layout has
     // to dodge, not just other auto ports to space evenly against.
     const taken = new Set(sidePorts.filter((p) => p.manualOffset).map((p) => p.offset));
+    const freeSlots = getPortSlotOffsets(sideLength).filter((s) => !taken.has(s));
 
     autoPorts.forEach((port, i) => {
-      let offset = snap(bounds.min + step * (i + 1));
-      while (taken.has(offset) && offset + GRID_SIZE <= bounds.max) offset += GRID_SIZE;
-      taken.add(offset);
-      port.offset = offset;
+      // More auto ports than free slots on this side: cycle back through
+      // them rather than drifting off the slot grid — a shared slot is
+      // rare and still reads better than a port that lines up with none.
+      port.offset = freeSlots.length ? freeSlots[i % freeSlots.length] : sideLength / 2;
     });
   }
 }

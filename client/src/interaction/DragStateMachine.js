@@ -1,6 +1,6 @@
 import { hitTest } from './HitTest.js';
 import { touchBlock, MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT } from '../model/Block.js';
-import { snap, GRID_SIZE } from '../model/grid.js';
+import { snap, GRID_SIZE, sideAxis, nearestPortSlot } from '../model/grid.js';
 import { findConnectorPosition, projectPointToPerimeter } from '../render/BlockRenderer.js';
 import { getConnectionGeometry, previewPathToCursor, hitTestConnectionTrunk } from '../render/ConnectionRenderer.js';
 import { createConnection } from '../model/Connection.js';
@@ -215,11 +215,17 @@ export class DragStateMachine {
         // Projects onto the nearest point on the block's own border across
         // all four sides (or the boundary frame's border, if this port
         // belongs to the current container) so a port slides all the way
-        // around the perimeter and switches sides at the corners.
+        // around the perimeter and switches sides at the corners, then
+        // snaps to that side's nearest free connector slot — ports sit in
+        // fixed sockets now, not anywhere along the edge.
         const geometry = this.context.isBoundary ? this.getBoundaryInfo().geometry : block.geometry;
         const projected = projectPointToPerimeter({ geometry }, world.x, world.y);
+        const sideLength = sideAxis(projected.side) === 'x' ? geometry.height : geometry.width;
+        const occupied = block.ports
+          .filter((p) => p.id !== port.id && p.side === projected.side)
+          .map((p) => p.offset);
         port.side = projected.side;
-        port.offset = projected.offset;
+        port.offset = nearestPortSlot(sideLength, projected.offset, occupied);
         port.manualOffset = true;
         this.requestRender();
         this.onLiveUpdate?.({ kind: 'port', blockId: block.id, portId: port.id, side: port.side, offset: port.offset });
@@ -324,11 +330,14 @@ export class DragStateMachine {
     }
   }
 
-  addPortAt(blockId, side, offset) {
+  addPortAt(blockId, side, offset, geometry) {
     const block = this.project.getBlock(blockId);
     if (!block) return;
     const direction = side === 'right' ? 'out' : 'in';
-    addPort(block, { direction, side, offset });
+    const sideLength = sideAxis(side) === 'x' ? geometry.height : geometry.width;
+    const occupied = block.ports.filter((p) => p.side === side).map((p) => p.offset);
+    const slotOffset = nearestPortSlot(sideLength, offset, occupied);
+    addPort(block, { direction, side, offset: slotOffset });
     touchBlock(block);
     this.selection.select(block.id);
     this.persist();
@@ -350,7 +359,7 @@ export class DragStateMachine {
     } else if (this.state === STATES.PENDING_EDGE) {
       // Released without ever crossing the drag threshold — resolve the
       // ambiguity as a click: add a port right where the edge was hit.
-      this.addPortAt(this.context.blockId, this.context.edge, this.context.offset);
+      this.addPortAt(this.context.blockId, this.context.edge, this.context.offset, this.context.startGeometry);
     } else if (this.state === STATES.RESIZING_EDGE) {
       const block = this.project.getBlock(this.context.blockId);
       if (block) touchBlock(block);
