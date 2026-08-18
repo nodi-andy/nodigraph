@@ -221,9 +221,14 @@ export class DragStateMachine {
         const geometry = this.context.isBoundary ? this.getBoundaryInfo().geometry : block.geometry;
         const projected = projectPointToPerimeter({ geometry }, world.x, world.y);
         const sideLength = sideAxis(projected.side) === 'x' ? geometry.height : geometry.width;
+        // Compared as each sibling's *resolved* slot (nearestPortSlot), not
+        // its raw stored offset — a port saved before slots existed (or
+        // just nudged there by an earlier bug) still correctly reserves
+        // whichever slot it now actually renders at, so a new drag can't
+        // land exactly on top of it.
         const occupied = block.ports
           .filter((p) => p.id !== port.id && p.side === projected.side)
-          .map((p) => p.offset);
+          .map((p) => nearestPortSlot(sideLength, p.offset));
         port.side = projected.side;
         port.offset = nearestPortSlot(sideLength, projected.offset, occupied);
         port.manualOffset = true;
@@ -335,7 +340,9 @@ export class DragStateMachine {
     if (!block) return;
     const direction = side === 'right' ? 'out' : 'in';
     const sideLength = sideAxis(side) === 'x' ? geometry.height : geometry.width;
-    const occupied = block.ports.filter((p) => p.side === side).map((p) => p.offset);
+    // Resolved slot, not raw offset — see the same note in the
+    // DRAGGING_PORT case above.
+    const occupied = block.ports.filter((p) => p.side === side).map((p) => nearestPortSlot(sideLength, p.offset));
     const slotOffset = nearestPortSlot(sideLength, offset, occupied);
     addPort(block, { direction, side, offset: slotOffset });
     touchBlock(block);
