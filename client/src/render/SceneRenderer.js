@@ -147,6 +147,12 @@ export function renderScene(
     : null;
   const portHighlights = buildPortHighlights(selectedBlockId, selectedPortId, connectionSource, connectionTarget);
 
+  // Drawn before every block/boundary so a wire's own connector-handle
+  // triangle (drawn as part of the block/boundary pass) always paints over
+  // the wire's endpoint, not the other way around — a wire sits under the
+  // handles it connects to, not through them.
+  drawConnections(ctx, project, wireSelection, boundary);
+
   // Drawn before the real blocks so they visually sit "inside" the frame
   // rather than the dashed outline cutting across them.
   if (boundary) {
@@ -159,8 +165,6 @@ export function renderScene(
   for (const block of blocks) {
     drawBlock(ctx, block, { selected: block.id === selectedBlockId, portHighlights });
   }
-
-  drawConnections(ctx, project, wireSelection, boundary);
 
   if (pendingConnectionPath) {
     drawPath(ctx, pendingConnectionPath, { color: WIRE_COLOR, dashed: true });
