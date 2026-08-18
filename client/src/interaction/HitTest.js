@@ -1,11 +1,9 @@
 import {
   getAllPortPositions,
   getConnectorHandlePosition,
-  getEnterIconCenter,
   getBorderHit,
   PORT_RADIUS,
   CONNECTOR_HANDLE_RADIUS,
-  ENTER_ICON_RADIUS,
 } from '../render/BlockRenderer.js';
 
 // Handles are visually tiny, so their hit area is padded beyond what's drawn —
@@ -74,21 +72,13 @@ export function hitTest(project, worldX, worldY, boundary) {
     if (boundaryPortHit) return boundaryPortHit;
   }
 
-  for (let i = blocks.length - 1; i >= 0; i -= 1) {
-    const block = blocks[i];
-    const center = getEnterIconCenter(block);
-    if (pointInCircle(worldX, worldY, center.x, center.y, ENTER_ICON_RADIUS + HANDLE_HIT_PADDING)) {
-      return { type: 'enter', blockId: block.id };
-    }
-  }
-
   // A precise click right on a block's own border is ambiguous the same
   // way the boundary's own edge already was (see 'boundaryEdge' below): a
   // release without much movement adds a port there, a drag past the
   // threshold resizes that edge instead (splitter-style — DragStateMachine
   // handles both hit types the same way). Checked before the body so it
-  // doesn't get swallowed by "drag to move," but after ports/enter-icon so
-  // it never shadows a more specific handle.
+  // doesn't get swallowed by "drag to move," but after ports so it never
+  // shadows a more specific handle.
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const block = blocks[i];
     const border = getBorderHit(block.geometry, worldX, worldY);

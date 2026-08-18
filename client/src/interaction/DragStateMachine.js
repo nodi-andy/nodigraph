@@ -79,12 +79,6 @@ export class DragStateMachine {
     const hit = hitTest(this.project, world.x, world.y, boundary);
     if (hit) this.wireSelection.clear();
 
-    if (hit?.type === 'enter') {
-      // A discrete action, not a drag — fires immediately like a button.
-      this.onEnterBlock?.(hit.blockId);
-      return;
-    }
-
     if (hit?.type === 'connector') {
       const isBoundary = Boolean(boundary) && hit.blockId === boundary.block.id;
       // Selection is left untouched: drawing a wire shouldn't disturb
@@ -464,11 +458,10 @@ export class DragStateMachine {
     return previewPathToCursor(sourcePos, port.side, currentWorld, sourceInverted);
   }
 
-  // Double-clicking a block is a shortcut for its enter icon — either way
-  // gets you in, so it doesn't matter which one someone discovers first.
+  // Double-clicking a block's body drills into it.
   onDoubleClick(world) {
     const hit = hitTest(this.project, world.x, world.y);
-    if (hit?.type === 'body' || hit?.type === 'enter') {
+    if (hit?.type === 'body') {
       this.onEnterBlock?.(hit.blockId);
     }
   }
