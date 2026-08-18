@@ -280,13 +280,14 @@ function drawEmptySlots(ctx, block) {
 // (optional) is a `Map` of `"blockId:portId" -> ringColor` covering
 // selection and in-progress-wire feedback, shared across every block/
 // boundary drawn this frame.
-function drawPorts(ctx, block, { inverted = false, portHighlights = null } = {}) {
+function drawPorts(ctx, block, { inverted = false, portHighlights = null, showEmptySlots = false } = {}) {
   const outputColor = getStateColor(block) || DEFAULT_OUTPUT_PORT_COLOR;
 
   // The boundary frame is a dashed abstract container, not a solid face —
-  // it keeps the plain-dot style; an ordinary block gets every empty
-  // socket drawn faint underneath its actual ports.
-  if (!inverted) drawEmptySlots(ctx, block);
+  // it keeps the plain-dot style. An ordinary block only shows its empty
+  // sockets while selected (about to add or drag a port there) — showing
+  // them on every block all the time cluttered ones you weren't touching.
+  if (!inverted && showEmptySlots) drawEmptySlots(ctx, block);
 
   for (const { port, x: px, y: py } of getAllPortPositions(block)) {
     const isEffectivelyOutput = inverted ? port.direction === 'in' : port.direction === 'out';
@@ -360,7 +361,7 @@ export function drawBlock(ctx, block, { selected = false, portHighlights = null 
 
   ctx.restore();
 
-  drawPorts(ctx, block, { portHighlights });
+  drawPorts(ctx, block, { portHighlights, showEmptySlots: selected });
 }
 
 // The frame representing "the current system" — the block you're inside,
