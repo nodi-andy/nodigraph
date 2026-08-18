@@ -13,3 +13,10 @@ export const GOOGLE_OAUTH_SCOPES = [
   'https://www.googleapis.com/auth/documents',
   'https://www.googleapis.com/auth/drive.file',
 ].join(' ');
+
+// A browser API key for the Google Picker widget (model/googlePicker.js) —
+// distinct from the OAuth client above. Restrict it in Cloud Console to
+// the Google Picker API only, and to this app's origins (HTTP referrers).
+// Not sensitive the same way a client secret is, but keep it referrer-
+// restricted rather than wide open.
+export const GOOGLE_PICKER_API_KEY = '';

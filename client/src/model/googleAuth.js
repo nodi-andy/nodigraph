@@ -8,24 +8,29 @@ import { GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_SCOPES } from '../config.js';
 let tokenClient = null;
 let accessToken = null;
 let tokenExpiresAt = 0;
+let gisLoadPromise = null;
 
+// Always creates and listens to its own script element rather than
+// looking for one that might already be in the page — a tag added
+// elsewhere (e.g. eagerly in index.html) could already have fired its
+// load/error event by the time this runs, and listeners attached after an
+// event has already happened never fire, leaving the promise hung forever.
 function loadGis() {
   if (window.google?.accounts?.oauth2) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const existing = document.querySelector('script[data-gis]');
-    if (existing) {
-      existing.addEventListener('load', () => resolve());
-      existing.addEventListener('error', () => reject(new Error('Failed to load Google Identity Services')));
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.dataset.gis = 'true';
-    script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Failed to load Google Identity Services'));
-    document.head.appendChild(script);
-  });
+  if (!gisLoadPromise) {
+    gisLoadPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => {
+        gisLoadPromise = null; // let the next call retry instead of staying broken all session
+        reject(new Error('Failed to load Google Identity Services'));
+      };
+      document.head.appendChild(script);
+    });
+  }
+  return gisLoadPromise;
 }
 
 async function ensureTokenClient() {
