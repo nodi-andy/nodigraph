@@ -20,20 +20,7 @@ function pathToBlock(rootBlock, targetId) {
   return search(rootBlock, []) || [];
 }
 
-function computeLevelBounds(project, boundary) {
-  let minX = boundary ? boundary.geometry.x : Infinity;
-  let minY = boundary ? boundary.geometry.y : Infinity;
-  let maxX = boundary ? boundary.geometry.x + boundary.geometry.width : -Infinity;
-  let maxY = boundary ? boundary.geometry.y + boundary.geometry.height : -Infinity;
-  for (const block of project.listBlocks()) {
-    minX = Math.min(minX, block.geometry.x);
-    minY = Math.min(minY, block.geometry.y);
-    maxX = Math.max(maxX, block.geometry.x + block.geometry.width);
-    maxY = Math.max(maxY, block.geometry.y + block.geometry.height);
-  }
-  if (!Number.isFinite(minX)) return { x: 0, y: 0, width: 1, height: 1 };
-  return { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
-}
+const EMPTY_BOUNDS = { x: 0, y: 0, width: 1, height: 1 };
 
 const LEVEL_IMAGE_PADDING = 40;
 // A diagram renders at native 1:1 scale (zoom stays 1) so text/port sizing
@@ -57,11 +44,7 @@ export function renderLevelImages(project) {
     if (!block.children) return;
     project.path = pathToBlock(project.rootBlock, block.id);
 
-    const containerBlock = project.getContainerBlock();
-    const boundary = containerBlock?.boundaryGeometry
-      ? { block: containerBlock, geometry: containerBlock.boundaryGeometry }
-      : null;
-    const bounds = computeLevelBounds(project, boundary);
+    const bounds = project.getLevelBounds() || EMPTY_BOUNDS;
 
     const rawWidth = bounds.width + LEVEL_IMAGE_PADDING * 2;
     const rawHeight = bounds.height + LEVEL_IMAGE_PADDING * 2;

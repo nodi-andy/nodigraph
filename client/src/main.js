@@ -19,6 +19,8 @@ import { mountBreadcrumb } from './ui/Breadcrumb.js';
 import { mountDocSync } from './ui/DocSyncPanel.js';
 import { ENABLE_DOC_SYNC } from './config.js';
 import { mountFileToolbar } from './ui/FileToolbar.js';
+import { createNameEditor } from './ui/NameEditor.js';
+import { getBoundaryLabelRect } from './render/BlockRenderer.js';
 import { downloadProjectFile, readProjectFile } from './model/localFile.js';
 import { encodeProjectToParam, decodeProjectFromParam } from './model/shareLink.js';
 
@@ -157,22 +159,42 @@ async function bootstrap() {
 
   function updateNavigationUI() {
     breadcrumbApi?.refresh();
-    backButtonEl.hidden = project.path.length === 0;
+    // Always available: one level up when there is one, otherwise the
+    // offer to wrap the whole product in a new parent.
+    const atRoot = project.path.length === 0;
+    backButtonEl.textContent = atRoot ? '+' : '‹';
+    backButtonEl.title = atRoot ? 'Create a parent for this system' : 'Go to parent';
+    backButtonEl.setAttribute('aria-label', backButtonEl.title);
   }
 
   // Navigation is deliberately not persisted — reloading always starts back
-  // at the product root, like most apps default to a home view.
-  function resetCameraForNewLevel() {
-    camera.offsetX = 0;
-    camera.offsetY = 0;
-    camera.zoom = 1;
+  // at the product root, like most apps default to a home view. Each level
+  // is framed on its own content, since a child level's blocks generally
+  // sit nowhere near the parent's coordinates.
+  // Navigating usually also clears the selection, which hides the
+  // inspector and resizes the canvas. The canvas can report a stale size
+  // for a frame or more while that settles (observed: a 1280x977 box in an
+  // 800px-tall window), which would center the view on the wrong spot — so
+  // framing is applied right away *and* re-applied by resizeCanvas above
+  // for a short window afterwards, letting the settled size win.
+  const FRAME_SETTLE_MS = 300;
+  let framingUntil = 0;
+
+  function applyLevelFraming() {
+    if (performance.now() > framingUntil) return;
+    camera.centerOn(project.getLevelBounds(), canvas.clientWidth, canvas.clientHeight);
+  }
+
+  function frameCurrentLevel() {
+    framingUntil = performance.now() + FRAME_SETTLE_MS;
+    applyLevelFraming();
   }
 
   function enterBlock(blockId) {
     if (!project.enterBlock(blockId)) return;
     selection.clear();
     wireSelection.clear();
-    resetCameraForNewLevel();
+    frameCurrentLevel();
     updateNavigationUI();
     persist();
     renderLoop.requestRender();
@@ -182,11 +204,56 @@ async function bootstrap() {
     project.exitToDepth(depth);
     selection.clear();
     wireSelection.clear();
-    resetCameraForNewLevel();
+    frameCurrentLevel();
     updateNavigationUI();
     persist();
     renderLoop.requestRender();
   }
+
+  // "This system is actually a component of something bigger" — wraps the
+  // product in a new top level, keeping the view on the content already
+  // onscreen (now one level deeper) rather than jumping into the new,
+  // nearly-empty parent.
+  function createParent() {
+    project.createParent();
+    selection.clear();
+    wireSelection.clear();
+    updateNavigationUI();
+    persist();
+    renderLoop.requestRender();
+  }
+
+  // Opens the inline editor over whichever name was clicked: a block's own
+  // centered title, or — for the block you're currently inside — the
+  // boundary frame's label above its top-left corner.
+  function openRename(blockId) {
+    const block = project.getBlock(blockId);
+    if (!block) return;
+    const container = project.getContainerBlock();
+    const isContainer = container?.id === blockId;
+    const worldRect = isContainer
+      ? getBoundaryLabelRect(block, container.boundaryGeometry)
+      : block.geometry;
+
+    const topLeft = camera.worldToScreen(worldRect.x, worldRect.y);
+    const canvasRect = canvas.getBoundingClientRect();
+    nameEditor.open(blockId, block.name, {
+      x: canvasRect.left + topLeft.x,
+      y: canvasRect.top + topLeft.y,
+      width: worldRect.width * camera.zoom,
+      height: worldRect.height * camera.zoom,
+    });
+  }
+
+  const nameEditor = createNameEditor({
+    onCommit: (blockId, name) => {
+      const block = project.getBlock(blockId);
+      if (!block) return;
+      block.name = name;
+      persist();
+      renderLoop.requestRender();
+    },
+  });
 
   function handleSaveFile() {
     downloadProjectFile(project);
@@ -314,6 +381,9 @@ async function bootstrap() {
     const dpr = window.devicePixelRatio || 1;
     canvas.width = canvas.clientWidth * dpr;
     canvas.height = canvas.clientHeight * dpr;
+    // A resize right after navigating means the framing below was computed
+    // against a canvas that hadn't settled yet — redo it now that it has.
+    applyLevelFraming();
     renderLoop.requestRender();
   }
 
@@ -332,6 +402,7 @@ async function bootstrap() {
     requestRender: () => renderLoop.requestRender(),
     persist,
     onEnterBlock: enterBlock,
+    onRequestRename: openRename,
     onLiveUpdate: (message) => liveSync.sendLive(message),
   });
 
@@ -380,7 +451,10 @@ async function bootstrap() {
   });
 
   breadcrumbApi = mountBreadcrumb(breadcrumbEl, { project, onNavigate: navigateToDepth });
-  backButtonEl.addEventListener('click', () => navigateToDepth(project.path.length - 1));
+  backButtonEl.addEventListener('click', () => {
+    if (project.path.length === 0) createParent();
+    else navigateToDepth(project.path.length - 1);
+  });
 
   // Doc sync is parked behind a flag (see config.js) — the handlers above
   // stay wired so flipping the flag is the only step to bring it back.
@@ -422,6 +496,12 @@ async function bootstrap() {
   // layout pass still mid-flight in edge cases.
   resizeCanvas();
   new ResizeObserver(resizeCanvas).observe(canvas);
+  // Framed once the canvas has real dimensions — same treatment a level
+  // gets when you navigate into it, so a freshly-opened project (or a
+  // shared link) starts centered rather than wherever world 0,0 happens
+  // to land.
+  frameCurrentLevel();
+  updateNavigationUI();
   renderLoop.start();
 }
 
