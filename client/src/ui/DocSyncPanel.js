@@ -1,9 +1,10 @@
 // Small topbar control cluster for the Google Doc publish feature: a
 // status readout, an "Update Doc" button, and a settings gear for the one
-// thing that needs configuring — the Apps Script Web App URL (see
-// appsscript/Code.gs). Kept out of Toolbar.js since that's specifically
-// canvas actions (add block).
-const STORAGE_KEY = 'block-modeler:docWebAppUrl';
+// thing that needs configuring — the target Doc's URL. Signing in to
+// Google happens automatically on the first Update Doc click (see
+// model/googleAuth.js) rather than through anything here. Kept out of
+// Toolbar.js since that's specifically canvas actions (add block).
+const STORAGE_KEY = 'block-modeler:docUrl';
 
 function getStoredUrl() {
   try {
@@ -62,7 +63,7 @@ export function mountDocSync(container, { onUpdate }) {
     // A plain prompt() rather than a form — this is a one-time paste-in of
     // a URL, not something that needs its own settings screen.
     const next = window.prompt(
-      'Google Apps Script Web App URL for Doc sync (leave blank to disable):',
+      'Google Doc URL to push updates to (leave blank to disable):',
       current,
     );
     if (next === null) return; // cancelled
@@ -74,7 +75,7 @@ export function mountDocSync(container, { onUpdate }) {
   setStatus('idle');
 
   return {
-    getWebAppUrl: getStoredUrl,
+    getDocUrl: getStoredUrl,
     promptForUrl,
     setStatus,
   };

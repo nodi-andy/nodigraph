@@ -34,11 +34,14 @@ blocks/traceability in the canvas should follow.
   position while it's still being dragged, not just once it's dropped —
   see "Real-time sync" below for how this works and its limits.
 - Doc sync (optional): the tool stays the source of truth; a Google Doc is
-  a one-way publish target you write freely — paste a "Copy Doc region"
-  snippet (from the Inspector) anywhere you want a block's description +
-  diagram to live, and **Update Doc** refreshes just those spots in place.
-  Everything else you've written in the Doc is never touched. See
-  `appsscript/README.md` for setup (no Google Cloud project needed).
+  a one-way publish target — click the **⚙** next to Update Doc once to
+  paste the target Doc's URL, then **Update Doc** appends every block's
+  current description (and, for a block with children, its diagram as an
+  inline image) to the end of that doc. Nothing already in the doc is read
+  or touched — only ever appended to. Sign-in is a plain Google OAuth popup
+  the first time (via Google Identity Services, no Apps Script, no
+  backend) — see `client/src/model/googleAuth.js` and
+  `client/src/model/googleDocSync.js`.
 
 ### Run it
 

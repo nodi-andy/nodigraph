@@ -1,29 +1,9 @@
-// Publishes block descriptions + diagrams into a Google Doc, wherever the
-// user has manually placed an anchored region for that block — see
-// appsscript/Code.gs for the server side of this contract and
-// appsscript/README.md for the region syntax and setup. The tool stays the
-// only source of truth for structure/layout; the Doc is a one-way,
-// on-demand publish target, not something loaded back from.
+// Renders per-level diagrams and builds the payload googleDocSync.js pushes
+// to a Google Doc. The tool stays the only source of truth for
+// structure/layout; the Doc is a one-way, on-demand publish target, not
+// something loaded back from.
 import { Camera } from '../render/Camera.js';
 import { renderScene } from '../render/SceneRenderer.js';
-
-// The exact text a region needs — the app's own per-block description DSL
-// (already parsed/serialized elsewhere, see BlockDescription.js) plus a
-// diagram placeholder. `id` is what lets a later Update find this same
-// region again regardless of what prose the user has since written around
-// it. Copy this into the Doc anywhere; the surrounding text is never
-// touched.
-export function buildRegionSnippet(block) {
-  const lines = [
-    `[block-modeler:begin id=${block.id}]`,
-    block.description || `Block: ${block.name}`,
-  ];
-  if (block.hasChildren) {
-    lines.push('', '{diagram}');
-  }
-  lines.push(`[block-modeler:end id=${block.id}]`);
-  return lines.join('\n');
-}
 
 function pathToBlock(rootBlock, targetId) {
   if (rootBlock.id === targetId) return [];
@@ -119,30 +99,21 @@ export function renderLevelImages(project) {
   return images;
 }
 
-// Every block in the tree, with the diagram (if any) attached — Apps
-// Script decides which ones actually have a region to update; sending the
-// whole tree keeps this simple rather than needing the client to somehow
-// know in advance what's been placed in the Doc.
+// Every block in the tree, with its diagram (if any) attached — sending
+// the whole tree keeps this simple rather than needing the client to track
+// what's already been pushed.
 export function buildUpdatePayload(project) {
   const images = renderLevelImages(project);
   const blocks = [];
   function walk(block) {
-    blocks.push({ id: block.id, description: block.description || '', imageDataUrl: images.get(block.id) || null });
+    blocks.push({
+      id: block.id,
+      name: block.name,
+      description: block.description || '',
+      imageDataUrl: images.get(block.id) || null,
+    });
     if (block.children) for (const child of block.children.blocks.values()) walk(child);
   }
   walk(project.rootBlock);
   return blocks;
-}
-
-export async function updateDoc(webAppUrl, blocks) {
-  const res = await fetch(webAppUrl, {
-    method: 'POST',
-    // A plain-text content type keeps this a CORS "simple request" — Apps
-    // Script Web Apps can't answer a preflight OPTIONS request the way a
-    // normal server can, so anything that would trigger one just fails.
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action: 'update', blocks }),
-  });
-  if (!res.ok) throw new Error(`Update failed (${res.status})`);
-  return res.json(); // { ok:true, updated:[ids], skipped:[ids] }
 }
