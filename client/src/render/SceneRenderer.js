@@ -1,6 +1,7 @@
 import {
   drawBlock,
   drawBoundary,
+  drawPortGhost,
   PORT_SELECTED_RING_COLOR,
   PORT_SOURCE_RING_COLOR,
   PORT_TARGET_VALID_RING_COLOR,
@@ -127,6 +128,7 @@ export function renderScene(
     connectionTarget,
     wireSelection,
     remoteCursors,
+    hoverGhost,
     // Off for exported diagram images (see docSync.js) — the grid is an
     // editing aid, not part of the diagram, and leaving it out keeps the
     // exported PNG's background genuinely transparent instead of a faint
@@ -168,6 +170,13 @@ export function renderScene(
 
   if (pendingConnectionPath) {
     drawPath(ctx, pendingConnectionPath, { color: WIRE_COLOR, dashed: true });
+  }
+
+  // The "click here to add a port" preview — drawn on top of the block it
+  // belongs to, once the hover dwell has actually elapsed (see
+  // DragStateMachine.getHoverGhost).
+  if (hoverGhost) {
+    drawPortGhost(ctx, hoverGhost.geometry, hoverGhost.side, hoverGhost.offset);
   }
 
   // Drawn last so a remote cursor always reads on top of everything else.

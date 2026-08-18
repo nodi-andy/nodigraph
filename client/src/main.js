@@ -273,6 +273,7 @@ async function bootstrap() {
       connectionTarget: dragHighlights.target,
       wireSelection,
       remoteCursors: visibleRemoteCursors(),
+      hoverGhost: stateMachine.getHoverGhost(),
     });
   }
 

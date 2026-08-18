@@ -68,7 +68,13 @@ export const PORT_SLOT_SPACING = GRID_SIZE;
 // a very short side.
 export function getPortSlotOffsets(sideLength) {
   const cellCount = Math.max(1, Math.floor(sideLength / PORT_SLOT_SPACING));
-  return Array.from({ length: cellCount }, (_, i) => GRID_SIZE / 2 + i * GRID_SIZE);
+  const slots = Array.from({ length: cellCount }, (_, i) => GRID_SIZE / 2 + i * GRID_SIZE);
+  // The last slot sits only half a grid cell from the far corner, right
+  // where the resize handle's own padded hit box lives — a port there was
+  // unreliable to grab/drop. Dropped rather than offered as a slot that's
+  // practically unusable; guarded so a side with only one slot to begin
+  // with still gets it.
+  return slots.length > 1 ? slots.slice(0, -1) : slots;
 }
 
 // The nearest slot to `offset`, preferring one not already in `occupied`

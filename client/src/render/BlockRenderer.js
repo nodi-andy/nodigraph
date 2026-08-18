@@ -162,6 +162,30 @@ export function getBorderHit(geometry, worldX, worldY, threshold = BORDER_HIT_TH
   return { side: best.side, offset: snap(clamp(best.offset, bounds.min, bounds.max)) };
 }
 
+// Detects the cursor sitting *inside* the block, just past the border's own
+// resize zone and no deeper than a slot square's own depth — this is
+// "a little inside the box": hovering there is what reveals an add-port
+// ghost (see DragStateMachine's hover-ghost handling), a separate gesture
+// from a press on the border line itself, which is resize-only now.
+export function getEdgeZoneOffset(geometry, ports, worldX, worldY) {
+  const { x, y, width, height } = geometry;
+  if (worldX < x || worldX > x + width || worldY < y || worldY > y + height) return null;
+
+  const candidates = [
+    { side: 'left', dist: worldX - x, offset: worldY - y },
+    { side: 'right', dist: x + width - worldX, offset: worldY - y },
+    { side: 'top', dist: worldY - y, offset: worldX - x },
+    { side: 'bottom', dist: y + height - worldY, offset: worldX - x },
+  ];
+  candidates.sort((a, b) => a.dist - b.dist);
+  const best = candidates[0];
+  if (best.dist <= BORDER_HIT_THRESHOLD || best.dist > PORT_SLOT_SIZE) return null;
+
+  const length = sideAxis(best.side) === 'x' ? height : width;
+  const occupied = (ports || []).filter((p) => p.side === best.side).map((p) => nearestPortSlot(length, p.offset));
+  return { side: best.side, offset: nearestPortSlot(length, best.offset, occupied) };
+}
+
 // Grows away from wherever the connector handle points, so the two never
 // overlap: normally that's inward (the handle points outward), but on an
 // inverted (boundary) port the handle points inward instead, so the label
@@ -263,6 +287,31 @@ function drawSlotSquare(ctx, rect, fill, stroke) {
   ctx.fill();
   ctx.strokeStyle = stroke;
   ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
+const GHOST_SLOT_FILL = 'rgba(79, 140, 255, 0.25)';
+const GHOST_SLOT_STROKE = '#4f8cff';
+
+// The "click here to add a port" preview shown after the cursor dwells in
+// a block's edge zone for a moment (see DragStateMachine's hover-ghost
+// handling) — visually distinct (blue, a "+") from the plain empty-slot
+// squares so it reads as an active affordance, not just background grid.
+export function drawPortGhost(ctx, geometry, side, offset) {
+  const { x: px, y: py } = borderPointForOffset(geometry, side, offset);
+  const rect = getSlotRectFromBorderPoint(px, py, side);
+  drawSlotSquare(ctx, rect, GHOST_SLOT_FILL, GHOST_SLOT_STROKE);
+
+  ctx.strokeStyle = '#e6e9ef';
+  ctx.lineWidth = 1.5;
+  const cx = rect.x + PORT_SLOT_SIZE / 2;
+  const cy = rect.y + PORT_SLOT_SIZE / 2;
+  const arm = 4;
+  ctx.beginPath();
+  ctx.moveTo(cx - arm, cy);
+  ctx.lineTo(cx + arm, cy);
+  ctx.moveTo(cx, cy - arm);
+  ctx.lineTo(cx, cy + arm);
   ctx.stroke();
 }
 
