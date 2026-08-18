@@ -48,11 +48,10 @@ export function getPortOffsetBounds(sideLength) {
   return { min: PORT_EDGE_MARGIN, max: Math.max(PORT_EDGE_MARGIN, sideLength - PORT_EDGE_MARGIN) };
 }
 
-// Two grid cells apart — this is what makes a block's connector count
-// scale with its size (the default 240-wide block gets 3 slots per
-// top/bottom side, the default 160-tall block gets 2 per left/right,
-// matching each side's own GRID_SIZE-multiple length).
-export const PORT_SLOT_SPACING = GRID_SIZE * 2;
+// One slot per grid cell — a side that's N grid cells long gets N slots
+// (a 4-cell/160px side gets 4), so the connector count scales directly
+// with how big the block is in grid terms.
+export const PORT_SLOT_SPACING = GRID_SIZE;
 
 // The fixed "connector socket" positions along a side of this length — a
 // port sits at one of these now, not anywhere along the edge. Always at
