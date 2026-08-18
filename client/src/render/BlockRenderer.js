@@ -1,4 +1,4 @@
-import { clamp, snap, sideNormal, sideAxis, getPortOffsetBounds } from '../model/grid.js';
+import { clamp, snap, sideNormal, sideAxis, getPortOffsetBounds, getPortSlotOffsets, SIDES } from '../model/grid.js';
 import { getStateColor } from '../model/BlockDescription.js';
 
 const CORNER_RADIUS = 6;
@@ -8,12 +8,22 @@ export const PORT_RADIUS = 5;
 export const CONNECTOR_HANDLE_RADIUS = 4;
 export const CONNECTOR_NUB_LENGTH = 14;
 const CONNECTOR_ARROW_SIZE = 8;
+// An ordinary block's ports render as sockets inset into its own face
+// (see drawEmptySlots/getSlotRectFromBorderPoint) rather than dots
+// straddling the border line — the boundary frame (drawBoundary) keeps the
+// older dot style since it's a dashed abstract container, not a solid face
+// with room to inset into.
+export const PORT_SLOT_SIZE = 16;
+const SLOT_MATCH_TOLERANCE = 4;
+const EMPTY_SLOT_FILL = 'rgba(255, 255, 255, 0.04)';
+const EMPTY_SLOT_STROKE = 'rgba(255, 255, 255, 0.14)';
 const INPUT_PORT_COLOR = '#8b93a3';
 const DEFAULT_OUTPUT_PORT_COLOR = '#8b93a3';
 const CONNECTOR_HANDLE_COLOR = '#e6e9ef';
 const PORT_LABEL_COLOR = '#c3c9d4';
 const PORT_LABEL_GAP = 6;
 const PORT_RING_RADIUS = PORT_RADIUS + 4;
+const SLOT_RING_RADIUS = PORT_SLOT_SIZE / 2 + 4;
 // Selected (clicked, ready to delete) uses the same blue as a selected
 // block; an in-progress wire's own source stays that same "active" blue;
 // a hovered drop target turns green once it's actually compatible, or red
@@ -27,16 +37,12 @@ function sideLength(block, side) {
   return sideAxis(side) === 'x' ? block.geometry.height : block.geometry.width;
 }
 
-// A port's world position is its own stored side + offset from that side's
-// start corner, clamped to the current side length — dragging the move
-// handle sets these directly, so this stays the single place move/hit-test/
-// render all agree on where a port actually is.
-export function getPortPosition(block, port) {
-  const { x, y, width, height } = block.geometry;
-  const bounds = getPortOffsetBounds(sideLength(block, port.side));
-  const offset = clamp(port.offset ?? bounds.min, bounds.min, bounds.max);
-
-  switch (port.side) {
+// The point on a geometry's own border for a given side + raw offset —
+// shared by getPortPosition (a real port, offset already clamped) and
+// drawEmptySlots (every valid slot, whether occupied or not).
+export function borderPointForOffset(geometry, side, offset) {
+  const { x, y, width, height } = geometry;
+  switch (side) {
     case 'left':
       return { x, y: y + offset };
     case 'right':
@@ -47,6 +53,16 @@ export function getPortPosition(block, port) {
     default:
       return { x: x + offset, y: y + height };
   }
+}
+
+// A port's world position is its own stored side + offset from that side's
+// start corner, clamped to the current side length — dragging the move
+// handle sets these directly, so this stays the single place move/hit-test/
+// render all agree on where a port actually is.
+export function getPortPosition(block, port) {
+  const bounds = getPortOffsetBounds(sideLength(block, port.side));
+  const offset = clamp(port.offset ?? bounds.min, bounds.min, bounds.max);
+  return borderPointForOffset(block.geometry, port.side, offset);
 }
 
 export function getAllPortPositions(block) {
@@ -146,7 +162,9 @@ function drawPortLabel(ctx, port, pos, inverted = false) {
   const sign = inverted ? 1 : -1;
   const dirX = n.x * sign;
   const dirY = n.y * sign;
-  const gap = PORT_RADIUS + PORT_LABEL_GAP;
+  // Clears the dot (boundary) or the bigger inset slot square (ordinary
+  // block) before the label text starts.
+  const gap = (inverted ? PORT_RADIUS : PORT_SLOT_SIZE) + PORT_LABEL_GAP;
 
   if (Math.abs(dirX) > Math.abs(dirY)) {
     ctx.textAlign = dirX > 0 ? 'left' : 'right';
@@ -159,15 +177,17 @@ function drawPortLabel(ctx, port, pos, inverted = false) {
   }
 }
 
-// An arrowhead pointing the same way the connector line already travels
-// (outward for a normal block, inward for the boundary — see
-// getConnectorHandlePosition) reads as "drag from here to wire it up" more
-// clearly than a plain dot did.
-function drawConnectorArrow(ctx, handlePos, side, inverted) {
+// An arrowhead pointing outward (away from the block) for an output and
+// inward (back toward the block) for an input — reads as the direction
+// data actually flows, not just "here's a handle." `side`/`inverted` give
+// the handle's own outward-facing axis; isOutput then decides whether the
+// arrow points along that axis or against it.
+function drawConnectorArrow(ctx, handlePos, side, inverted, isOutput) {
   const n = sideNormal(side);
-  const sign = inverted ? -1 : 1;
-  const dirX = n.x * sign;
-  const dirY = n.y * sign;
+  const outwardSign = inverted ? -1 : 1;
+  const directionSign = isOutput ? 1 : -1;
+  const dirX = n.x * outwardSign * directionSign;
+  const dirY = n.y * outwardSign * directionSign;
   const perpX = -dirY;
   const perpY = dirX;
   const half = CONNECTOR_ARROW_SIZE / 2;
@@ -186,12 +206,70 @@ function drawConnectorArrow(ctx, handlePos, side, inverted) {
   ctx.fill();
 }
 
-function drawPortRing(ctx, x, y, color) {
+function drawPortRing(ctx, x, y, color, radius = PORT_RING_RADIUS) {
   ctx.beginPath();
-  ctx.arc(x, y, PORT_RING_RADIUS, 0, Math.PI * 2);
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
   ctx.strokeStyle = color;
   ctx.lineWidth = 2;
   ctx.stroke();
+}
+
+// A slot's rect, inset from the border point into the block's own face —
+// flush with the border on the outward-facing edge, extending inward by
+// PORT_SLOT_SIZE, so it reads as a socket built into the block rather than
+// a shape straddling the outline. Exported so HitTest can hit-test the
+// exact area actually drawn, not an approximation of it.
+export function getSlotRectFromBorderPoint(px, py, side) {
+  const half = PORT_SLOT_SIZE / 2;
+  const base = (() => {
+    switch (side) {
+      case 'left':
+        return { x: px, y: py - half };
+      case 'right':
+        return { x: px - PORT_SLOT_SIZE, y: py - half };
+      case 'top':
+        return { x: px - half, y: py };
+      case 'bottom':
+      default:
+        return { x: px - half, y: py - PORT_SLOT_SIZE };
+    }
+  })();
+  return { ...base, width: PORT_SLOT_SIZE, height: PORT_SLOT_SIZE };
+}
+
+// The exact rect an ordinary (non-inverted) block's port slot is drawn at.
+export function getPortSlotRect(block, port) {
+  const { x, y } = getPortPosition(block, port);
+  return getSlotRectFromBorderPoint(x, y, port.side);
+}
+
+function drawSlotSquare(ctx, rect, fill, stroke) {
+  ctx.beginPath();
+  ctx.rect(rect.x, rect.y, PORT_SLOT_SIZE, PORT_SLOT_SIZE);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
+// Every valid connector socket on this block's four sides that doesn't
+// currently hold a port — drawn faint (background, not a real handle) so
+// where a new port can go is discoverable without cluttering an
+// already-wired block. Tolerance-matched against occupancy rather than
+// exact equality since a port saved before slots existed may sit a few
+// pixels off a slot's exact center.
+function drawEmptySlots(ctx, block) {
+  const { width, height } = block.geometry;
+  for (const side of SIDES) {
+    const sideLength = sideAxis(side) === 'x' ? height : width;
+    const occupied = (block.ports || []).filter((p) => p.side === side).map((p) => p.offset);
+    for (const offset of getPortSlotOffsets(sideLength)) {
+      if (occupied.some((o) => Math.abs(o - offset) <= SLOT_MATCH_TOLERANCE)) continue;
+      const { x: px, y: py } = borderPointForOffset(block.geometry, side, offset);
+      drawSlotSquare(ctx, getSlotRectFromBorderPoint(px, py, side), EMPTY_SLOT_FILL, EMPTY_SLOT_STROKE);
+    }
+  }
 }
 
 // `inverted` is set when drawing a container's ports on its boundary frame:
@@ -205,11 +283,19 @@ function drawPortRing(ctx, x, y, color) {
 function drawPorts(ctx, block, { inverted = false, portHighlights = null } = {}) {
   const outputColor = getStateColor(block) || DEFAULT_OUTPUT_PORT_COLOR;
 
+  // The boundary frame is a dashed abstract container, not a solid face —
+  // it keeps the plain-dot style; an ordinary block gets every empty
+  // socket drawn faint underneath its actual ports.
+  if (!inverted) drawEmptySlots(ctx, block);
+
   for (const { port, x: px, y: py } of getAllPortPositions(block)) {
     const isEffectivelyOutput = inverted ? port.direction === 'in' : port.direction === 'out';
     const color = isEffectivelyOutput ? outputColor : INPUT_PORT_COLOR;
     const handle = getConnectorHandlePosition({ x: px, y: py }, port.side, inverted);
 
+    // Drawn before the dot/slot and arrowhead so both paint over its
+    // endpoint — the stub reads as attached to the handle, not the other
+    // way around.
     ctx.strokeStyle = '#4a5568';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -217,19 +303,23 @@ function drawPorts(ctx, block, { inverted = false, portHighlights = null } = {})
     ctx.lineTo(handle.x, handle.y);
     ctx.stroke();
 
-    ctx.beginPath();
-    ctx.arc(px, py, PORT_RADIUS, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
-    ctx.strokeStyle = '#12161d';
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    if (inverted) {
+      ctx.beginPath();
+      ctx.arc(px, py, PORT_RADIUS, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = '#12161d';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    } else {
+      drawSlotSquare(ctx, getSlotRectFromBorderPoint(px, py, port.side), color, '#12161d');
+    }
 
-    drawConnectorArrow(ctx, handle, port.side, inverted);
+    drawConnectorArrow(ctx, handle, port.side, inverted, isEffectivelyOutput);
     drawPortLabel(ctx, port, { x: px, y: py }, inverted);
 
     const ringColor = portHighlights?.get(`${block.id}:${port.id}`);
-    if (ringColor) drawPortRing(ctx, px, py, ringColor);
+    if (ringColor) drawPortRing(ctx, px, py, ringColor, inverted ? PORT_RING_RADIUS : SLOT_RING_RADIUS);
   }
 }
 

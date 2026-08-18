@@ -48,6 +48,34 @@ export function getPortOffsetBounds(sideLength) {
   return { min: PORT_EDGE_MARGIN, max: Math.max(PORT_EDGE_MARGIN, sideLength - PORT_EDGE_MARGIN) };
 }
 
+// Two grid cells apart — this is what makes a block's connector count
+// scale with its size (the default 240-wide block gets 3 slots per
+// top/bottom side, the default 160-tall block gets 2 per left/right,
+// matching each side's own GRID_SIZE-multiple length).
+export const PORT_SLOT_SPACING = GRID_SIZE * 2;
+
+// The fixed "connector socket" positions along a side of this length — a
+// port sits at one of these now, not anywhere along the edge. Always at
+// least one, even on a very short side.
+export function getPortSlotOffsets(sideLength) {
+  const bounds = getPortOffsetBounds(sideLength);
+  const count = Math.max(1, Math.floor(sideLength / PORT_SLOT_SPACING));
+  if (count === 1) return [(bounds.min + bounds.max) / 2];
+  const step = (bounds.max - bounds.min) / (count - 1);
+  return Array.from({ length: count }, (_, i) => bounds.min + step * i);
+}
+
+// The nearest slot to `offset`, preferring one not already in `occupied`
+// so two ports don't land on top of each other — but if every slot on this
+// side is already taken, still resolves to the nearest one rather than
+// refusing the drop.
+export function nearestPortSlot(sideLength, offset, occupied = []) {
+  const slots = getPortSlotOffsets(sideLength);
+  const free = slots.filter((s) => !occupied.includes(s));
+  const pool = free.length ? free : slots;
+  return pool.reduce((best, s) => (Math.abs(s - offset) < Math.abs(best - offset) ? s : best), pool[0]);
+}
+
 // The boundary is just a container for a block's own IOs, not a frame that
 // has to enclose its children — this is its starting size/position the
 // first time a block is entered; from then on it's whatever the user has
