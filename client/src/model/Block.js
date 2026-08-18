@@ -13,7 +13,6 @@ export const MIN_BLOCK_WIDTH = GRID_SIZE * 2;
 export const MIN_BLOCK_HEIGHT = GRID_SIZE * 2;
 
 export function createBlock({ x, y, name } = {}) {
-  const now = new Date().toISOString();
   const blockName = name || 'New Block';
   return {
     id: generateId('blk'),
@@ -32,21 +31,15 @@ export function createBlock({ x, y, name } = {}) {
     hasChildren: false,
     // Populated lazily the first time someone enters this block (see
     // Project.enterBlock) — { blocks: Map, connections: Map } in memory,
-    // { blocks: [], connections: [] } once serialized to JSON.
+    // omitted entirely once serialized to JSON if still empty (see
+    // serializeBlockTree).
     children: null,
     // The boundary frame's own position/size once this block has been
     // entered — just a container for its IOs, independent of where its
     // children happen to sit (see grid.createDefaultBoundaryGeometry).
     boundaryGeometry: null,
     requirementIds: [],
-    createdAt: now,
-    updatedAt: now,
   };
-}
-
-export function touchBlock(block) {
-  block.updatedAt = new Date().toISOString();
-  return block;
 }
 
 // Fills in fields added after some blocks were already saved to localStorage,
@@ -84,11 +77,19 @@ export function hydrateBlockTree(raw) {
 // Maps back into plain arrays for JSON.stringify.
 export function serializeBlockTree(block) {
   const serialized = { ...block };
-  if (block.children) {
+  // Entering a block lazily creates an empty children level (see
+  // Project.enterBlock) even if nothing was ever placed inside it —
+  // serializing that as `{blocks:[],connections:[]}` would be pure dead
+  // weight, and omitting it round-trips fine (hydrateBlockTree treats a
+  // missing children the same as an explicit null).
+  const hasContent = block.children && (block.children.blocks.size > 0 || block.children.connections.size > 0);
+  if (hasContent) {
     serialized.children = {
       blocks: Array.from(block.children.blocks.values()).map(serializeBlockTree),
       connections: Array.from(block.children.connections.values()),
     };
+  } else {
+    delete serialized.children;
   }
   return serialized;
 }

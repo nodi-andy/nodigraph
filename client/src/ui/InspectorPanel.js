@@ -1,4 +1,4 @@
-import { touchBlock, MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT } from '../model/Block.js';
+import { MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT } from '../model/Block.js';
 import { snap } from '../model/grid.js';
 import { CLICK_DRAG_THRESHOLD } from '../interaction/DragStateMachine.js';
 import {
@@ -15,7 +15,6 @@ import {
 // used for properties.
 function syncPortChange(block, requestRender, persist) {
   block.description = serializeBlockDescription(block);
-  touchBlock(block);
   requestRender();
   if (persist) persist();
 }
@@ -114,7 +113,6 @@ export function mountInspector(container, { project, selection, requestRender, p
     nameInput.value = block.name;
     nameInput.addEventListener('input', () => {
       block.name = nameInput.value;
-      touchBlock(block);
       requestRender();
     });
     nameInput.addEventListener('change', persist);
@@ -136,7 +134,6 @@ export function mountInspector(container, { project, selection, requestRender, p
         input.addEventListener('input', () => {
           const value = Number(input.value);
           block.geometry[key] = Number.isFinite(value) ? Math.max(min, value) : block.geometry[key];
-          touchBlock(block);
           requestRender();
         });
         input.addEventListener('change', () => {
@@ -166,7 +163,6 @@ export function mountInspector(container, { project, selection, requestRender, p
     colorInput.value = block.style.color;
     colorInput.addEventListener('input', () => {
       block.style.color = colorInput.value;
-      touchBlock(block);
       requestRender();
     });
     colorInput.addEventListener('change', persist);
@@ -203,7 +199,6 @@ export function mountInspector(container, { project, selection, requestRender, p
           }
           select.addEventListener('change', () => {
             setPropValue(block, prop.id, select.value);
-            touchBlock(block);
             requestRender();
             persist();
           });
@@ -214,7 +209,6 @@ export function mountInspector(container, { project, selection, requestRender, p
           input.value = prop.value;
           input.addEventListener('input', () => {
             setPropValue(block, prop.id, input.value);
-            touchBlock(block);
             requestRender();
           });
           input.addEventListener('change', persist);
@@ -335,7 +329,6 @@ export function mountInspector(container, { project, selection, requestRender, p
         // them dangling.
         if (!currentPortIds.has(id)) project.removeConnectionsForPort(id);
       }
-      touchBlock(block);
       requestRender();
       persist();
     };

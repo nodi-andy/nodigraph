@@ -46,6 +46,13 @@ blocks/traceability in the canvas should follow.
   project as a plain JSON file (`<name>.block-modeler.json`) — a draw.io-
   style local file, independent of the server and of Doc sync. See
   `client/src/model/localFile.js`.
+- Shareable link: **Share Link** in the topbar packs the whole diagram into
+  a `?d=...` URL param (gzip-compressed, base64url-encoded — no server, no
+  account needed to open it) and shows the resulting URL. Opening a link
+  like that loads the diagram straight from the URL instead of the
+  server's own project, and edits made while viewing one stay local — they
+  never overwrite the server's project or get overwritten by it. See
+  `client/src/model/shareLink.js`.
 
 ### Run it
 
