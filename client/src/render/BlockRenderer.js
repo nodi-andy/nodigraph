@@ -1,4 +1,13 @@
-import { clamp, snap, sideNormal, sideAxis, getPortOffsetBounds, getPortSlotOffsets, SIDES } from '../model/grid.js';
+import {
+  clamp,
+  snap,
+  sideNormal,
+  sideAxis,
+  getPortOffsetBounds,
+  getPortSlotOffsets,
+  nearestPortSlot,
+  SIDES,
+} from '../model/grid.js';
 import { getStateColor } from '../model/BlockDescription.js';
 
 const CORNER_RADIUS = 6;
@@ -14,7 +23,6 @@ const CONNECTOR_ARROW_SIZE = 8;
 // older dot style since it's a dashed abstract container, not a solid face
 // with room to inset into.
 export const PORT_SLOT_SIZE = 16;
-const SLOT_MATCH_TOLERANCE = 4;
 const EMPTY_SLOT_FILL = 'rgba(255, 255, 255, 0.04)';
 const EMPTY_SLOT_STROKE = 'rgba(255, 255, 255, 0.14)';
 const INPUT_PORT_COLOR = '#8b93a3';
@@ -56,12 +64,17 @@ export function borderPointForOffset(geometry, side, offset) {
 }
 
 // A port's world position is its own stored side + offset from that side's
-// start corner, clamped to the current side length — dragging the move
-// handle sets these directly, so this stays the single place move/hit-test/
-// render all agree on where a port actually is.
+// start corner, always resolved to the nearest valid connector slot (not
+// used as-is) — this is what keeps every port grid-aligned even for data
+// saved before slots existed, or one nudged slightly off by, say, a block
+// resize shifting what "nearest" means, without needing a one-time data
+// migration. The single place move/hit-test/render/wire-endpoint all agree
+// on where a port actually is.
 export function getPortPosition(block, port) {
-  const bounds = getPortOffsetBounds(sideLength(block, port.side));
-  const offset = clamp(port.offset ?? bounds.min, bounds.min, bounds.max);
+  const length = sideLength(block, port.side);
+  const bounds = getPortOffsetBounds(length);
+  const rawOffset = clamp(port.offset ?? bounds.min, bounds.min, bounds.max);
+  const offset = nearestPortSlot(length, rawOffset);
   return borderPointForOffset(block.geometry, port.side, offset);
 }
 
@@ -256,16 +269,20 @@ function drawSlotSquare(ctx, rect, fill, stroke) {
 // Every valid connector socket on this block's four sides that doesn't
 // currently hold a port — drawn faint (background, not a real handle) so
 // where a new port can go is discoverable without cluttering an
-// already-wired block. Tolerance-matched against occupancy rather than
-// exact equality since a port saved before slots existed may sit a few
-// pixels off a slot's exact center.
+// already-wired block. Occupancy is checked against each port's *resolved*
+// slot (nearestPortSlot), the same snapping getPortPosition applies — a
+// port saved before slots existed still correctly claims whichever slot
+// it now renders at, rather than leaving a stray empty square drawn right
+// on top of it.
 function drawEmptySlots(ctx, block) {
   const { width, height } = block.geometry;
   for (const side of SIDES) {
     const sideLength = sideAxis(side) === 'x' ? height : width;
-    const occupied = (block.ports || []).filter((p) => p.side === side).map((p) => p.offset);
+    const occupied = (block.ports || [])
+      .filter((p) => p.side === side)
+      .map((p) => nearestPortSlot(sideLength, p.offset));
     for (const offset of getPortSlotOffsets(sideLength)) {
-      if (occupied.some((o) => Math.abs(o - offset) <= SLOT_MATCH_TOLERANCE)) continue;
+      if (occupied.includes(offset)) continue;
       const { x: px, y: py } = borderPointForOffset(block.geometry, side, offset);
       drawSlotSquare(ctx, getSlotRectFromBorderPoint(px, py, side), EMPTY_SLOT_FILL, EMPTY_SLOT_STROKE);
     }

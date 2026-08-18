@@ -1,5 +1,5 @@
 import { generateId } from './Block.js';
-import { sideAxis, getPortSlotOffsets } from './grid.js';
+import { sideAxis, getPortSlotOffsets, nearestPortSlot } from './grid.js';
 
 /**
  * A block's ports and properties are edited as plain text in this small,
@@ -162,8 +162,11 @@ export function assignDefaultPortOffsets(block) {
 
     const sideLength = sideAxis(side) === 'x' ? height : width;
     // Manually-placed ports on this side are fixed points auto-layout has
-    // to dodge, not just other auto ports to space evenly against.
-    const taken = new Set(sidePorts.filter((p) => p.manualOffset).map((p) => p.offset));
+    // to dodge, not just other auto ports to space evenly against —
+    // compared by resolved slot (nearestPortSlot), not raw offset, so a
+    // port saved before slots existed still correctly reserves whichever
+    // slot it now actually renders at (see BlockRenderer.getPortPosition).
+    const taken = new Set(sidePorts.filter((p) => p.manualOffset).map((p) => nearestPortSlot(sideLength, p.offset)));
     const freeSlots = getPortSlotOffsets(sideLength).filter((s) => !taken.has(s));
 
     autoPorts.forEach((port, i) => {
