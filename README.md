@@ -41,6 +41,22 @@ Then open the printed URL (default `http://localhost:8080`). Project data
 is read from and written to `data/project.json` (created on first save).
 Override the folder with `BLOCK_MODELER_DATA_DIR`, and the port with `PORT`.
 
+### Deploy (Cloud Run)
+
+The `Dockerfile` at the repo root builds and serves the whole app (client +
+server), same pattern as `nodiwar`/`conucon`: no separate build step, no
+`cloudbuild.yaml` — just deploy the source directly.
+
+```bash
+gcloud run deploy block-modeler --source . --region <region> --allow-unauthenticated
+```
+
+The server listens on `PORT` (Cloud Run sets this to `8080` automatically).
+Project data is written to disk inside the container, so it does not
+survive a redeploy or new revision yet — fine for trying out the editor,
+not yet for durable storage (see "Doc sync" above, or a future persistent
+volume/database).
+
 ### Real-time sync
 
 The server keeps a WebSocket open per connected client (`ws`, the one
