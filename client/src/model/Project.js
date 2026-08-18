@@ -139,7 +139,46 @@ export class Project {
     }
   }
 
+  // The world-space extent of everything drawn at the current level — its
+  // blocks plus the container's own boundary frame. Used to center a level
+  // when you navigate into it, and to crop exported diagram images.
+  // Returns null when there's genuinely nothing to frame.
+  getLevelBounds() {
+    const container = this.getContainerBlock();
+    const rects = this.listBlocks().map((b) => b.geometry);
+    if (container?.boundaryGeometry) rects.push(container.boundaryGeometry);
+    if (!rects.length) return null;
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const r of rects) {
+      minX = Math.min(minX, r.x);
+      minY = Math.min(minY, r.y);
+      maxX = Math.max(maxX, r.x + r.width);
+      maxY = Math.max(maxY, r.y + r.height);
+    }
+    return { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+  }
+
   // --- Hierarchy navigation ---
+
+  // Wraps the whole product in a new top-level block, so what used to be
+  // the root becomes that block's single child — "this system turned out to
+  // be a component of something bigger." The view stays on the same content
+  // the user was already looking at (now one level deeper), rather than
+  // jumping up into the new, near-empty parent.
+  createParent(name = 'New Parent') {
+    const oldRoot = this.rootBlock;
+    const newRoot = createBlock({ name });
+    newRoot.hasChildren = true;
+    newRoot.boundaryGeometry = createDefaultBoundaryGeometry();
+    newRoot.children = { blocks: new Map([[oldRoot.id, oldRoot]]), connections: new Map() };
+    this.rootBlock = newRoot;
+    this.path = [oldRoot.id, ...this.path];
+    return newRoot;
+  }
 
   // Jumping into a block converts it into a container the first time (an
   // empty level to start filling in) and pushes it onto the path; jumping

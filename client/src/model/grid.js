@@ -38,14 +38,14 @@ export function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-// Keeps a port from ever sliding into a block's corner — both because a
-// corner is where the resize handle's padded hit box lives (a port there
-// would become ungrabbable), and because it just looks wrong tucked into
-// the rounded corner radius.
-const PORT_EDGE_MARGIN = 25;
-
+// Derived from the slot grid rather than an independent margin: a port can
+// only ever sit on a slot, so the valid offset range is exactly "first slot
+// to last slot". Keeping these as separate numbers is what previously made
+// the outermost slots unusable — a 25px margin clamped the first slot (20)
+// inward and pushed the last one (sideLength - 20) back off the grid.
 export function getPortOffsetBounds(sideLength) {
-  return { min: PORT_EDGE_MARGIN, max: Math.max(PORT_EDGE_MARGIN, sideLength - PORT_EDGE_MARGIN) };
+  const slots = getPortSlotOffsets(sideLength);
+  return { min: slots[0], max: slots[slots.length - 1] };
 }
 
 // One slot per grid cell — a side that's N grid cells long gets N slots
@@ -68,13 +68,7 @@ export const PORT_SLOT_SPACING = GRID_SIZE;
 // a very short side.
 export function getPortSlotOffsets(sideLength) {
   const cellCount = Math.max(1, Math.floor(sideLength / PORT_SLOT_SPACING));
-  const slots = Array.from({ length: cellCount }, (_, i) => GRID_SIZE / 2 + i * GRID_SIZE);
-  // The last slot sits only half a grid cell from the far corner, right
-  // where the resize handle's own padded hit box lives — a port there was
-  // unreliable to grab/drop. Dropped rather than offered as a slot that's
-  // practically unusable; guarded so a side with only one slot to begin
-  // with still gets it.
-  return slots.length > 1 ? slots.slice(0, -1) : slots;
+  return Array.from({ length: cellCount }, (_, i) => GRID_SIZE / 2 + i * GRID_SIZE);
 }
 
 // The nearest slot to `offset`, preferring one not already in `occupied`

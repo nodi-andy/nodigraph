@@ -11,6 +11,11 @@ import { addPort } from '../model/BlockDescription.js';
 // just passing through on the way to somewhere else never flashes one.
 const HOVER_GHOST_DELAY_MS = 200;
 
+// Just past a typical double-click window, so clicking a selected block to
+// rename it doesn't fire when the user was actually double-clicking to
+// enter it.
+const RENAME_CLICK_DELAY_MS = 350;
+
 const STATES = {
   IDLE: 'idle',
   PANNING: 'panning',
@@ -25,6 +30,10 @@ const STATES = {
   // corner-handle resize anymore.
   PENDING_EDGE: 'pendingEdge',
   RESIZING_EDGE: 'resizingEdge',
+  // Pressed the boundary frame's title. The editor opens on release, not
+  // here: focusing an input during pointerdown loses that focus again when
+  // the browser applies its own default focus handling on the way up.
+  PENDING_LABEL_RENAME: 'pendingLabelRename',
 };
 
 // Screen-space so the same finger/mouse movement counts as "a drag" the
@@ -42,7 +51,7 @@ function invertDirection(direction) {
  * a wire" vs "drag a wire's trunk" vs "pan background" unambiguous.
  */
 export class DragStateMachine {
-  constructor({ camera, project, selection, wireSelection, requestRender, persist, onEnterBlock, onLiveUpdate }) {
+  constructor({ camera, project, selection, wireSelection, requestRender, persist, onEnterBlock, onRequestRename, onLiveUpdate }) {
     this.camera = camera;
     this.project = project;
     this.selection = selection;
@@ -50,6 +59,13 @@ export class DragStateMachine {
     this.requestRender = requestRender;
     this.persist = persist;
     this.onEnterBlock = onEnterBlock;
+    // Opens an inline name editor over a block (see main.js). Clicking an
+    // already-selected block renames it, but that click is also the first
+    // half of a potential double-click (which enters the block instead) —
+    // so it's deferred by RENAME_CLICK_DELAY_MS and cancelled if a second
+    // click lands first.
+    this.onRequestRename = onRequestRename;
+    this.renameTimer = null;
     // Fired on every pointermove while dragging something positional (a
     // block, a port, a wire trunk, a boundary edge) — this is what lets
     // another open client see the move as it happens instead of only once
@@ -144,11 +160,24 @@ export class DragStateMachine {
       return;
     }
 
+    // The boundary frame's own title — unambiguous (nothing else uses a
+    // double-click there), so it renames on release without waiting out a
+    // double-click window the way a block's own name does.
+    if (hit?.type === 'boundaryLabel') {
+      this.state = STATES.PENDING_LABEL_RENAME;
+      this.context = { blockId: hit.blockId };
+      return;
+    }
+
     if (hit?.type === 'body') {
       const block = this.project.getBlock(hit.blockId);
+      // Captured before select() so onPointerUp can tell "clicked a block
+      // that was already selected" (rename) from "clicked to select it"
+      // (just select).
+      const wasSelected = this.selection.selectedBlockId === block.id && !this.selection.selectedPortId;
       this.selection.select(block.id);
       this.state = STATES.DRAGGING_BLOCK;
-      this.context = { blockId: block.id, startWorld: world, startGeom: { ...block.geometry } };
+      this.context = { blockId: block.id, startWorld: world, startGeom: { ...block.geometry }, wasSelected, moved: false };
       this.requestRender();
       return;
     }
@@ -226,6 +255,11 @@ export class DragStateMachine {
         // drag, rather than drifting off-grid by accumulated pixel deltas.
         block.geometry.x = snap(this.context.startGeom.x + (world.x - this.context.startWorld.x));
         block.geometry.y = snap(this.context.startGeom.y + (world.y - this.context.startWorld.y));
+        // Any actual movement means this was a drag, not the click that
+        // would otherwise open the rename editor on release.
+        if (block.geometry.x !== this.context.startGeom.x || block.geometry.y !== this.context.startGeom.y) {
+          this.context.moved = true;
+        }
         this.requestRender();
         this.onLiveUpdate?.({ kind: 'block', blockId: block.id, geometry: block.geometry });
         break;
@@ -371,6 +405,7 @@ export class DragStateMachine {
     if (hit?.type === 'border' || hit?.type === 'boundaryEdge') {
       return hit.side === 'left' || hit.side === 'right' ? 'ew-resize' : 'ns-resize';
     }
+    if (hit?.type === 'boundaryLabel') return 'text';
     return 'default';
   }
 
@@ -441,6 +476,17 @@ export class DragStateMachine {
       this.state === STATES.DRAGGING_BLOCK ||
       this.state === STATES.DRAGGING_PORT
     ) {
+      // A click (not a drag) on a block that was already selected opens
+      // its name editor — deferred, since this same click could turn out
+      // to be the first half of a double-click that enters the block.
+      if (this.state === STATES.DRAGGING_BLOCK && this.context.wasSelected && !this.context.moved) {
+        const blockId = this.context.blockId;
+        clearTimeout(this.renameTimer);
+        this.renameTimer = setTimeout(() => {
+          this.renameTimer = null;
+          this.onRequestRename?.(blockId);
+        }, RENAME_CLICK_DELAY_MS);
+      }
       this.persist();
     } else if (this.state === STATES.DRAWING_CONNECTION) {
       this.tryCompleteConnection(world);
@@ -453,6 +499,8 @@ export class DragStateMachine {
       // just does nothing.
     } else if (this.state === STATES.RESIZING_EDGE) {
       this.persist();
+    } else if (this.state === STATES.PENDING_LABEL_RENAME) {
+      this.onRequestRename?.(this.context.blockId);
     }
 
     this.state = STATES.IDLE;
@@ -556,8 +604,11 @@ export class DragStateMachine {
     return previewPathToCursor(sourcePos, port.side, currentWorld, sourceInverted);
   }
 
-  // Double-clicking a block's body drills into it.
+  // Double-clicking a block's body drills into it — and cancels the rename
+  // the first of those two clicks had queued up.
   onDoubleClick(world) {
+    clearTimeout(this.renameTimer);
+    this.renameTimer = null;
     const hit = hitTest(this.project, world.x, world.y);
     if (hit?.type === 'body') {
       this.onEnterBlock?.(hit.blockId);

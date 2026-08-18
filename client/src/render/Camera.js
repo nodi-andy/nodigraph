@@ -35,6 +35,19 @@ export class Camera {
     this.offsetY += screenY - worldAfterScreen.y;
   }
 
+  // Frames `bounds` (a world-space rect) in a viewport of the given size:
+  // centered, and zoomed out only as far as needed to fit. Never zooms
+  // past 1 — entering a level with one small block should show it at
+  // normal size in the middle, not blown up to fill the screen.
+  centerOn(bounds, viewportWidth, viewportHeight, padding = 60) {
+    if (!bounds || viewportWidth <= 0 || viewportHeight <= 0) return;
+    const availableWidth = Math.max(1, viewportWidth - padding * 2);
+    const availableHeight = Math.max(1, viewportHeight - padding * 2);
+    this.zoom = Math.min(1, availableWidth / bounds.width, availableHeight / bounds.height);
+    this.offsetX = viewportWidth / 2 - (bounds.x + bounds.width / 2) * this.zoom;
+    this.offsetY = viewportHeight / 2 - (bounds.y + bounds.height / 2) * this.zoom;
+  }
+
   // dpr folds in devicePixelRatio so the camera transform and the canvas's
   // physical-pixel backing store combine into a single setTransform call.
   applyTransform(ctx, dpr = 1) {

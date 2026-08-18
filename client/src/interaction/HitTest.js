@@ -2,6 +2,7 @@ import {
   getAllPortPositions,
   getConnectorHandlePosition,
   getBorderHit,
+  getBoundaryLabelRect,
   getPortSlotRect,
   PORT_RADIUS,
   CONNECTOR_HANDLE_RADIUS,
@@ -79,6 +80,14 @@ export function hitTest(project, worldX, worldY, boundary) {
     const boundaryView = { ...boundary.block, geometry: boundary.geometry };
     const boundaryPortHit = hitPortsAcrossBlocks([boundaryView], worldX, worldY, true);
     if (boundaryPortHit) return boundaryPortHit;
+
+    // The frame's title, sitting just above its top-left corner — a click
+    // there renames the block you're inside. Checked before the blocks
+    // below since it's outside the frame and can overlap one of them.
+    const labelRect = getBoundaryLabelRect(boundary.block, boundary.geometry);
+    if (pointInRect(worldX, worldY, labelRect, 2)) {
+      return { type: 'boundaryLabel', blockId: boundary.block.id };
+    }
   }
 
   // A precise click right on a block's own border is ambiguous the same

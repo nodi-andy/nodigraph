@@ -451,10 +451,36 @@ export function drawBoundary(ctx, block, geometry, { selected = false, portHighl
   ctx.restore();
 
   ctx.fillStyle = selected ? '#4f8cff' : '#8b93a3';
-  ctx.font = '11px -apple-system, Segoe UI, Roboto, sans-serif';
+  ctx.font = BOUNDARY_LABEL_FONT;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'bottom';
   ctx.fillText(block.name, x + 4, y - 6);
 
   drawPorts(ctx, { ...block, geometry }, { inverted: true, portHighlights });
+}
+
+export const BOUNDARY_LABEL_FONT = '11px -apple-system, Segoe UI, Roboto, sans-serif';
+const BOUNDARY_LABEL_HEIGHT = 14;
+
+// Measuring text needs a 2d context, and hit-testing runs outside any
+// render pass — so this keeps a tiny offscreen one purely for measurement
+// rather than depending on whichever canvas happens to be drawing.
+let measureCtx = null;
+function measureText(text, font) {
+  if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
+  measureCtx.font = font;
+  return measureCtx.measureText(text).width;
+}
+
+// The clickable box around the boundary frame's title (drawn above its
+// top-left corner) — clicking it renames the block you're currently inside.
+// Kept in step with drawBoundary's own fillText placement above.
+export function getBoundaryLabelRect(block, geometry) {
+  const width = Math.max(24, measureText(block.name || '', BOUNDARY_LABEL_FONT));
+  return {
+    x: geometry.x + 4,
+    y: geometry.y - 6 - BOUNDARY_LABEL_HEIGHT,
+    width,
+    height: BOUNDARY_LABEL_HEIGHT,
+  };
 }
