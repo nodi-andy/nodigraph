@@ -9,7 +9,9 @@ import { WebSocketServer } from 'ws';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT_DIR = path.join(here, '..', '..', 'client');
-const DATA_DIR = process.env.BLOCK_MODELER_DATA_DIR || path.join(here, '..', '..', 'data');
+// BLOCK_MODELER_DATA_DIR stays honoured so an already-deployed instance
+// keeps pointing at its data after the rename.
+const DATA_DIR = process.env.NODITRON_DATA_DIR || process.env.BLOCK_MODELER_DATA_DIR || path.join(here, '..', '..', 'data');
 const DATA_FILE = path.join(DATA_DIR, 'project.json');
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
 
@@ -143,6 +145,6 @@ wss.on('connection', (socket) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`block-modeler server running at http://localhost:${PORT}`);
+  console.log(`noditron server running at http://localhost:${PORT}`);
   console.log(`Project data stored at ${DATA_FILE}`);
 });

@@ -1,4 +1,4 @@
-# block-modeler
+# noditron
 
 Browser-based visual editor for product specification: define a product,
 its interfaces, requirements, and architecture, with components
@@ -44,7 +44,7 @@ blocks/traceability in the canvas should follow.
   backend — see `client/src/model/googleAuth.js`, `googleDocSync.js`, and
   `googlePicker.js`.
 - Local save/open: **Save**/**Open** in the topbar write/read the whole
-  project as a plain JSON file (`<name>.block-modeler.json`) — a draw.io-
+  project as a plain JSON file (`<name>.noditron.json`) — a draw.io-
   style local file, independent of the server and of Doc sync. See
   `client/src/model/localFile.js`.
 - Shareable link: **Share Link** in the topbar packs the whole diagram into
@@ -64,7 +64,8 @@ node src/app.js
 
 Then open the printed URL (default `http://localhost:8080`). Project data
 is read from and written to `data/project.json` (created on first save).
-Override the folder with `BLOCK_MODELER_DATA_DIR`, and the port with `PORT`.
+Override the folder with `NODITRON_DATA_DIR` (the older
+`BLOCK_MODELER_DATA_DIR` still works), and the port with `PORT`.
 
 ### Deploy (Cloud Run)
 
@@ -73,7 +74,7 @@ server), same pattern as `nodiwar`/`conucon`: no separate build step, no
 `cloudbuild.yaml` — just deploy the source directly.
 
 ```bash
-gcloud run deploy block-modeler --source . --region <region> --allow-unauthenticated
+gcloud run deploy noditron --source . --region <region> --allow-unauthenticated
 ```
 
 The server listens on `PORT` (Cloud Run sets this to `8080` automatically).

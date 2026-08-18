@@ -29,7 +29,9 @@ const ctx = canvas.getContext('2d');
 const fabEl = document.getElementById('fab-add-block');
 const inspectorEl = document.getElementById('inspector');
 const breadcrumbEl = document.getElementById('breadcrumb');
-const backButtonEl = document.getElementById('btn-back');
+const parentFabEl = document.getElementById('fab-parent');
+const parentUpIconEl = parentFabEl.querySelector('[data-icon="up"]');
+const parentAddIconEl = parentFabEl.querySelector('[data-icon="add-parent"]');
 const docSyncEl = document.getElementById('doc-sync');
 const fileToolbarEl = document.getElementById('file-toolbar');
 
@@ -162,9 +164,14 @@ async function bootstrap() {
     // Always available: one level up when there is one, otherwise the
     // offer to wrap the whole product in a new parent.
     const atRoot = project.path.length === 0;
-    backButtonEl.textContent = atRoot ? '+' : '‹';
-    backButtonEl.title = atRoot ? 'Create a parent for this system' : 'Go to parent';
-    backButtonEl.setAttribute('aria-label', backButtonEl.title);
+    // style.display rather than the `hidden` attribute: `hidden` is an
+    // HTMLElement property and these are SVG elements, where assigning it
+    // just sets a JS expando and leaves both icons drawn on top of each
+    // other.
+    parentUpIconEl.style.display = atRoot ? 'none' : '';
+    parentAddIconEl.style.display = atRoot ? '' : 'none';
+    parentFabEl.title = atRoot ? 'Create a parent for this system' : 'Go to parent';
+    parentFabEl.setAttribute('aria-label', parentFabEl.title);
   }
 
   // Navigation is deliberately not persisted — reloading always starts back
@@ -451,7 +458,7 @@ async function bootstrap() {
   });
 
   breadcrumbApi = mountBreadcrumb(breadcrumbEl, { project, onNavigate: navigateToDepth });
-  backButtonEl.addEventListener('click', () => {
+  parentFabEl.addEventListener('click', () => {
     if (project.path.length === 0) createParent();
     else navigateToDepth(project.path.length - 1);
   });

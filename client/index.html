@@ -3,20 +3,32 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>block-modeler</title>
+  <title>noditron</title>
+  <link rel="icon" type="image/svg+xml" href="icon.svg" />
+  <link rel="apple-touch-icon" href="icon.svg" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div id="app">
     <header id="topbar">
-      <button id="btn-back" class="back-button" type="button" aria-label="Go to parent">‹</button>
-      <span class="brand">block-modeler</span>
+      <span class="brand">noditron</span>
       <nav id="breadcrumb" class="breadcrumb"></nav>
       <div id="file-toolbar"></div>
       <div id="doc-sync"></div>
     </header>
     <canvas id="scene-canvas"></canvas>
     <div id="inspector"></div>
+    <!-- Mirrors the add-block FAB on the opposite corner: goes up a level,
+         or offers to create a parent when already at the top (main.js's
+         updateNavigationUI swaps which icon shows). -->
+    <button id="fab-parent" class="fab fab-left" type="button" aria-label="Go to parent">
+      <svg data-icon="up" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+        <path d="M11 9v10h2V9h4.5L12 3.5 6.5 9z" fill="currentColor" />
+      </svg>
+      <svg data-icon="add-parent" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" style="display: none">
+        <path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z" fill="currentColor" />
+      </svg>
+    </button>
     <button id="fab-add-block" class="fab" type="button" aria-label="Add block">
       <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
         <path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z" fill="currentColor" />

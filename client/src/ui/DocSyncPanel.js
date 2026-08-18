@@ -6,6 +6,8 @@
 // connected yet, both buttons would do the exact same thing (start the
 // connect flow), which reads as "these are the same button." Kept out of
 // Toolbar.js since that's specifically canvas actions (add block).
+// Deliberately left on the old key: renaming it would silently drop the
+// doc every existing user already connected.
 const STORAGE_KEY = 'block-modeler:docUrl';
 
 function getStoredUrl() {
