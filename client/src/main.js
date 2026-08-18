@@ -5,6 +5,8 @@ import { loadProject, saveProject } from './model/store.js';
 import { connectLiveSync } from './model/liveSync.js';
 import { buildUpdatePayload } from './model/docSync.js';
 import { appendBlocksToDoc } from './model/googleDocSync.js';
+import { getAccessToken } from './model/googleAuth.js';
+import { pickGoogleDoc } from './model/googlePicker.js';
 import { Camera } from './render/Camera.js';
 import { RenderLoop } from './render/RenderLoop.js';
 import { renderScene } from './render/SceneRenderer.js';
@@ -96,15 +98,32 @@ async function bootstrap() {
     renderLoop.requestRender();
   }
 
+  // Signs in (if needed) and opens the Google Picker so the target doc is
+  // chosen from the user's actual Drive listing rather than pasted by
+  // hand. Falls back to the plain URL prompt if the Picker itself can't be
+  // used (not configured yet, failed to load, etc.) — the settings button
+  // should never just do nothing.
+  async function handleConnectDoc() {
+    try {
+      const token = await getAccessToken();
+      const docId = await pickGoogleDoc(token);
+      if (docId) {
+        docSyncApi.setDocUrl(docId);
+        docSyncApi.setStatus('connected');
+      }
+    } catch (err) {
+      docSyncApi.promptForUrl();
+    }
+  }
+
   // The only thing that reaches Google: renders a fresh diagram per level
   // and appends every block's current description + diagram to the end of
-  // the target Doc. The first call in a tab prompts a Google sign-in popup
-  // (see model/googleAuth.js); nothing above where this appends is ever
-  // read or touched.
+  // the target Doc. Nothing above where this appends is ever read or
+  // touched.
   async function handleUpdateDoc() {
     const url = docSyncApi.getDocUrl();
     if (!url) {
-      docSyncApi.promptForUrl();
+      await handleConnectDoc();
       return;
     }
     docSyncApi.setStatus('updating');
@@ -297,7 +316,7 @@ async function bootstrap() {
   breadcrumbApi = mountBreadcrumb(breadcrumbEl, { project, onNavigate: navigateToDepth });
   backButtonEl.addEventListener('click', () => navigateToDepth(project.path.length - 1));
 
-  docSyncApi = mountDocSync(docSyncEl, { onUpdate: handleUpdateDoc });
+  docSyncApi = mountDocSync(docSyncEl, { onUpdate: handleUpdateDoc, onConnect: handleConnectDoc });
 
   // Delete/Backspace removes the selected block or wire(s), but only when
   // focus isn't in a text field — otherwise editing the Name field or

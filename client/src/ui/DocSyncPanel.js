@@ -1,9 +1,8 @@
 // Small topbar control cluster for the Google Doc publish feature: a
-// status readout, an "Update Doc" button, and a settings gear for the one
-// thing that needs configuring — the target Doc's URL. Signing in to
-// Google happens automatically on the first Update Doc click (see
-// model/googleAuth.js) rather than through anything here. Kept out of
-// Toolbar.js since that's specifically canvas actions (add block).
+// status readout, an "Update Doc" button, and a settings gear that opens
+// the Google Picker (main.js's onConnect) so the target doc is chosen from
+// an actual Drive file list rather than pasted in. Kept out of Toolbar.js
+// since that's specifically canvas actions (add block).
 const STORAGE_KEY = 'block-modeler:docUrl';
 
 function getStoredUrl() {
@@ -25,12 +24,13 @@ function setStoredUrl(url) {
 
 const STATUS_LABELS = {
   idle: 'Not connected',
+  connected: 'Connected',
   updating: 'Updating…',
   updated: 'Updated',
   error: 'Sync error',
 };
 
-export function mountDocSync(container, { onUpdate }) {
+export function mountDocSync(container, { onUpdate, onConnect }) {
   container.innerHTML = '';
   container.className = 'doc-sync';
 
@@ -46,9 +46,9 @@ export function mountDocSync(container, { onUpdate }) {
   const settingsButton = document.createElement('button');
   settingsButton.type = 'button';
   settingsButton.className = 'doc-sync-settings';
-  settingsButton.setAttribute('aria-label', 'Configure Google Doc sync');
+  settingsButton.setAttribute('aria-label', 'Choose the Google Doc to sync to');
   settingsButton.textContent = '⚙';
-  settingsButton.addEventListener('click', () => promptForUrl());
+  settingsButton.addEventListener('click', () => onConnect());
 
   container.append(status, updateButton, settingsButton);
 
@@ -58,10 +58,11 @@ export function mountDocSync(container, { onUpdate }) {
     status.dataset.state = state;
   }
 
+  // Fallback for when the Picker itself can't be used (not configured, or
+  // failed to load) — a plain paste-in rather than leaving the settings
+  // button dead.
   function promptForUrl() {
     const current = getStoredUrl();
-    // A plain prompt() rather than a form — this is a one-time paste-in of
-    // a URL, not something that needs its own settings screen.
     const next = window.prompt(
       'Google Doc URL to push updates to (leave blank to disable):',
       current,
@@ -69,13 +70,14 @@ export function mountDocSync(container, { onUpdate }) {
     if (next === null) return; // cancelled
     const trimmed = next.trim();
     setStoredUrl(trimmed);
-    setStatus('idle');
+    setStatus(trimmed ? 'connected' : 'idle');
   }
 
-  setStatus('idle');
+  setStatus(getStoredUrl() ? 'connected' : 'idle');
 
   return {
     getDocUrl: getStoredUrl,
+    setDocUrl: setStoredUrl,
     promptForUrl,
     setStatus,
   };
