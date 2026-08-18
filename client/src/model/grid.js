@@ -54,14 +54,21 @@ export function getPortOffsetBounds(sideLength) {
 export const PORT_SLOT_SPACING = GRID_SIZE;
 
 // The fixed "connector socket" positions along a side of this length — a
-// port sits at one of these now, not anywhere along the edge. Always at
-// least one, even on a very short side.
+// port sits at one of these now, not anywhere along the edge. Each slot is
+// a grid cell's own center (GRID_SIZE/2, GRID_SIZE*1.5, ...), not a value
+// stretched to span the full margin-to-margin range: since every block's
+// own position is itself grid-snapped, `geometry.x/y + offset` always
+// lands on the same fixed family of half-grid-cell absolute positions
+// regardless of this particular block's size — which is what lets two
+// *different* blocks' ports (or a block's and the boundary's) end up on
+// the exact same absolute row/column and produce a straight wire, instead
+// of each side computing its own independent, unaligned spacing. It also
+// means an even slot count no longer clusters both slots at the two
+// corners with nothing near the middle. Always at least one slot, even on
+// a very short side.
 export function getPortSlotOffsets(sideLength) {
-  const bounds = getPortOffsetBounds(sideLength);
-  const count = Math.max(1, Math.floor(sideLength / PORT_SLOT_SPACING));
-  if (count === 1) return [(bounds.min + bounds.max) / 2];
-  const step = (bounds.max - bounds.min) / (count - 1);
-  return Array.from({ length: count }, (_, i) => bounds.min + step * i);
+  const cellCount = Math.max(1, Math.floor(sideLength / PORT_SLOT_SPACING));
+  return Array.from({ length: cellCount }, (_, i) => GRID_SIZE / 2 + i * GRID_SIZE);
 }
 
 // The nearest slot to `offset`, preferring one not already in `occupied`
