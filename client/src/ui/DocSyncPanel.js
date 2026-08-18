@@ -1,8 +1,11 @@
 // Small topbar control cluster for the Google Doc publish feature: a
 // status readout, an "Update Doc" button, and a settings gear that opens
 // the Google Picker (main.js's onConnect) so the target doc is chosen from
-// an actual Drive file list rather than pasted in. Kept out of Toolbar.js
-// since that's specifically canvas actions (add block).
+// an actual Drive file list rather than pasted in. Update Doc stays
+// disabled until a doc is actually connected — otherwise, with nothing
+// connected yet, both buttons would do the exact same thing (start the
+// connect flow), which reads as "these are the same button." Kept out of
+// Toolbar.js since that's specifically canvas actions (add block).
 const STORAGE_KEY = 'block-modeler:docUrl';
 
 function getStoredUrl() {
@@ -58,6 +61,12 @@ export function mountDocSync(container, { onUpdate, onConnect }) {
     status.dataset.state = state;
   }
 
+  function refreshConnectedState() {
+    const connected = Boolean(getStoredUrl());
+    updateButton.disabled = !connected;
+    updateButton.title = connected ? '' : 'Connect a Google Doc first (⚙)';
+  }
+
   // Fallback for when the Picker itself can't be used (not configured, or
   // failed to load) — a plain paste-in rather than leaving the settings
   // button dead.
@@ -71,13 +80,18 @@ export function mountDocSync(container, { onUpdate, onConnect }) {
     const trimmed = next.trim();
     setStoredUrl(trimmed);
     setStatus(trimmed ? 'connected' : 'idle');
+    refreshConnectedState();
   }
 
   setStatus(getStoredUrl() ? 'connected' : 'idle');
+  refreshConnectedState();
 
   return {
     getDocUrl: getStoredUrl,
-    setDocUrl: setStoredUrl,
+    setDocUrl(url) {
+      setStoredUrl(url);
+      refreshConnectedState();
+    },
     promptForUrl,
     setStatus,
   };
