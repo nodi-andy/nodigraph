@@ -8,8 +8,6 @@ export const PORT_RADIUS = 5;
 export const CONNECTOR_HANDLE_RADIUS = 4;
 export const CONNECTOR_NUB_LENGTH = 14;
 const CONNECTOR_ARROW_SIZE = 8;
-export const ENTER_ICON_RADIUS = 9;
-export const ENTER_ICON_MARGIN = 4;
 const INPUT_PORT_COLOR = '#8b93a3';
 const DEFAULT_OUTPUT_PORT_COLOR = '#8b93a3';
 const CONNECTOR_HANDLE_COLOR = '#e6e9ef';
@@ -235,35 +233,6 @@ function drawPorts(ctx, block, { inverted = false, portHighlights = null } = {})
   }
 }
 
-// Always visible (not just when selected) so drilling into a block is
-// discoverable without already knowing the double-click shortcut exists.
-export function getEnterIconCenter(block) {
-  const { x, y, height } = block.geometry;
-  return {
-    x: x + ENTER_ICON_MARGIN + ENTER_ICON_RADIUS,
-    y: y + height - ENTER_ICON_MARGIN - ENTER_ICON_RADIUS,
-  };
-}
-
-function drawEnterIcon(ctx, block) {
-  const { x: cx, y: cy } = getEnterIconCenter(block);
-
-  ctx.beginPath();
-  ctx.arc(cx, cy, ENTER_ICON_RADIUS, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  // A small square-within-a-circle reads as "this contains its own
-  // architecture" without needing a text label at this size.
-  const s = 6;
-  ctx.strokeStyle = '#e6e9ef';
-  ctx.lineWidth = 1.3;
-  ctx.strokeRect(cx - s / 2, cy - s / 2, s, s);
-}
-
 function roundRectPath(ctx, x, y, width, height, radius) {
   ctx.beginPath();
   ctx.moveTo(x + radius, y);
@@ -302,7 +271,6 @@ export function drawBlock(ctx, block, { selected = false, portHighlights = null 
   ctx.restore();
 
   drawPorts(ctx, block, { portHighlights });
-  drawEnterIcon(ctx, block);
 }
 
 // The frame representing "the current system" — the block you're inside,

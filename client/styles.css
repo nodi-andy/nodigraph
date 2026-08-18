@@ -177,10 +177,14 @@ html, body {
 }
 
 /* Floating action button — the app's single primary action, following the
-   mobile FAB convention so the same control works for touch and mouse. */
+   mobile FAB convention so the same control works for touch and mouse.
+   Anchored to the canvas pane, not the viewport: on desktop the inspector
+   is a permanent 300px column (see #app's grid-template-columns below), so
+   without this offset a viewport-relative "right: 20px" would land inside
+   the inspector instead of over the canvas. */
 .fab {
   position: fixed;
-  right: 20px;
+  right: calc(300px + 20px);
   bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   width: 56px;
   height: 56px;
@@ -442,6 +446,12 @@ html, body {
     grid-template-areas:
       "topbar"
       "canvas";
+  }
+
+  /* No permanent inspector column here — it's a bottom sheet over the
+     full-bleed canvas — so the FAB sits at the viewport edge directly. */
+  .fab {
+    right: 20px;
   }
 
   #topbar .hint {
