@@ -21,7 +21,12 @@ const MIME_TYPES = {
 };
 
 function serveStatic(req, res) {
-  const urlPath = req.url === '/' ? '/index.html' : req.url.split('?')[0];
+  // Query string stripped *before* the root check — a shared-diagram link
+  // (?d=...) lands on '/' with a query string attached, which needs the
+  // same index.html this bare root gets, not a 404 from trying to read the
+  // client directory itself as a file.
+  const pathOnly = req.url.split('?')[0];
+  const urlPath = pathOnly === '/' ? '/index.html' : pathOnly;
   const filePath = path.join(CLIENT_DIR, decodeURIComponent(urlPath));
 
   if (!filePath.startsWith(CLIENT_DIR)) {

@@ -1,5 +1,5 @@
 import { hitTest } from './HitTest.js';
-import { touchBlock, MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT } from '../model/Block.js';
+import { MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT } from '../model/Block.js';
 import { snap, GRID_SIZE, sideAxis, nearestPortSlot } from '../model/grid.js';
 import { findConnectorPosition, projectPointToPerimeter, getEdgeZoneOffset } from '../render/BlockRenderer.js';
 import { getConnectionGeometry, previewPathToCursor, hitTestConnectionTrunk } from '../render/ConnectionRenderer.js';
@@ -433,7 +433,6 @@ export class DragStateMachine {
     const occupied = block.ports.filter((p) => p.side === side).map((p) => nearestPortSlot(sideLength, p.offset));
     const slotOffset = nearestPortSlot(sideLength, offset, occupied);
     addPort(block, { direction, side, offset: slotOffset });
-    touchBlock(block);
     this.selection.select(block.id);
     this.persist();
     this.requestRender();
@@ -444,8 +443,6 @@ export class DragStateMachine {
       this.state === STATES.DRAGGING_BLOCK ||
       this.state === STATES.DRAGGING_PORT
     ) {
-      const block = this.project.getBlock(this.context.blockId);
-      if (block) touchBlock(block);
       this.persist();
     } else if (this.state === STATES.DRAWING_CONNECTION) {
       this.tryCompleteConnection(world);
@@ -457,8 +454,6 @@ export class DragStateMachine {
       // how a port actually gets added), so a plain press-release here
       // just does nothing.
     } else if (this.state === STATES.RESIZING_EDGE) {
-      const block = this.project.getBlock(this.context.blockId);
-      if (block) touchBlock(block);
       this.persist();
     }
 

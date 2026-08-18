@@ -1,5 +1,4 @@
 import { Project } from './model/Project.js';
-import { touchBlock } from './model/Block.js';
 import { removePort } from './model/BlockDescription.js';
 import { loadProject, saveProject } from './model/store.js';
 import { connectLiveSync } from './model/liveSync.js';
@@ -20,6 +19,7 @@ import { mountBreadcrumb } from './ui/Breadcrumb.js';
 import { mountDocSync } from './ui/DocSyncPanel.js';
 import { mountFileToolbar } from './ui/FileToolbar.js';
 import { downloadProjectFile, readProjectFile } from './model/localFile.js';
+import { encodeProjectToParam, decodeProjectFromParam } from './model/shareLink.js';
 
 const canvas = document.getElementById('scene-canvas');
 const ctx = canvas.getContext('2d');
@@ -42,7 +42,23 @@ function pathsEqual(a, b) {
 // model/store.js), so the rest of setup — everything that touches
 // `project` — waits inside here instead of running at module top level.
 async function bootstrap() {
-  const project = (await loadProject()) || new Project({ name: 'Untitled Product' });
+  // A diagram opened via a shared link (?d=...) is a self-contained
+  // snapshot, not this browser's connection to the live server project —
+  // editing it locally is fine, but it must never silently overwrite (via
+  // persist()) or get overwritten by (via liveSync) whatever the server's
+  // own project currently is. See model/shareLink.js.
+  const sharedParam = new URLSearchParams(window.location.search).get('d');
+  let project;
+  let isSharedView = false;
+  if (sharedParam) {
+    try {
+      project = Project.fromJSON(await decodeProjectFromParam(sharedParam));
+      isSharedView = true;
+    } catch (err) {
+      window.alert(`Couldn't load the diagram from this link: ${err.message}`);
+    }
+  }
+  if (!project) project = (await loadProject()) || new Project({ name: 'Untitled Product' });
   if (project.listBlocks().length === 0) {
     project.createDefaultBlock(80, 80);
   }
@@ -71,7 +87,7 @@ async function bootstrap() {
 
   function persist() {
     lastSyncedSnapshot = JSON.stringify(project.toJSON());
-    saveProject(project);
+    if (!isSharedView) saveProject(project);
     inspectorApi?.refresh();
   }
 
@@ -95,7 +111,6 @@ async function bootstrap() {
     if (!block || !portId) return;
     removePort(block, portId);
     project.removeConnectionsForPort(portId);
-    touchBlock(block);
     selection.select(block.id);
     persist();
     renderLoop.requestRender();
@@ -174,6 +189,23 @@ async function bootstrap() {
 
   function handleSaveFile() {
     downloadProjectFile(project);
+  }
+
+  // A shareable link, not a save — the whole diagram packed into the URL's
+  // own ?d= param (see model/shareLink.js), so opening it needs nothing
+  // but a browser: no server, no account. Shown via prompt() (pre-filled
+  // and selected) rather than copied silently, so there's always something
+  // visible to confirm it actually worked.
+  async function handleExportLink() {
+    let encoded;
+    try {
+      encoded = await encodeProjectToParam(project);
+    } catch (err) {
+      window.alert(`Couldn't create a share link: ${err.message}`);
+      return;
+    }
+    const url = `${window.location.origin}${window.location.pathname}?d=${encoded}`;
+    window.prompt('Shareable link for this diagram:', url);
   }
 
   // Opening a local file replaces the whole tree the same way a pushed
@@ -284,7 +316,12 @@ async function bootstrap() {
     renderLoop.requestRender();
   }
 
-  const liveSync = connectLiveSync({ onProject: applyRemoteProject, onLive: applyLiveUpdate });
+  // A shared-link view has nothing to do with the server's live project —
+  // connecting would just overwrite this snapshot with whatever's actually
+  // on the server the moment anyone else saves.
+  const liveSync = isSharedView
+    ? { sendLive: () => {} }
+    : connectLiveSync({ onProject: applyRemoteProject, onLive: applyLiveUpdate });
 
   const stateMachine = new DragStateMachine({
     camera,
@@ -345,7 +382,7 @@ async function bootstrap() {
   backButtonEl.addEventListener('click', () => navigateToDepth(project.path.length - 1));
 
   docSyncApi = mountDocSync(docSyncEl, { onUpdate: handleUpdateDoc, onConnect: handleConnectDoc });
-  mountFileToolbar(fileToolbarEl, { onSave: handleSaveFile, onOpen: handleOpenFile });
+  mountFileToolbar(fileToolbarEl, { onSave: handleSaveFile, onOpen: handleOpenFile, onExportLink: handleExportLink });
 
   // Delete/Backspace removes the selected block or wire(s), but only when
   // focus isn't in a text field — otherwise editing the Name field or
