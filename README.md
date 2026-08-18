@@ -35,13 +35,17 @@ blocks/traceability in the canvas should follow.
   see "Real-time sync" below for how this works and its limits.
 - Doc sync (optional): the tool stays the source of truth; a Google Doc is
   a one-way publish target — click the **⚙** next to Update Doc once to
-  paste the target Doc's URL, then **Update Doc** appends every block's
-  current description (and, for a block with children, its diagram as an
-  inline image) to the end of that doc. Nothing already in the doc is read
-  or touched — only ever appended to. Sign-in is a plain Google OAuth popup
-  the first time (via Google Identity Services, no Apps Script, no
-  backend) — see `client/src/model/googleAuth.js` and
-  `client/src/model/googleDocSync.js`.
+  sign in and pick the target doc from the Google Picker, then **Update
+  Doc** (enabled once a doc is connected) appends every block's current
+  description (and, for a block with children, its diagram as an inline
+  image) to the end of that doc. Nothing already in the doc is read or
+  touched — only ever appended to. No Apps Script, no backend — see
+  `client/src/model/googleAuth.js`, `googleDocSync.js`, and
+  `googlePicker.js`.
+- Local save/open: **Save**/**Open** in the topbar write/read the whole
+  project as a plain JSON file (`<name>.block-modeler.json`) — a draw.io-
+  style local file, independent of the server and of Doc sync. See
+  `client/src/model/localFile.js`.
 
 ### Run it
 

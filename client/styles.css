@@ -47,12 +47,33 @@ html, body {
   white-space: nowrap;
 }
 
+.file-toolbar,
 .doc-sync {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-left: auto;
   flex-shrink: 0;
+}
+
+/* Only the first of the two right-aligned topbar clusters needs to claim
+   the leftover space — the second just follows it via #topbar's own gap. */
+.file-toolbar {
+  margin-left: auto;
+}
+
+.file-toolbar-button {
+  background: none;
+  border: 1px solid #2c3644;
+  color: #c3c9d4;
+  border-radius: 5px;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.file-toolbar-button:hover {
+  color: #e6e9ef;
+  border-color: #3a4556;
 }
 
 .doc-sync-status {
@@ -86,6 +107,12 @@ html, body {
 
 .doc-sync-button:hover {
   background: #3f7bf5;
+}
+
+.doc-sync-button:disabled {
+  background: #2c3644;
+  color: #6b7889;
+  cursor: default;
 }
 
 .doc-sync-settings {

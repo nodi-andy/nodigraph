@@ -18,6 +18,8 @@ import { mountToolbar } from './ui/Toolbar.js';
 import { mountInspector } from './ui/InspectorPanel.js';
 import { mountBreadcrumb } from './ui/Breadcrumb.js';
 import { mountDocSync } from './ui/DocSyncPanel.js';
+import { mountFileToolbar } from './ui/FileToolbar.js';
+import { downloadProjectFile, readProjectFile } from './model/localFile.js';
 
 const canvas = document.getElementById('scene-canvas');
 const ctx = canvas.getContext('2d');
@@ -26,6 +28,7 @@ const inspectorEl = document.getElementById('inspector');
 const breadcrumbEl = document.getElementById('breadcrumb');
 const backButtonEl = document.getElementById('btn-back');
 const docSyncEl = document.getElementById('doc-sync');
+const fileToolbarEl = document.getElementById('file-toolbar');
 
 // A per-tab identity purely for telling cursors apart on other clients'
 // screens — there's no accounts system to draw a real name from yet.
@@ -119,13 +122,12 @@ async function bootstrap() {
   // The only thing that reaches Google: renders a fresh diagram per level
   // and appends every block's current description + diagram to the end of
   // the target Doc. Nothing above where this appends is ever read or
-  // touched.
+  // touched. The button itself stays disabled until a doc is connected
+  // (see DocSyncPanel's refreshConnectedState), so this guard is just
+  // defense against a stale/programmatic call.
   async function handleUpdateDoc() {
     const url = docSyncApi.getDocUrl();
-    if (!url) {
-      await handleConnectDoc();
-      return;
-    }
+    if (!url) return;
     docSyncApi.setStatus('updating');
     try {
       const result = await appendBlocksToDoc(url, buildUpdatePayload(project));
@@ -162,6 +164,31 @@ async function bootstrap() {
 
   function navigateToDepth(depth) {
     project.exitToDepth(depth);
+    selection.clear();
+    wireSelection.clear();
+    resetCameraForNewLevel();
+    updateNavigationUI();
+    persist();
+    renderLoop.requestRender();
+  }
+
+  function handleSaveFile() {
+    downloadProjectFile(project);
+  }
+
+  // Opening a local file replaces the whole tree the same way a pushed
+  // remote update does (see applyRemoteProject below) — just triggered
+  // locally instead of over the WebSocket. The loaded project is
+  // immediately persisted to the server too, same as any other change.
+  async function handleOpenFile(file) {
+    let data;
+    try {
+      data = await readProjectFile(file);
+    } catch (err) {
+      window.alert(`Couldn't open that file: ${err.message}`);
+      return;
+    }
+    project.applyRemoteRootBlock(data.rootBlock);
     selection.clear();
     wireSelection.clear();
     resetCameraForNewLevel();
@@ -317,6 +344,7 @@ async function bootstrap() {
   backButtonEl.addEventListener('click', () => navigateToDepth(project.path.length - 1));
 
   docSyncApi = mountDocSync(docSyncEl, { onUpdate: handleUpdateDoc, onConnect: handleConnectDoc });
+  mountFileToolbar(fileToolbarEl, { onSave: handleSaveFile, onOpen: handleOpenFile });
 
   // Delete/Backspace removes the selected block or wire(s), but only when
   // focus isn't in a text field — otherwise editing the Name field or
