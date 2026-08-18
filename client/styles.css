@@ -127,24 +127,20 @@ html, body {
   border-color: #3a4556;
 }
 
-/* Always present, next to the breadcrumb: goes up a level, or offers to
-   create a parent when already at the top (see main.js's
-   updateNavigationUI, which swaps the glyph and label). */
-.back-button {
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  background: none;
-  border: 1px solid #2c3644;
-  border-radius: 50%;
-  color: #e6e9ef;
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
+/* The navigate-up FAB, mirroring the add FAB in the opposite corner.
+   Muted rather than accent-blue so "add a block" stays the one primary
+   action on the canvas. */
+/* Two-class selector on purpose: the base .fab rules are defined further
+   down the file, so a single .fab-left would lose the background on
+   source order alone. */
+.fab.fab-left {
+  right: auto;
+  left: 20px;
+  background: #2c3644;
 }
 
-.back-button:hover {
-  background: #2c3644;
+.fab.fab-left:hover {
+  background: #3a4556;
 }
 
 /* Floats over the canvas exactly where the name it's replacing is drawn,
@@ -275,7 +271,9 @@ body.inspector-open #inspector {
    the inspector is a bottom sheet and the FAB is hidden behind it via the
    opacity rule in the mobile media query instead.) */
 @media (min-width: 769px) {
-  body.inspector-open .fab {
+  /* Only the right-hand FAB needs to dodge the inspector column; the
+     left one is anchored to the opposite edge and never overlaps it. */
+  body.inspector-open .fab:not(.fab-left) {
     right: calc(300px + 20px);
   }
 }
@@ -288,7 +286,9 @@ body.inspector-open #inspector {
 .inspector-toggle {
   display: none;
   position: fixed;
-  left: 20px;
+  /* Centred so it clears both FABs, which sit in the bottom corners. */
+  left: 50%;
+  transform: translateX(-50%);
   bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   padding: 12px 18px;
   border-radius: 24px;

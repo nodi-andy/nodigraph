@@ -1,5 +1,5 @@
 {
-  "name": "block-modeler-server",
+  "name": "noditron-server",
   "private": true,
   "type": "module",
   "dependencies": {
