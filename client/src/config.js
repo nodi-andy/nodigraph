@@ -1,3 +1,10 @@
+// Google Docs/Drive publishing is parked while the MVP focuses on
+// URL-based sharing — flipping this back to true restores the whole
+// feature (topbar Update Doc cluster, sign-in, Picker); nothing else was
+// removed. While false, none of the Google modules below ever run, so no
+// Google scripts load and no consent screen can appear.
+export const ENABLE_DOC_SYNC = false;
+
 // Public identifiers safe to ship in client code — an OAuth client ID
 // (unlike its secret) isn't sensitive; only the Authorized JavaScript
 // origins configured for it in Google Cloud Console control who can use

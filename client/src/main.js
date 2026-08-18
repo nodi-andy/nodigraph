@@ -17,6 +17,7 @@ import { mountToolbar } from './ui/Toolbar.js';
 import { mountInspector } from './ui/InspectorPanel.js';
 import { mountBreadcrumb } from './ui/Breadcrumb.js';
 import { mountDocSync } from './ui/DocSyncPanel.js';
+import { ENABLE_DOC_SYNC } from './config.js';
 import { mountFileToolbar } from './ui/FileToolbar.js';
 import { downloadProjectFile, readProjectFile } from './model/localFile.js';
 import { encodeProjectToParam, decodeProjectFromParam } from './model/shareLink.js';
@@ -381,7 +382,11 @@ async function bootstrap() {
   breadcrumbApi = mountBreadcrumb(breadcrumbEl, { project, onNavigate: navigateToDepth });
   backButtonEl.addEventListener('click', () => navigateToDepth(project.path.length - 1));
 
-  docSyncApi = mountDocSync(docSyncEl, { onUpdate: handleUpdateDoc, onConnect: handleConnectDoc });
+  // Doc sync is parked behind a flag (see config.js) — the handlers above
+  // stay wired so flipping the flag is the only step to bring it back.
+  if (ENABLE_DOC_SYNC) {
+    docSyncApi = mountDocSync(docSyncEl, { onUpdate: handleUpdateDoc, onConnect: handleConnectDoc });
+  }
   mountFileToolbar(fileToolbarEl, { onSave: handleSaveFile, onOpen: handleOpenFile, onExportLink: handleExportLink });
 
   // Delete/Backspace removes the selected block or wire(s), but only when

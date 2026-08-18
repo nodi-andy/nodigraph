@@ -33,14 +33,15 @@ blocks/traceability in the canvas should follow.
   see each other's changes live over a WebSocket, including a block's
   position while it's still being dragged, not just once it's dropped —
   see "Real-time sync" below for how this works and its limits.
-- Doc sync (optional): the tool stays the source of truth; a Google Doc is
-  a one-way publish target — click the **⚙** next to Update Doc once to
-  sign in and pick the target doc from the Google Picker, then **Update
-  Doc** (enabled once a doc is connected) appends every block's current
-  description (and, for a block with children, its diagram as an inline
-  image) to the end of that doc. Nothing already in the doc is read or
-  touched — only ever appended to. No Apps Script, no backend — see
-  `client/src/model/googleAuth.js`, `googleDocSync.js`, and
+- Doc sync (currently disabled): Google Docs publishing exists but is
+  parked behind `ENABLE_DOC_SYNC` in `client/src/config.js` while the MVP
+  focuses on URL-based sharing — flip the flag to bring back the whole
+  feature (topbar Update Doc cluster, Google sign-in, Picker). When
+  enabled: a Google Doc is a one-way publish target — **Update Doc**
+  appends every block's current description (and, for a block with
+  children, its diagram as an inline image) to the end of the connected
+  doc; nothing already in the doc is read or touched. No Apps Script, no
+  backend — see `client/src/model/googleAuth.js`, `googleDocSync.js`, and
   `googlePicker.js`.
 - Local save/open: **Save**/**Open** in the topbar write/read the whole
   project as a plain JSON file (`<name>.block-modeler.json`) — a draw.io-

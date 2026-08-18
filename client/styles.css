@@ -12,7 +12,10 @@ html, body {
 
 #app {
   display: grid;
-  grid-template-columns: 1fr 300px;
+  /* The inspector column is `auto`, not a fixed 300px: the inspector is
+     hidden (display: none) until a block is selected, and an auto column
+     collapses to zero while it is — the canvas gets the full width back. */
+  grid-template-columns: 1fr auto;
   grid-template-rows: 52px 1fr;
   grid-template-areas:
     "topbar topbar"
@@ -36,14 +39,6 @@ html, body {
   font-weight: 600;
   font-size: 14px;
   letter-spacing: 0.02em;
-  white-space: nowrap;
-}
-
-#topbar .hint {
-  font-size: 12px;
-  color: #8b93a3;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -205,13 +200,12 @@ html, body {
 
 /* Floating action button — the app's single primary action, following the
    mobile FAB convention so the same control works for touch and mouse.
-   Anchored to the canvas pane, not the viewport: on desktop the inspector
-   is a permanent 300px column (see #app's grid-template-columns below), so
-   without this offset a viewport-relative "right: 20px" would land inside
-   the inspector instead of over the canvas. */
+   Sits at the viewport edge while the inspector is hidden; the desktop
+   media rule below shifts it left of the inspector column when that's
+   open, so it stays over the canvas rather than inside the panel. */
 .fab {
   position: fixed;
-  right: calc(300px + 20px);
+  right: 20px;
   bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   width: 56px;
   height: 56px;
@@ -237,14 +231,54 @@ html, body {
   transform: translateY(0) scale(0.94);
 }
 
+/* Hidden until a block is actually selected (body.inspector-open, set by
+   InspectorPanel.syncOpenState) — an always-there empty panel just ate a
+   300px column to say "select a block". */
 #inspector {
   grid-area: inspector;
+  display: none;
+  width: 300px;
   background: #1a1f28;
   color: #e6e9ef;
   border-left: 1px solid #2c3644;
   padding: 14px;
   overflow-y: auto;
   font-size: 13px;
+}
+
+body.inspector-open #inspector {
+  display: block;
+}
+
+/* Desktop only: with the inspector column open, the viewport-anchored FAB
+   would land inside the panel — shift it left of the column. (On mobile
+   the inspector is a bottom sheet and the FAB is hidden behind it via the
+   opacity rule in the mobile media query instead.) */
+@media (min-width: 769px) {
+  body.inspector-open .fab {
+    right: calc(300px + 20px);
+  }
+}
+
+/* Mobile-only "open the inspector" affordance: the bottom sheet no longer
+   auto-opens on selection (it covered most of the small screen the moment
+   you tapped a block) — this button appears once a block is selected and
+   opening is an explicit tap. Hidden entirely on desktop and while the
+   sheet is already open. */
+.inspector-toggle {
+  display: none;
+  position: fixed;
+  left: 20px;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  padding: 12px 18px;
+  border-radius: 24px;
+  border: 1px solid #3a4556;
+  background: #1e2530;
+  color: #e6e9ef;
+  font-size: 14px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  z-index: 20;
 }
 
 #inspector h3 {
@@ -466,7 +500,7 @@ html, body {
 
 /* App-like layout below the mobile breakpoint: the inspector becomes a
    bottom sheet that slides up over the full-bleed canvas instead of eating
-   permanent screen width, and the topbar hint is dropped for space. */
+   permanent screen width. */
 @media (max-width: 768px) {
   #app {
     grid-template-columns: 1fr;
@@ -475,18 +509,14 @@ html, body {
       "canvas";
   }
 
-  /* No permanent inspector column here — it's a bottom sheet over the
-     full-bleed canvas — so the FAB sits at the viewport edge directly. */
-  .fab {
-    right: 20px;
-  }
-
-  #topbar .hint {
-    display: none;
+  /* Selected but sheet not open yet — offer the explicit opener. */
+  body.block-selected:not(.inspector-open) .inspector-toggle {
+    display: block;
   }
 
   #inspector {
     position: fixed;
+    width: auto;
     left: 0;
     right: 0;
     bottom: 0;
