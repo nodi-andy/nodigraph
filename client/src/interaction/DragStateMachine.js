@@ -28,10 +28,8 @@ const STATES = {
 };
 
 // Screen-space so the same finger/mouse movement counts as "a drag" the
-// same way regardless of current zoom level. Exported since InspectorPanel
-// uses the same threshold to decide whether a press was a tap (open the
-// mobile sheet) or a drag (leave it alone).
-export const CLICK_DRAG_THRESHOLD = 5;
+// same way regardless of current zoom level.
+const CLICK_DRAG_THRESHOLD = 5;
 const BOUNDARY_MIN_SIZE = GRID_SIZE * 3;
 
 function invertDirection(direction) {

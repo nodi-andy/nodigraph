@@ -1,6 +1,5 @@
 import { MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT } from '../model/Block.js';
 import { snap } from '../model/grid.js';
-import { CLICK_DRAG_THRESHOLD } from '../interaction/DragStateMachine.js';
 import {
   applyDescriptionText,
   setPropValue,
@@ -75,16 +74,17 @@ export function mountInspector(container, { project, selection, requestRender, p
   // once, not both stacked — persists across refresh() calls (e.g. after
   // every prop edit) since it lives outside the rebuild functions below.
   let activeTab = 'Inspector';
-  // On mobile the inspector is a bottom sheet that slides up over the
-  // canvas — but selection happens on pointerdown (so a drag has the right
-  // block from the start), and sliding the sheet up the instant you press
-  // a block, before you've even moved it, fights with "I just wanted to
-  // drag this." Content still updates live; the slide-open transition
-  // waits for the press to finish, and only actually opens if the whole
-  // press turns out to have been a tap (barely moved) rather than a drag —
-  // a drag leaves the sheet exactly as it was, open or closed.
+  // Matches the CSS breakpoint where the inspector becomes a bottom sheet.
+  // On desktop the panel opens by itself whenever a block is selected; on
+  // mobile the sheet would cover most of the screen the moment you tap a
+  // block, so it only opens through the explicit toggle button below.
+  const mobileLayout = window.matchMedia('(max-width: 768px)');
+  let mobileSheetOpen = false;
+  // Selection happens on pointerdown (so a drag has the right block from
+  // the start), but opening the panel resizes the canvas — doing that
+  // mid-press would shift world coordinates under an in-progress drag, so
+  // the open state only updates once the press ends.
   let pointerDown = false;
-  let pointerDownPos = null;
 
   function renderEmpty() {
     container.innerHTML = '';
@@ -358,14 +358,29 @@ export function mountInspector(container, { project, selection, requestRender, p
     else renderDescriptionTab(container, block);
   }
 
-  // Drives the mobile bottom-sheet slide + hides the FAB behind it so the
-  // two floating controls never overlap; a no-op above the breakpoint,
-  // since nothing there references these classes outside that media query.
+  // body.inspector-open drives the layout (desktop column / mobile sheet
+  // slide, FAB shift/hide); body.block-selected drives the mobile toggle
+  // button's visibility.
   function syncOpenState() {
-    const isOpen = Boolean(selection.selectedBlockId);
+    const hasSelection = Boolean(selection.selectedBlockId);
+    if (!hasSelection) mobileSheetOpen = false;
+    const isOpen = hasSelection && (!mobileLayout.matches || mobileSheetOpen);
     container.classList.toggle('open', isOpen);
     document.body.classList.toggle('inspector-open', isOpen);
+    document.body.classList.toggle('block-selected', hasSelection);
   }
+
+  // The mobile sheet's explicit opener — CSS shows it only below the
+  // breakpoint, and only while a block is selected with the sheet closed.
+  const toggleButton = document.createElement('button');
+  toggleButton.type = 'button';
+  toggleButton.className = 'inspector-toggle';
+  toggleButton.textContent = 'Edit block';
+  toggleButton.addEventListener('click', () => {
+    mobileSheetOpen = true;
+    syncOpenState();
+  });
+  document.body.appendChild(toggleButton);
 
   function refresh() {
     const block = selection.selectedBlockId ? project.getBlock(selection.selectedBlockId) : null;
@@ -380,23 +395,19 @@ export function mountInspector(container, { project, selection, requestRender, p
 
   // Capture phase so this runs before the canvas's own pointerdown handler
   // selects a block/port — by the time selection changes, pointerDown is
-  // already true and refresh() above knows to hold the sheet closed.
-  window.addEventListener('pointerdown', (event) => {
+  // already true and refresh() above knows to hold the layout change.
+  window.addEventListener('pointerdown', () => {
     pointerDown = true;
-    pointerDownPos = { x: event.clientX, y: event.clientY };
   }, { capture: true });
 
-  window.addEventListener('pointerup', (event) => {
+  window.addEventListener('pointerup', () => {
     pointerDown = false;
-    const dx = event.clientX - (pointerDownPos?.x ?? event.clientX);
-    const dy = event.clientY - (pointerDownPos?.y ?? event.clientY);
-    pointerDownPos = null;
-    if (Math.hypot(dx, dy) <= CLICK_DRAG_THRESHOLD) syncOpenState();
+    syncOpenState();
   });
 
   window.addEventListener('pointercancel', () => {
     pointerDown = false;
-    pointerDownPos = null;
+    syncOpenState();
   });
 
   return { refresh };
