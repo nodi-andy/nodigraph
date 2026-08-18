@@ -3,7 +3,8 @@ import { touchBlock } from './model/Block.js';
 import { removePort } from './model/BlockDescription.js';
 import { loadProject, saveProject } from './model/store.js';
 import { connectLiveSync } from './model/liveSync.js';
-import { buildUpdatePayload, updateDoc, buildRegionSnippet } from './model/docSync.js';
+import { buildUpdatePayload } from './model/docSync.js';
+import { appendBlocksToDoc } from './model/googleDocSync.js';
 import { Camera } from './render/Camera.js';
 import { RenderLoop } from './render/RenderLoop.js';
 import { renderScene } from './render/SceneRenderer.js';
@@ -96,33 +97,23 @@ async function bootstrap() {
   }
 
   // The only thing that reaches Google: renders a fresh diagram per level
-  // and pushes every block's current description + diagram. Apps Script
-  // finds whichever blocks actually have a region placed in the Doc and
-  // updates just those in place; anything without a region is skipped, and
-  // everything outside every region — the user's own writing — is never
-  // touched (see appsscript/Code.gs).
+  // and appends every block's current description + diagram to the end of
+  // the target Doc. The first call in a tab prompts a Google sign-in popup
+  // (see model/googleAuth.js); nothing above where this appends is ever
+  // read or touched.
   async function handleUpdateDoc() {
-    const url = docSyncApi.getWebAppUrl();
+    const url = docSyncApi.getDocUrl();
     if (!url) {
       docSyncApi.promptForUrl();
       return;
     }
     docSyncApi.setStatus('updating');
     try {
-      const result = await updateDoc(url, buildUpdatePayload(project));
-      docSyncApi.setStatus('updated', `${result.updated.length} region${result.updated.length === 1 ? '' : 's'}`);
+      const result = await appendBlocksToDoc(url, buildUpdatePayload(project));
+      docSyncApi.setStatus('updated', `${result.updated} block${result.updated === 1 ? '' : 's'}`);
     } catch (err) {
       docSyncApi.setStatus('error', err.message);
     }
-  }
-
-  // Copies a ready-to-paste region snippet for one block to the clipboard —
-  // the only practical way to get its real (internal, unguessable) id into
-  // the Doc, since regions are placed by hand, not auto-inserted.
-  async function copyDocRegionSnippet(blockId) {
-    const block = project.getBlock(blockId);
-    if (!block) return;
-    await navigator.clipboard.writeText(buildRegionSnippet(block));
   }
 
   let breadcrumbApi = null;
@@ -301,7 +292,6 @@ async function bootstrap() {
     persist,
     deleteBlock,
     enterBlock,
-    copyDocRegionSnippet,
   });
 
   breadcrumbApi = mountBreadcrumb(breadcrumbEl, { project, onNavigate: navigateToDepth });

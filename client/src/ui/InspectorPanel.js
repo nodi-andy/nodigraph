@@ -71,7 +71,7 @@ function tabBar(activeTab, onSelect) {
   return bar;
 }
 
-export function mountInspector(container, { project, selection, requestRender, persist, deleteBlock, enterBlock, copyDocRegionSnippet }) {
+export function mountInspector(container, { project, selection, requestRender, persist, deleteBlock, enterBlock }) {
   // Shows either the structured Inspector or the raw Description editor at
   // once, not both stacked — persists across refresh() calls (e.g. after
   // every prop edit) since it lives outside the rebuild functions below.
@@ -171,33 +171,6 @@ export function mountInspector(container, { project, selection, requestRender, p
     });
     colorInput.addEventListener('change', persist);
     container_.appendChild(field('Accent color', colorInput));
-
-    if (copyDocRegionSnippet) {
-      const docRow = document.createElement('div');
-      docRow.className = 'apply-row';
-      const copyButton = document.createElement('button');
-      copyButton.type = 'button';
-      copyButton.textContent = 'Copy Doc region';
-      copyButton.addEventListener('click', async () => {
-        const original = copyButton.textContent;
-        try {
-          await copyDocRegionSnippet(block.id);
-          copyButton.textContent = 'Copied!';
-        } catch {
-          // Clipboard access can legitimately fail (permissions, a
-          // non-focused document, a non-secure context) — surface that
-          // rather than leaving the click looking like it did nothing.
-          copyButton.textContent = 'Copy failed — try again';
-        }
-        setTimeout(() => { copyButton.textContent = original; }, 1500);
-      });
-      docRow.appendChild(copyButton);
-      container_.appendChild(docRow);
-      const docHint = document.createElement('p');
-      docHint.className = 'hint-text';
-      docHint.textContent = 'Paste this into a Google Doc anywhere you want — "Update Doc" refreshes it in place, wherever it ends up, without touching anything else you\'ve written.';
-      container_.appendChild(docHint);
-    }
 
     if (!isContainer) {
       const architectureRow = document.createElement('div');
