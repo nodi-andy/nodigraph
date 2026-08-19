@@ -34,6 +34,8 @@ const STATES = {
   // here: focusing an input during pointerdown loses that focus again when
   // the browser applies its own default focus handling on the way up.
   PENDING_LABEL_RENAME: 'pendingLabelRename',
+  // Shift-dragging the background sweeps out a selection rectangle.
+  MARQUEE: 'marquee',
 };
 
 // Screen-space so the same finger/mouse movement counts as "a drag" the
@@ -171,13 +173,42 @@ export class DragStateMachine {
 
     if (hit?.type === 'body') {
       const block = this.project.getBlock(hit.blockId);
+
+      // Shift-click adjusts the selection rather than starting a drag —
+      // same convention as shift-clicking a wire trunk just above.
+      if (modifiers.shiftKey) {
+        this.selection.toggle(block.id);
+        this.requestRender();
+        return;
+      }
+
       // Captured before select() so onPointerUp can tell "clicked a block
       // that was already selected" (rename) from "clicked to select it"
-      // (just select).
-      const wasSelected = this.selection.selectedBlockId === block.id && !this.selection.selectedPortId;
-      this.selection.select(block.id);
+      // (just select). Only a lone selected block renames — with several
+      // selected, a click is far more likely to be repositioning them.
+      const wasSelected =
+        this.selection.selectedBlockId === block.id
+        && this.selection.count === 1
+        && !this.selection.selectedPortId;
+
+      // Grabbing a block that's part of a multi-selection drags the whole
+      // group; grabbing anything else selects just it first.
+      if (!this.selection.isSelected(block.id)) this.selection.select(block.id);
+
       this.state = STATES.DRAGGING_BLOCK;
-      this.context = { blockId: block.id, startWorld: world, startGeom: { ...block.geometry }, wasSelected, moved: false };
+      this.context = {
+        blockId: block.id,
+        startWorld: world,
+        // Every block that moves, with the position it started at — the
+        // group moves by one shared delta, so each stays put relative to
+        // the others.
+        items: this.selection
+          .list()
+          .map((id) => ({ id, startGeom: { ...(this.project.getBlock(id)?.geometry || {}) } }))
+          .filter((item) => item.startGeom.x !== undefined),
+        wasSelected,
+        moved: false,
+      };
       this.requestRender();
       return;
     }
@@ -200,11 +231,53 @@ export class DragStateMachine {
       return;
     }
 
+    // Empty background. Shift turns the drag into a selection marquee
+    // instead of a pan — panning is the far more frequent action, so it
+    // keeps the unmodified drag.
+    if (modifiers.shiftKey) {
+      this.wireSelection.clear();
+      this.state = STATES.MARQUEE;
+      this.context = { startWorld: world, currentWorld: world };
+      this.requestRender();
+      return;
+    }
+
     this.wireSelection.clear();
     this.selection.clear();
     this.state = STATES.PANNING;
     this.context = { lastScreen: screen };
     this.requestRender();
+  }
+
+  // The marquee rectangle in world space, or null when not marqueeing —
+  // SceneRenderer draws it, and onPointerUp resolves it to a selection.
+  getMarqueeRect() {
+    if (this.state !== STATES.MARQUEE) return null;
+    const { startWorld, currentWorld } = this.context;
+    return {
+      x: Math.min(startWorld.x, currentWorld.x),
+      y: Math.min(startWorld.y, currentWorld.y),
+      width: Math.abs(currentWorld.x - startWorld.x),
+      height: Math.abs(currentWorld.y - startWorld.y),
+    };
+  }
+
+  // Anything the marquee touches counts, not only blocks entirely inside
+  // it — dragging a box that fully encloses every target is fussy on a
+  // dense diagram.
+  blocksIntersecting(rect) {
+    return this.project
+      .listBlocks()
+      .filter((block) => {
+        const g = block.geometry;
+        return (
+          rect.x < g.x + g.width
+          && g.x < rect.x + rect.width
+          && rect.y < g.y + g.height
+          && g.y < rect.y + rect.height
+        );
+      })
+      .map((block) => block.id);
   }
 
   hitTestWires(worldX, worldY, boundary) {
@@ -248,20 +321,31 @@ export class DragStateMachine {
         break;
       }
       case STATES.DRAGGING_BLOCK: {
-        const block = this.project.getBlock(this.context.blockId);
-        if (!block) break;
-        // Snapping the absolute result (not the delta) is what gives the
-        // Factorio/AoE feel of the block jumping between grid cells as you
-        // drag, rather than drifting off-grid by accumulated pixel deltas.
-        block.geometry.x = snap(this.context.startGeom.x + (world.x - this.context.startWorld.x));
-        block.geometry.y = snap(this.context.startGeom.y + (world.y - this.context.startWorld.y));
-        // Any actual movement means this was a drag, not the click that
-        // would otherwise open the rename editor on release.
-        if (block.geometry.x !== this.context.startGeom.x || block.geometry.y !== this.context.startGeom.y) {
-          this.context.moved = true;
+        const dx = world.x - this.context.startWorld.x;
+        const dy = world.y - this.context.startWorld.y;
+        for (const item of this.context.items) {
+          const block = this.project.getBlock(item.id);
+          if (!block) continue;
+          // Snapping the absolute result (not the delta) is what gives the
+          // Factorio/AoE feel of blocks jumping between grid cells as you
+          // drag, rather than drifting off-grid by accumulated pixel
+          // deltas. Applied per block against its own start position, so a
+          // group keeps its internal spacing exactly.
+          block.geometry.x = snap(item.startGeom.x + dx);
+          block.geometry.y = snap(item.startGeom.y + dy);
+          // Any actual movement means this was a drag, not the click that
+          // would otherwise open the rename editor on release.
+          if (block.geometry.x !== item.startGeom.x || block.geometry.y !== item.startGeom.y) {
+            this.context.moved = true;
+          }
+          this.onLiveUpdate?.({ kind: 'block', blockId: block.id, geometry: block.geometry });
         }
         this.requestRender();
-        this.onLiveUpdate?.({ kind: 'block', blockId: block.id, geometry: block.geometry });
+        break;
+      }
+      case STATES.MARQUEE: {
+        this.context.currentWorld = world;
+        this.requestRender();
         break;
       }
       case STATES.DRAGGING_PORT: {
@@ -499,6 +583,14 @@ export class DragStateMachine {
       // just does nothing.
     } else if (this.state === STATES.RESIZING_EDGE) {
       this.persist();
+    } else if (this.state === STATES.MARQUEE) {
+      const rect = this.getMarqueeRect();
+      const ids = this.blocksIntersecting(rect);
+      // A shift-click on empty background (no real sweep) reads as "start
+      // over", so an empty marquee clears rather than leaving the previous
+      // selection stranded.
+      if (ids.length) this.selection.selectMany(ids);
+      else this.selection.clear();
     } else if (this.state === STATES.PENDING_LABEL_RENAME) {
       this.onRequestRename?.(this.context.blockId);
     }
