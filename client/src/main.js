@@ -26,6 +26,7 @@ import { getBoundaryLabelRect } from './render/BlockRenderer.js';
 import { downloadProjectFile, readProjectFile } from './model/localFile.js';
 import { encodeProjectToParam, decodeProjectFromParam } from './model/shareLink.js';
 import { serializeSelection, pasteSelection, isClipboardPayload } from './model/clipboard.js';
+import { History } from './model/History.js';
 
 const canvas = document.getElementById('scene-canvas');
 const ctx = canvas.getContext('2d');
@@ -92,11 +93,45 @@ async function bootstrap() {
 
   let inspectorApi = null;
   let docSyncApi = null;
+  let fileToolbarApi = null;
+
+  const history = new History({ json: lastSyncedSnapshot, path: [] });
 
   function persist() {
     lastSyncedSnapshot = JSON.stringify(project.toJSON());
+    // Recorded here because every edit already ends in a persist() — and
+    // only here, so a drag is one history entry rather than one per
+    // pointer move. Identical snapshots (navigating a level, say) are
+    // dropped by History itself.
+    history.record({ json: lastSyncedSnapshot, path: [...project.path] });
+    fileToolbarApi?.refreshHistory();
     if (!isSharedView) saveProject(project);
     inspectorApi?.refresh();
+  }
+
+  // Restores a snapshot: the tree, and the level you were viewing when it
+  // was taken. Setting `path` first lets applyRemoteRootBlock trim it to
+  // whatever still resolves, in case the undone state didn't have that
+  // block. The persist() at the end saves and refreshes; History drops its
+  // own snapshot as a duplicate, so undoing never appends to the stack.
+  function applyHistoryEntry(entry) {
+    if (!entry) return;
+    project.path = [...entry.path];
+    project.applyRemoteRootBlock(JSON.parse(entry.json).rootBlock);
+    selection.clear();
+    wireSelection.clear();
+    updateNavigationUI();
+    frameCurrentLevel();
+    persist();
+    renderLoop.requestRender();
+  }
+
+  function undo() {
+    applyHistoryEntry(history.undo());
+  }
+
+  function redo() {
+    applyHistoryEntry(history.redo());
   }
 
   function deleteBlock(blockId) {
@@ -492,7 +527,16 @@ async function bootstrap() {
   if (ENABLE_DOC_SYNC) {
     docSyncApi = mountDocSync(docSyncEl, { onUpdate: handleUpdateDoc, onConnect: handleConnectDoc });
   }
-  mountFileToolbar(fileToolbarEl, { onSave: handleSaveFile, onOpen: handleOpenFile, onExportLink: handleExportLink });
+  fileToolbarApi = mountFileToolbar(fileToolbarEl, {
+    onSave: handleSaveFile,
+    onOpen: handleOpenFile,
+    onExportLink: handleExportLink,
+    onUndo: undo,
+    onRedo: redo,
+    canUndo: () => history.canUndo,
+    canRedo: () => history.canRedo,
+  });
+  fileToolbarApi.refreshHistory();
 
   // Delete/Backspace removes the selected block or wire(s), but only when
   // focus isn't in a text field — otherwise editing the Name field or
@@ -526,6 +570,16 @@ async function bootstrap() {
     if (block && window.confirm(`Delete "${block.name}" and its connections? This can't be undone.`)) {
       deleteBlock(block.id);
     }
+  });
+
+  window.addEventListener('keydown', (event) => {
+    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
+    // Text fields have their own undo stack; hijacking it while someone is
+    // renaming a block would be worse than not offering the shortcut.
+    if (editingText()) return;
+    event.preventDefault();
+    if (event.shiftKey) redo();
+    else undo();
   });
 
   // Copy/paste rides the browser's own copy/paste events rather than the

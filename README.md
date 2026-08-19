@@ -58,6 +58,7 @@ to the editable diagram.
 - **Multi-select** — shift-drag a marquee or shift-click to build a
   selection, then move the whole group, or copy/paste it (wires between
   selected blocks come along, and nested sub-architecture is copied too).
+- **Undo/redo** — toolbar buttons and Ctrl/Cmd+Z, across every edit.
 - **Share by link** — the whole diagram, gzip-compressed into a URL.
 - **Local files** — Save/Open plain JSON, independent of any server.
 - **Live multi-client editing** — everyone on the same server instance sees

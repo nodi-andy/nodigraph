@@ -66,9 +66,29 @@ html, body {
   cursor: pointer;
 }
 
-.file-toolbar-button:hover {
+.file-toolbar-button:hover:not(:disabled) {
   color: #e6e9ef;
   border-color: #3a4556;
+}
+
+.file-toolbar-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Icon-only variant (undo/redo): square rather than padded for text. */
+.file-toolbar-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  padding: 4px;
+}
+
+.file-toolbar-divider {
+  width: 1px;
+  height: 18px;
+  background: #2c3644;
 }
 
 .doc-sync-status {
