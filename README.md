@@ -55,6 +55,9 @@ to the editable diagram.
   wires between blocks line up instead of almost lining up.
 - **Orthogonal routing** — wires pave themselves around blocks, with a
   draggable trunk segment when you want a different route.
+- **Multi-select** — shift-drag a marquee or shift-click to build a
+  selection, then move the whole group, or copy/paste it (wires between
+  selected blocks come along, and nested sub-architecture is copied too).
 - **Share by link** — the whole diagram, gzip-compressed into a URL.
 - **Local files** — Save/Open plain JSON, independent of any server.
 - **Live multi-client editing** — everyone on the same server instance sees

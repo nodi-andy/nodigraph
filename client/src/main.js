@@ -25,6 +25,7 @@ import { renderCurrentLevelDataUrl, renderCurrentLevelBlob } from './model/diagr
 import { getBoundaryLabelRect } from './render/BlockRenderer.js';
 import { downloadProjectFile, readProjectFile } from './model/localFile.js';
 import { encodeProjectToParam, decodeProjectFromParam } from './model/shareLink.js';
+import { serializeSelection, pasteSelection, isClipboardPayload } from './model/clipboard.js';
 
 const canvas = document.getElementById('scene-canvas');
 const ctx = canvas.getContext('2d');
@@ -101,6 +102,13 @@ async function bootstrap() {
   function deleteBlock(blockId) {
     project.removeBlock(blockId);
     if (selection.selectedBlockId === blockId) selection.clear();
+    persist();
+    renderLoop.requestRender();
+  }
+
+  function deleteSelectedBlocks() {
+    for (const id of selection.list()) project.removeBlock(id);
+    selection.clear();
     persist();
     renderLoop.requestRender();
   }
@@ -392,9 +400,11 @@ async function bootstrap() {
       pendingConnectionPath: stateMachine.getPendingConnectionVisual(),
       connectionSource: dragHighlights.source,
       connectionTarget: dragHighlights.target,
+      selectedBlockIds: selection.selectedBlockIds,
       wireSelection,
       remoteCursors: visibleRemoteCursors(),
       hoverGhost: stateMachine.getHoverGhost(),
+      marqueeRect: stateMachine.getMarqueeRect(),
     });
   }
 
@@ -506,10 +516,52 @@ async function bootstrap() {
 
     if (!selection.selectedBlockId) return;
     event.preventDefault();
+    if (selection.count > 1) {
+      if (window.confirm(`Delete ${selection.count} blocks and their connections? This can't be undone.`)) {
+        deleteSelectedBlocks();
+      }
+      return;
+    }
     const block = project.getBlock(selection.selectedBlockId);
     if (block && window.confirm(`Delete "${block.name}" and its connections? This can't be undone.`)) {
       deleteBlock(block.id);
     }
+  });
+
+  // Copy/paste rides the browser's own copy/paste events rather than the
+  // async clipboard API: those fire on Ctrl/Cmd+C and +V without any
+  // permission prompt, and they hand over the clipboard data directly.
+  // Writing the selection as JSON text also means it survives being pasted
+  // into another tab, or into a text editor to inspect.
+  function editingText() {
+    const tag = document.activeElement?.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  }
+
+  document.addEventListener('copy', (event) => {
+    if (editingText() || selection.count === 0) return;
+    event.preventDefault();
+    event.clipboardData.setData('text/plain', JSON.stringify(serializeSelection(project, selection.list())));
+  });
+
+  document.addEventListener('paste', (event) => {
+    if (editingText()) return;
+    let payload;
+    try {
+      payload = JSON.parse(event.clipboardData.getData('text/plain'));
+    } catch {
+      return; // Not ours — leave whatever else was copied alone.
+    }
+    if (!isClipboardPayload(payload)) return;
+    event.preventDefault();
+
+    const newIds = pasteSelection(project, payload);
+    if (!newIds.length) return;
+    // Selecting the copies means the obvious next move — dragging them
+    // where you want them — works immediately.
+    selection.selectMany(newIds);
+    persist();
+    renderLoop.requestRender();
   });
 
   // Synchronous initial call covers the normal case (layout is already settled

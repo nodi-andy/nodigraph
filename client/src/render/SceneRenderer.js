@@ -65,6 +65,19 @@ function drawRemoteCursors(ctx, cursors, zoom) {
   }
 }
 
+// The shift-drag selection rectangle. Line width is divided by zoom so it
+// stays a constant on-screen thickness, the same trick drawGrid uses.
+function drawMarquee(ctx, rect, zoom) {
+  ctx.save();
+  ctx.fillStyle = 'rgba(79, 140, 255, 0.12)';
+  ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+  ctx.setLineDash([6 / zoom, 4 / zoom]);
+  ctx.strokeStyle = '#4f8cff';
+  ctx.lineWidth = 1 / zoom;
+  ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+  ctx.restore();
+}
+
 function drawGrid(ctx, camera, canvasWidth, canvasHeight) {
   const topLeft = camera.screenToWorld(0, 0);
   const bottomRight = camera.screenToWorld(canvasWidth, canvasHeight);
@@ -119,6 +132,10 @@ export function renderScene(
   project,
   {
     selectedBlockId,
+    // Every highlighted block; selectedBlockId stays the Inspector's single
+    // "primary" one. Defaulted so callers that only care about one block
+    // (the diagram-image renderer) don't have to build a Set.
+    selectedBlockIds = new Set(selectedBlockId ? [selectedBlockId] : []),
     selectedPortId,
     dpr,
     canvasWidth,
@@ -129,6 +146,7 @@ export function renderScene(
     wireSelection,
     remoteCursors,
     hoverGhost,
+    marqueeRect,
     // Off for exported diagram images (see docSync.js) — the grid is an
     // editing aid, not part of the diagram, and leaving it out keeps the
     // exported PNG's background genuinely transparent instead of a faint
@@ -165,8 +183,10 @@ export function renderScene(
   }
 
   for (const block of blocks) {
-    drawBlock(ctx, block, { selected: block.id === selectedBlockId, portHighlights });
+    drawBlock(ctx, block, { selected: selectedBlockIds.has(block.id), portHighlights });
   }
+
+  if (marqueeRect) drawMarquee(ctx, marqueeRect, camera.zoom);
 
   if (pendingConnectionPath) {
     drawPath(ctx, pendingConnectionPath, { color: WIRE_COLOR, dashed: true });
