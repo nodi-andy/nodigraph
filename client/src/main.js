@@ -20,6 +20,8 @@ import { mountDocSync } from './ui/DocSyncPanel.js';
 import { ENABLE_DOC_SYNC } from './config.js';
 import { mountFileToolbar } from './ui/FileToolbar.js';
 import { createNameEditor } from './ui/NameEditor.js';
+import { createShareDialog } from './ui/ShareDialog.js';
+import { renderCurrentLevelDataUrl, renderCurrentLevelBlob } from './model/diagramImage.js';
 import { getBoundaryLabelRect } from './render/BlockRenderer.js';
 import { downloadProjectFile, readProjectFile } from './model/localFile.js';
 import { encodeProjectToParam, decodeProjectFromParam } from './model/shareLink.js';
@@ -268,19 +270,31 @@ async function bootstrap() {
 
   // A shareable link, not a save — the whole diagram packed into the URL's
   // own ?d= param (see model/shareLink.js), so opening it needs nothing
-  // but a browser: no server, no account. Shown via prompt() (pre-filled
-  // and selected) rather than copied silently, so there's always something
-  // visible to confirm it actually worked.
-  async function handleExportLink() {
-    let encoded;
-    try {
-      encoded = await encodeProjectToParam(project);
-    } catch (err) {
-      window.alert(`Couldn't create a share link: ${err.message}`);
-      return;
-    }
-    const url = `${window.location.origin}${window.location.pathname}?d=${encoded}`;
-    window.prompt('Shareable link for this diagram:', url);
+  // but a browser: no server, no account.
+  async function buildShareUrl() {
+    const encoded = await encodeProjectToParam(project);
+    return `${window.location.origin}${window.location.pathname}?d=${encoded}`;
+  }
+
+  const shareDialog = createShareDialog({
+    getShareUrl: async () => {
+      try {
+        return await buildShareUrl();
+      } catch (err) {
+        return `Couldn't create a share link: ${err.message}`;
+      }
+    },
+    renderImage: async () => ({
+      dataUrl: renderCurrentLevelDataUrl(project),
+      blob: await renderCurrentLevelBlob(project),
+    }),
+    // The level you're looking at is the thing the figure depicts, so its
+    // name is what the figure's description should say.
+    getFigureName: () => project.getContainerBlock()?.name || project.name,
+  });
+
+  function handleExportLink() {
+    shareDialog.open();
   }
 
   // Opening a local file replaces the whole tree the same way a pushed
