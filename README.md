@@ -1,107 +1,120 @@
-# noditron
+<p align="center">
+  <img src="client/icon.svg" width="72" height="72" alt="">
+</p>
 
-Browser-based visual editor for product specification: define a product,
-its interfaces, requirements, and architecture, with components
-recursively decomposed the same way. Every level you view is itself a
-block with its own ports/props/description — the product root included —
-and its own boundary frame for editing that level's interface. Not tied
-to formal OMG SysML; the data model is a small custom schema designed for
-this tool.
+<h1 align="center">noditron</h1>
 
-See the build plan for full architecture and the milestone roadmap.
+<p align="center">
+  <strong>Block diagrams that live in the URL.</strong><br>
+  No account, no database, nothing stored on a server — the link <em>is</em> the file.
+</p>
 
-## Requirement relation model
+<p align="center">
+  <a href="https://noditron.com"><strong>Try it → noditron.com</strong></a>
+</p>
 
-Carried over from the original ReGit concept and still the model for how
-requirements relate to each other here: a requirement has an `ID`,
-`Description`, `Location`, `Parents`, `Childs`, `Ver`, and `State`. Parents
-and Childs are how one requirement traces to another (e.g. a component's
-requirement traces up to the product requirement it satisfies). This isn't
-implemented as its own feature yet — it's the shape future requirement
-blocks/traceability in the canvas should follow.
+<p align="center">
+  <img src="docs/screenshot.png" width="900" alt="A Beacon Unit system: Power Supply, MCU, LED Driver and Sensor Head blocks wired together through named ports">
+</p>
 
-## Current state
+---
 
-- Canvas: pan/zoom, add/move/resize blocks, ports on any side (draggable,
-  click a border to add one), orthogonal "paved" wires with a draggable
-  trunk segment, drill into/out of a block to edit its own architecture.
-- Data: a minimal Node server (`server/src/app.js`) serves the client and
-  persists the whole project as one JSON file on disk
-  (`data/project.json`) — no git integration yet, and no auth (anyone who
-  can reach the server can edit; still no per-user accounts).
-- Sync: multiple open clients (tabs, or other people on the same network)
-  see each other's changes live over a WebSocket, including a block's
-  position while it's still being dragged, not just once it's dropped —
-  see "Real-time sync" below for how this works and its limits.
-- Doc sync (currently disabled): Google Docs publishing exists but is
-  parked behind `ENABLE_DOC_SYNC` in `client/src/config.js` while the MVP
-  focuses on URL-based sharing — flip the flag to bring back the whole
-  feature (topbar Update Doc cluster, Google sign-in, Picker). When
-  enabled: a Google Doc is a one-way publish target — **Update Doc**
-  appends every block's current description (and, for a block with
-  children, its diagram as an inline image) to the end of the connected
-  doc; nothing already in the doc is read or touched. No Apps Script, no
-  backend — see `client/src/model/googleAuth.js`, `googleDocSync.js`, and
-  `googlePicker.js`.
-- Local save/open: **Save**/**Open** in the topbar write/read the whole
-  project as a plain JSON file (`<name>.noditron.json`) — a draw.io-
-  style local file, independent of the server and of Doc sync. See
-  `client/src/model/localFile.js`.
-- Shareable link: **Share Link** in the topbar packs the whole diagram into
-  a `?d=...` URL param (gzip-compressed, base64url-encoded — no server, no
-  account needed to open it) and shows the resulting URL. Opening a link
-  like that loads the diagram straight from the URL instead of the
-  server's own project, and edits made while viewing one stay local — they
-  never overwrite the server's project or get overwritten by it. See
-  `client/src/model/shareLink.js`.
+## What it is
 
-### Run it
+A browser editor for **recursive system architecture**. You draw blocks with
+named ports, wire them together, and drill into any block to describe how
+*it* is built from smaller blocks — all the way down. Every level is itself
+a block with its own interface, the top-level product included.
+
+When you share a diagram, the entire thing is compressed into the URL
+(`noditron.com/?d=…`). Opening that link needs nothing but a browser: no
+sign-up, no server round-trip, nothing of yours retained anywhere. Roughly
+100 blocks fit comfortably in a link.
+
+It is not an implementation of OMG SysML. The data model is a small custom
+schema aimed at being quick to draw and easy to hand to a colleague.
+
+## Why
+
+Architecture diagrams rot because the picture and its source drift apart.
+A PNG lands in a document and six months later nobody can find the file
+that made it, so the next person redraws it from scratch.
+
+noditron's answer is that there is no separate source file to lose. The
+picture's link contains the diagram. The **Share → Google Docs** tab makes
+this concrete: it hands you the figure image plus the alt-text values to
+paste with it, so the figure in your document carries a working link back
+to the editable diagram.
+
+## Features
+
+- **Recursive decomposition** — drill into any block to model its internals;
+  breadcrumbs to navigate back out, and a button to wrap the whole product
+  in a new parent when the scope grows.
+- **Ports on a grid** — connectors snap to fixed slots on every edge, so
+  wires between blocks line up instead of almost lining up.
+- **Orthogonal routing** — wires pave themselves around blocks, with a
+  draggable trunk segment when you want a different route.
+- **Share by link** — the whole diagram, gzip-compressed into a URL.
+- **Local files** — Save/Open plain JSON, independent of any server.
+- **Live multi-client editing** — everyone on the same server instance sees
+  changes as they happen, including blocks mid-drag.
+
+### Planned
+
+Simulation. The same block-and-port model that describes a system can
+execute it — that's the direction this is heading, and the reason the
+schema is custom rather than SysML-shaped.
+
+## Run it locally
 
 ```bash
-cd server && npm install   # only needed once, or after pulling changes to server/package.json
+git clone https://github.com/nodi-andy/noditron
+cd noditron/server && npm install
 node src/app.js
 ```
 
-Then open the printed URL (default `http://localhost:8080`). Project data
-is read from and written to `data/project.json` (created on first save).
-Override the folder with `NODITRON_DATA_DIR` (the older
-`BLOCK_MODELER_DATA_DIR` still works), and the port with `PORT`.
+Then open `http://localhost:8080`. Project data is read from and written
+to `data/project.json` (created on first save). Override the folder with
+`NODITRON_DATA_DIR` and the port with `PORT`.
 
-### Deploy (Cloud Run)
+### Deploy
 
-The `Dockerfile` at the repo root builds and serves the whole app (client +
-server), same pattern as `nodiwar`/`conucon`: no separate build step, no
-`cloudbuild.yaml` — just deploy the source directly.
+The `Dockerfile` at the repo root builds and serves the whole app, so any
+container host works. For Cloud Run:
 
 ```bash
 gcloud run deploy noditron --source . --region <region> --allow-unauthenticated
 ```
 
-The server listens on `PORT` (Cloud Run sets this to `8080` automatically).
-Project data is written to disk inside the container, so it does not
-survive a redeploy or new revision yet — fine for trying out the editor,
-not yet for durable storage (see "Doc sync" above, or a future persistent
-volume/database).
+The server listens on `PORT`, which Cloud Run sets automatically. Project
+data is written inside the container and does not survive a redeploy —
+fine for the shared-link workflow, not yet durable storage.
 
-### Real-time sync
+## How it works
 
-The server keeps a WebSocket open per connected client (`ws`, the one
-runtime dependency this project has). Two kinds of messages travel over
-it:
+| Concern | Approach |
+| --- | --- |
+| Rendering | One `<canvas>`, drawn by `client/src/render/` |
+| State | A plain block tree (`client/src/model/Project.js`) |
+| Sharing | `JSON → gzip → base64url → ?d=` (`model/shareLink.js`) |
+| Server | ~150 lines of Node, one dependency (`ws`) |
+| Build step | None. The browser loads ES modules directly. |
 
-- **`project`** — broadcast to every client right after any client's save
-  lands on disk. This is the same data `GET /api/project` would return;
-  each client re-hydrates its in-memory model from it, but skips doing so
-  while it's itself mid-drag or mid-typing, so an incoming update can't
-  wipe out an unsaved local edit.
-- **`live`** — sent by whichever client is actively dragging a block,
-  port, wire trunk, or boundary edge, on every pointer move, and relayed
-  to every *other* client as-is. Never written to disk (only the eventual
-  save, on release, is); a receiving client just patches the one thing
-  that moved.
+### Known limits
 
-This gives last-write-wins sync with low latency, not real conflict
-resolution — two people editing the *same* thing at the *same* moment
-will still clobber each other. Proper concurrent-edit handling (locking,
-merge, or presence) is still a later milestone, not something this
-implements.
+- **Shared links are snapshots, not sessions.** Editing a link produces a
+  new link. Two people editing the same one will not see each other's
+  changes — send the updated link back. Real-time collaboration works only
+  between clients on the same server instance.
+- Server-side storage is a single JSON file with no auth. Anyone who can
+  reach the server can edit it.
+- Very large diagrams (several hundred blocks) can exceed URL length limits
+  imposed by proxies, though not by browsers themselves.
+
+## License
+
+Not yet chosen — until one is added here, the default applies and all
+rights are reserved. AGPL-3.0 is the intended direction (free to use,
+modify and self-host; publish your changes if you run a modified version
+as a network service).
