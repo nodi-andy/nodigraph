@@ -369,6 +369,21 @@ async function bootstrap() {
     },
   });
 
+  // Marching dashes along every wire, to show which way things flow. Purely
+  // a way of looking at the diagram: nothing about it is stored, shared or
+  // undoable, so it lives here as a plain flag rather than in the project.
+  const FLOW_SPEED = 55; // world units per second
+  let animating = false;
+
+  function toggleAnimation() {
+    animating = !animating;
+    // The render loop is dirty-gated, and an animation has no edit to hang
+    // a redraw off — so it asks the loop to keep running while it lasts.
+    renderLoop.setContinuous(animating);
+    fileToolbarApi?.refreshAnimating(animating);
+    renderLoop.requestRender();
+  }
+
   function handleSaveFile() {
     downloadProjectFile(project);
   }
@@ -554,6 +569,11 @@ async function bootstrap() {
       remoteCursors: visibleRemoteCursors(),
       hoverGhost: stateMachine.getHoverGhost(),
       marqueeRect: stateMachine.getMarqueeRect(),
+      // Derived from the clock rather than counted in frames, so the
+      // dashes travel at the same speed on any refresh rate. Negative
+      // because a decreasing offset moves them along the path's own
+      // direction, which runs output to input.
+      flowOffset: animating ? -(performance.now() / 1000) * FLOW_SPEED : null,
     });
   }
 
@@ -675,6 +695,7 @@ async function bootstrap() {
     onOpen: handleOpenFile,
     onExportLink: handleExportLink,
     onSession: handleSession,
+    onAnimate: toggleAnimation,
     onUndo: undo,
     onRedo: redo,
     canUndo: () => history.canUndo,
@@ -683,6 +704,7 @@ async function bootstrap() {
   fileToolbarApi.refreshHistory();
   fileToolbarApi.refreshSession(peerSession.getState());
   fileToolbarApi.refreshSaved(urlSnapshot === null ? null : true);
+  fileToolbarApi.refreshAnimating(animating);
   document.title = project.name ? `${project.name} · noditron` : 'noditron';
 
   // A diagram opened from a link lives nowhere but this tab until it is
@@ -717,12 +739,26 @@ async function bootstrap() {
   });
 
   window.addEventListener('keydown', (event) => {
-    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
+    if (!(event.ctrlKey || event.metaKey)) return;
+    const key = event.key.toLowerCase();
+
+    // Ctrl/Cmd+S is claimed even while typing: it saves the diagram, which
+    // is worth doing mid-rename, and the browser's own "save this page"
+    // dialog is never what someone wants here.
+    if (key === 's') {
+      event.preventDefault();
+      fileToolbarApi?.triggerSave();
+      return;
+    }
+
+    // Ctrl+Y is the Windows redo; Ctrl/Cmd+Shift+Z is the one everywhere
+    // else. Both are offered rather than picking a side.
+    if (key !== 'z' && key !== 'y') return;
     // Text fields have their own undo stack; hijacking it while someone is
     // renaming a block would be worse than not offering the shortcut.
     if (editingText()) return;
     event.preventDefault();
-    if (event.shiftKey) redo();
+    if (key === 'y' || event.shiftKey) redo();
     else undo();
   });
 

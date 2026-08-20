@@ -209,10 +209,27 @@ function traceHorizontalWithHops(ctx, a, b, verticals) {
   ctx.lineTo(b.x, b.y);
 }
 
-export function drawPath(ctx, points, { color = '#4f8cff', width = 3, dashed = false, hopOver = null } = {}) {
+// The marching pattern used for flow animation. Longer and gappier than
+// the drag preview's, because at wire thickness a fine dash reads as a
+// texture rather than as something moving.
+export const FLOW_DASH = [14, 10];
+export const PREVIEW_DASH = [6, 4];
+
+/**
+ * `dash` is a dash pattern or null for a solid line, and `dashOffset`
+ * shifts where the pattern starts — animating it is what makes the dashes
+ * march. A negative offset moves them along the path's own direction,
+ * which for a connection runs output to input (see model/Connection.js).
+ */
+export function drawPath(
+  ctx,
+  points,
+  { color = '#4f8cff', width = 3, dash = null, dashOffset = 0, hopOver = null } = {},
+) {
   if (points.length < 2) return;
   ctx.save();
-  ctx.setLineDash(dashed ? [6, 4] : []);
+  ctx.setLineDash(dash || []);
+  ctx.lineDashOffset = dashOffset;
   ctx.lineJoin = 'miter';
   ctx.lineCap = 'round';
   ctx.beginPath();

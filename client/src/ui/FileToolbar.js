@@ -8,7 +8,7 @@
 // without extra permissions.
 export function mountFileToolbar(
   container,
-  { onSaveUrl, onSave, onOpen, onExportLink, onSession, onUndo, onRedo, canUndo, canRedo },
+  { onSaveUrl, onSave, onOpen, onExportLink, onSession, onAnimate, onUndo, onRedo, canUndo, canRedo },
 ) {
   container.innerHTML = '';
   container.className = 'file-toolbar';
@@ -127,6 +127,15 @@ export function mountFileToolbar(
   sessionButton.className = 'file-toolbar-button session-button';
   sessionButton.addEventListener('click', () => onSession());
 
+  // A view toggle, not an edit: it changes how the wires are drawn and
+  // touches nothing in the diagram, so it isn't saved, shared or undone.
+  const animateButton = document.createElement('button');
+  animateButton.type = 'button';
+  animateButton.className = 'file-toolbar-button animate-button';
+  animateButton.textContent = 'Animate';
+  animateButton.title = 'Show flow direction by marching the wires';
+  animateButton.addEventListener('click', () => onAnimate());
+
   const divider = document.createElement('span');
   divider.className = 'file-toolbar-divider';
 
@@ -138,12 +147,25 @@ export function mountFileToolbar(
     saveButton,
     openButton,
     linkButton,
+    animateButton,
     sessionButton,
     fileInput,
     toast,
   );
 
   return {
+    // Ctrl/Cmd+S routes through the button rather than duplicating its
+    // logic, so the shortcut and the click can't drift apart.
+    triggerSave() {
+      saveUrlButton.click();
+    },
+
+    refreshAnimating(on) {
+      animateButton.classList.toggle('active', on);
+      animateButton.textContent = on ? 'Stop' : 'Animate';
+      animateButton.title = on ? 'Stop the flow animation' : 'Show flow direction by marching the wires';
+    },
+
     // Called after anything that could change what's undoable, so the
     // buttons grey out rather than silently doing nothing.
     refreshHistory() {
