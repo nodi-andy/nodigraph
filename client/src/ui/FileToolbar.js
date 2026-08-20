@@ -8,10 +8,26 @@
 // without extra permissions.
 export function mountFileToolbar(
   container,
-  { onSave, onOpen, onExportLink, onSession, onUndo, onRedo, canUndo, canRedo },
+  { onSaveUrl, onSave, onOpen, onExportLink, onSession, onUndo, onRedo, canUndo, canRedo },
 ) {
   container.innerHTML = '';
   container.className = 'file-toolbar';
+
+  // Nothing else in the app needs a toast, so this is a local one: a line
+  // of text under the toolbar that says what just happened and goes away.
+  const toast = document.createElement('div');
+  toast.className = 'toolbar-toast';
+  toast.hidden = true;
+  let toastTimer = null;
+
+  function showToast(message) {
+    toast.textContent = message;
+    toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast.hidden = true;
+    }, 6000);
+  }
 
   // Icon-only, and first in the row: undo/redo are reached far more often
   // than the file actions, and the curved-arrow pair is universal enough
@@ -37,6 +53,39 @@ export function mountFileToolbar(
     'Redo (Ctrl+Shift+Z)',
     () => onRedo(),
   );
+
+  // "Save" writes the diagram into the address bar, because that is where
+  // this app's documents actually live — there is no server file to write
+  // and no account to write it under. Bookmarking the result is the part
+  // no page can do for you: every browser removed the API for it years
+  // ago (IE's window.external.AddFavorite, Firefox's addPanel), so the
+  // button does the half that is possible and names the shortcut for the
+  // half that isn't.
+  const BOOKMARK_KEYS = /Mac|iPhone|iPad/.test(navigator.userAgent) ? '\u2318D' : 'Ctrl+D';
+
+  const saveUrlButton = document.createElement('button');
+  saveUrlButton.type = 'button';
+  saveUrlButton.className = 'file-toolbar-button save-url-button';
+  saveUrlButton.textContent = 'Save';
+  // Reloading sends the whole address to the server, and a lot of servers
+  // and proxies cap the request line around 8 KB — so a diagram can be
+  // saved successfully and still fail to open later. Better to say so at
+  // the moment it gets big than to let it be discovered on a reload.
+  const LONG_URL_CHARS = 8000;
+
+  saveUrlButton.addEventListener('click', async () => {
+    const result = await onSaveUrl();
+    if (!result.ok) {
+      showToast(`Couldn\u2019t save into the address: ${result.error}. Use Download instead.`);
+      return;
+    }
+    const bookmark = `press ${BOOKMARK_KEYS} to bookmark it, or copy the address bar`;
+    showToast(
+      result.length > LONG_URL_CHARS
+        ? `Saved \u2014 ${bookmark}. Note this address is ${Math.round(result.length / 1024)} KB; some servers and proxies reject links over about 8 KB, so keep a Download as well.`
+        : `Saved into this page\u2019s address \u2014 ${bookmark}.`,
+    );
+  });
 
   const saveButton = document.createElement('button');
   saveButton.type = 'button';
@@ -85,11 +134,13 @@ export function mountFileToolbar(
     undoButton,
     redoButton,
     divider,
+    saveUrlButton,
     saveButton,
     openButton,
     linkButton,
     sessionButton,
     fileInput,
+    toast,
   );
 
   return {
@@ -98,6 +149,18 @@ export function mountFileToolbar(
     refreshHistory() {
       undoButton.disabled = !canUndo();
       redoButton.disabled = !canRedo();
+    },
+
+    // The dot marks edits made since the address bar was last written, so
+    // "Save" is never a button whose effect you have to guess at. It only
+    // appears once there is something to be out of date *with* — before
+    // the first save there is no stale URL to warn about.
+    refreshSaved(saved) {
+      saveUrlButton.classList.toggle('unsaved', saved === false);
+      saveUrlButton.title =
+        saved === false
+          ? 'Edits since this page\u2019s address was last updated — click to save them into it'
+          : 'Save this diagram into the page address, so a bookmark or a reload keeps it';
     },
 
     // `peers` counts connections, so on the host it is "everyone but me".
