@@ -99,6 +99,10 @@ async function bootstrap() {
   let docSyncApi = null;
   let fileToolbarApi = null;
   let selectionFabsApi = null;
+  // The diagram the address bar currently encodes, or null when it encodes
+  // none — which is how "Save" knows whether there is anything to save.
+  // A page opened from a link starts out already saved, by definition.
+  let urlSnapshot = isSharedView ? JSON.stringify(project.toJSON()) : null;
   // Assigned further down, once applyRemoteProject/applyLiveUpdate exist —
   // declared here so persist() can reach it without a dead-zone error.
   let peerSession = null;
@@ -114,6 +118,10 @@ async function bootstrap() {
     history.record({ json: lastSyncedSnapshot, path: [...project.path] });
     fileToolbarApi?.refreshHistory();
     if (!isSharedView) saveProject(project);
+    // The tab title is what a bookmark gets named, so it has to be the
+    // diagram's name rather than the app's.
+    document.title = project.name ? `${project.name} · noditron` : 'noditron';
+    fileToolbarApi?.refreshSaved(urlSnapshot === null ? null : urlSnapshot === lastSyncedSnapshot);
     // Peers get the whole tree; applyRemoteProject on the far side drops
     // it if it matches what they already have, so this can't loop.
     broadcastToPeers({ type: 'project', data: JSON.parse(lastSyncedSnapshot) });
@@ -363,6 +371,24 @@ async function bootstrap() {
 
   function handleSaveFile() {
     downloadProjectFile(project);
+  }
+
+  // "Saving" here means writing the diagram into the page's own address:
+  // there is no server document to update and no account to store one
+  // under, so the URL is the file (see model/shareLink.js). replaceState
+  // rather than pushState — the Back button is for leaving the page, not
+  // for stepping through saves, which is what undo is for.
+  async function handleSaveToUrl() {
+    let url;
+    try {
+      url = await buildShareUrl();
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+    window.history.replaceState(null, '', url);
+    urlSnapshot = lastSyncedSnapshot;
+    fileToolbarApi?.refreshSaved(true);
+    return { ok: true, length: url.length };
   }
 
   // A shareable link, not a save — the whole diagram packed into the URL's
@@ -644,6 +670,7 @@ async function bootstrap() {
     docSyncApi = mountDocSync(docSyncEl, { onUpdate: handleUpdateDoc, onConnect: handleConnectDoc });
   }
   fileToolbarApi = mountFileToolbar(fileToolbarEl, {
+    onSaveUrl: handleSaveToUrl,
     onSave: handleSaveFile,
     onOpen: handleOpenFile,
     onExportLink: handleExportLink,
@@ -655,6 +682,19 @@ async function bootstrap() {
   });
   fileToolbarApi.refreshHistory();
   fileToolbarApi.refreshSession(peerSession.getState());
+  fileToolbarApi.refreshSaved(urlSnapshot === null ? null : true);
+  document.title = project.name ? `${project.name} · noditron` : 'noditron';
+
+  // A diagram opened from a link lives nowhere but this tab until it is
+  // saved back into the address bar, so closing with unsaved edits loses
+  // them outright. A server-backed one is already on the server, and gets
+  // no prompt — a confirmation dialog that fires when nothing is at stake
+  // is one people learn to dismiss without reading.
+  window.addEventListener('beforeunload', (event) => {
+    if (!isSharedView || urlSnapshot === lastSyncedSnapshot) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
 
   selectionFabsApi = mountSelectionFabs(fabStackEl, {
     getSelectionCount: selectionCount,

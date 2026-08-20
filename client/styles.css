@@ -85,6 +85,45 @@ html, body {
   padding: 4px;
 }
 
+/* The dot marks edits not yet written into the page address. Placed after
+   the label rather than before it so the button's text doesn't shift left
+   and right as the state changes. */
+.save-url-button.unsaved::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: #ffb454;
+  vertical-align: middle;
+}
+
+/* Hangs below the banner rather than displacing it — the banner is a
+   fixed-height row, and a message long enough to be useful would double
+   its height. Fixed rather than absolute because on a phone its parent
+   scrolls horizontally, which would clip and drag an absolute child
+   along with it. */
+.toolbar-toast {
+  position: fixed;
+  top: 60px;
+  right: 16px;
+  max-width: min(460px, calc(100vw - 32px));
+  padding: 10px 14px;
+  background: #1e2530;
+  border: 1px solid #2c3644;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  color: #c3c9d4;
+  font-size: 12px;
+  line-height: 1.45;
+  z-index: 25;
+}
+
+.toolbar-toast[hidden] {
+  display: none;
+}
+
 /* Live-session state, shown in the banner because it is a mode the whole
    app is in rather than a one-off action. The dot is the at-a-glance part:
    the label changes too, but a green pip reads without being read. */

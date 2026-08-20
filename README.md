@@ -64,6 +64,9 @@ to the editable diagram.
   selection, then move the whole group, or copy/paste it (wires between
   selected blocks come along, and nested sub-architecture is copied too).
 - **Undo/redo** — toolbar buttons and Ctrl/Cmd+Z, across every edit.
+- **Save into the address bar** — Save writes the diagram into this page's
+  own URL, so a bookmark or a reload brings it back. A dot on the button
+  marks edits that aren't in the address yet.
 - **Share by link** — the whole diagram, gzip-compressed into a URL.
 - **Local files** — Download/Upload plain JSON, independent of any server.
 - **Live sessions** — invite someone with a link and edit the same diagram
@@ -117,8 +120,12 @@ fine for the shared-link workflow, not yet durable storage.
 ### Known limits
 
 - **Shared links are snapshots, not sessions.** Editing a link produces a
-  new link. Two people editing the same one will not see each other's
-  changes — send the updated link back, or start a live session.
+  new link — press Save to write your edits back into the address bar.
+  Two people editing the same link will not see each other's changes:
+  send the updated link back, or start a live session.
+- **Nothing can add a bookmark for you.** Every browser removed the API
+  for it years ago, so Save updates the address and names the shortcut;
+  pressing it is yours to do.
 - **Live sessions are best-effort.** They use the public PeerJS broker,
   which is rate-limited and offers no uptime guarantee, and a direct WebRTC
   connection without a TURN relay is often blocked by strict corporate
