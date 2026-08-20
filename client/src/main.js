@@ -27,6 +27,7 @@ import { downloadProjectFile, readProjectFile } from './model/localFile.js';
 import { encodeProjectToParam, decodeProjectFromParam } from './model/shareLink.js';
 import { serializeSelection, pasteSelection, isClipboardPayload } from './model/clipboard.js';
 import { History } from './model/History.js';
+import { createPeerSession } from './model/peerSession.js';
 
 const canvas = document.getElementById('scene-canvas');
 const ctx = canvas.getContext('2d');
@@ -94,6 +95,9 @@ async function bootstrap() {
   let inspectorApi = null;
   let docSyncApi = null;
   let fileToolbarApi = null;
+  // Assigned further down, once applyRemoteProject/applyLiveUpdate exist —
+  // declared here so persist() can reach it without a dead-zone error.
+  let peerSession = null;
 
   const history = new History({ json: lastSyncedSnapshot, path: [] });
 
@@ -106,6 +110,9 @@ async function bootstrap() {
     history.record({ json: lastSyncedSnapshot, path: [...project.path] });
     fileToolbarApi?.refreshHistory();
     if (!isSharedView) saveProject(project);
+    // Peers get the whole tree; applyRemoteProject on the far side drops
+    // it if it matches what they already have, so this can't loop.
+    broadcastToPeers({ type: 'project', data: JSON.parse(lastSyncedSnapshot) });
     inspectorApi?.refresh();
   }
 
@@ -334,6 +341,14 @@ async function bootstrap() {
     // The level you're looking at is the thing the figure depicts, so its
     // name is what the figure's description should say.
     getFigureName: () => project.getContainerBlock()?.name || project.name,
+    session: {
+      getState: () => peerSession?.getState() || { state: 'idle', peers: 0 },
+      start: () => peerSession.host(),
+      stop: () => peerSession.stop(),
+      // The invite carries the diagram as well as the session id, so a
+      // guest still sees it if the peer connection can't be established.
+      buildInviteUrl: async (sessionId) => `${await buildShareUrl()}&join=${encodeURIComponent(sessionId)}`,
+    },
   });
 
   function handleExportLink() {
@@ -456,6 +471,27 @@ async function bootstrap() {
   // A shared-link view has nothing to do with the server's live project —
   // connecting would just overwrite this snapshot with whatever's actually
   // on the server the moment anyone else saves.
+  // Peer messages carry the same shapes liveSync uses, so they route into
+  // exactly the same handlers.
+  peerSession = createPeerSession({
+    onMessage: (message) => {
+      if (message?.type === 'project') applyRemoteProject(message.data);
+      else if (message?.type === 'live') applyLiveUpdate(message);
+    },
+    onStatus: (status) => {
+      // A guest that has just opened its channel needs the current
+      // diagram; nothing else would send it one until the next edit.
+      if (status.joined) {
+        peerSession.sendTo(status.joined, { type: 'project', data: project.toJSON() });
+      }
+      shareDialog.refreshSession?.(status);
+    },
+  });
+
+  function broadcastToPeers(message) {
+    if (peerSession?.isActive()) peerSession.send(message);
+  }
+
   const liveSync = isSharedView
     ? { sendLive: () => {} }
     : connectLiveSync({ onProject: applyRemoteProject, onLive: applyLiveUpdate });
@@ -469,7 +505,10 @@ async function bootstrap() {
     persist,
     onEnterBlock: enterBlock,
     onRequestRename: openRename,
-    onLiveUpdate: (message) => liveSync.sendLive(message),
+    onLiveUpdate: (message) => {
+      liveSync.sendLive(message);
+      broadcastToPeers({ type: 'live', ...message });
+    },
   });
 
   attachInputRouter(canvas, camera, stateMachine);
@@ -487,10 +526,13 @@ async function bootstrap() {
     lastCursorSentAt = now;
     const rect = canvas.getBoundingClientRect();
     const world = camera.screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
-    liveSync.sendLive({ kind: 'cursor', clientId, x: world.x, y: world.y, path: project.path });
+    const cursor = { kind: 'cursor', clientId, x: world.x, y: world.y, path: project.path };
+    liveSync.sendLive(cursor);
+    broadcastToPeers({ type: 'live', ...cursor });
   });
   canvas.addEventListener('pointerleave', () => {
     liveSync.sendLive({ kind: 'cursor-leave', clientId });
+    broadcastToPeers({ type: 'live', kind: 'cursor-leave', clientId });
   });
 
   // Pure hygiene: without some activity to trigger a redraw, a cursor that
@@ -630,6 +672,17 @@ async function bootstrap() {
   frameCurrentLevel();
   updateNavigationUI();
   renderLoop.start();
+
+  // An invite link (?join=) carries the diagram too, so the guest already
+  // has something on screen; joining then upgrades it to a live session.
+  // A failure here is worth surfacing — a corporate firewall blocking
+  // WebRTC is exactly the case where silence would be baffling.
+  const joinId = new URLSearchParams(window.location.search).get('join');
+  if (joinId) {
+    peerSession.join(joinId).catch((err) => {
+      window.alert(`Couldn't join the live session: ${err.message}\nYou can still edit this copy of the diagram.`);
+    });
+  }
 }
 
 bootstrap();
