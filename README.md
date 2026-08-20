@@ -41,10 +41,11 @@ A PNG lands in a document and six months later nobody can find the file
 that made it, so the next person redraws it from scratch.
 
 noditron's answer is that there is no separate source file to lose. The
-picture's link contains the diagram. The **Share → Google Docs** tab makes
-this concrete: it hands you the figure image plus the alt-text values to
-paste with it, so the figure in your document carries a working link back
-to the editable diagram.
+picture's link contains the diagram. **Export to Google Docs** makes this
+concrete: one Copy button puts the figure and a linked caption on the
+clipboard together, so pasting into a Doc drops in both at once and the
+figure in your document carries a working link back to the editable
+diagram.
 
 ## Features
 

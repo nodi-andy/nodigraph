@@ -8,7 +8,7 @@
 // without extra permissions.
 export function mountFileToolbar(
   container,
-  { onSaveUrl, onSave, onOpen, onExportLink, onSession, onAnimate, onUndo, onRedo, canUndo, canRedo },
+  { onSaveUrl, onSave, onOpen, onShare, onExportGoogleDocs, onSession, onAnimate, onUndo, onRedo, canUndo, canRedo },
 ) {
   container.innerHTML = '';
   container.className = 'file-toolbar';
@@ -111,12 +111,19 @@ export function mountFileToolbar(
     if (file) onOpen(file);
   });
 
-  const linkButton = document.createElement('button');
-  linkButton.type = 'button';
-  linkButton.className = 'file-toolbar-button';
-  linkButton.textContent = 'Share Link';
-  linkButton.title = 'Get a URL that opens this diagram directly, with no server or account needed';
-  linkButton.addEventListener('click', () => onExportLink());
+  const shareButton = document.createElement('button');
+  shareButton.type = 'button';
+  shareButton.className = 'file-toolbar-button';
+  shareButton.textContent = 'Share';
+  shareButton.title = 'Get a URL that opens this diagram directly, with no server or account needed';
+  shareButton.addEventListener('click', () => onShare());
+
+  const googleDocsButton = document.createElement('button');
+  googleDocsButton.type = 'button';
+  googleDocsButton.className = 'file-toolbar-button';
+  googleDocsButton.textContent = 'Export to Google Docs';
+  googleDocsButton.title = 'Copy this diagram as a figure you can paste straight into a Google Doc';
+  googleDocsButton.addEventListener('click', () => onExportGoogleDocs());
 
   // Starting a live session lives here rather than inside the Share dialog:
   // it is a mode the whole app is in, not a way of handing the diagram over
@@ -146,7 +153,8 @@ export function mountFileToolbar(
     saveUrlButton,
     saveButton,
     openButton,
-    linkButton,
+    shareButton,
+    googleDocsButton,
     animateButton,
     sessionButton,
     fileInput,
