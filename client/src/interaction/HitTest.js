@@ -1,7 +1,7 @@
 import {
   getAllPortPositions,
   getConnectorHandlePosition,
-  getBorderHit,
+  getResizeHandleRects,
   getBoundaryLabelRect,
   getPortSlotRect,
   PORT_RADIUS,
@@ -11,6 +11,11 @@ import {
 // Handles are visually tiny, so their hit area is padded beyond what's drawn —
 // a standard diagramming-tool trick, independent of render technology.
 const HANDLE_HIT_PADDING = 6;
+// Resize handles already float well clear of the block (see
+// BlockRenderer.RESIZE_HANDLE_OUTSET) — a slightly bigger pad than the
+// ports get costs nothing, and a bigger, easier-to-grab target is exactly
+// the point of them existing on a touch screen.
+const RESIZE_HANDLE_HIT_PADDING = 8;
 
 function pointInRect(px, py, rect, padding = 0) {
   return (
@@ -25,6 +30,13 @@ function pointInCircle(px, py, cx, cy, radius) {
   const dx = px - cx;
   const dy = py - cy;
   return dx * dx + dy * dy <= radius * radius;
+}
+
+function hitResizeHandle(geometry, worldX, worldY) {
+  for (const rect of Object.values(getResizeHandleRects(geometry))) {
+    if (pointInRect(worldX, worldY, rect, RESIZE_HANDLE_HIT_PADDING)) return rect.side;
+  }
+  return null;
 }
 
 function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false) {
@@ -62,17 +74,24 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false) {
 }
 
 /**
- * Tests smallest/highest-priority targets first (port connector/move
- * handles across every block — including the surrounding boundary frame's
- * own ports — then block body, then the boundary's empty body last since
- * it covers the whole level). `boundary`, when the current level has one,
- * is `{ block, geometry }` for the container you're inside. Returns null
- * if nothing was hit (caller should try a wire trunk, then fall back to
- * pan/marquee).
+ * Tests smallest/highest-priority targets first: port connector/move
+ * handles across every block (including the surrounding boundary frame's
+ * own ports) win over everything, then the boundary's own title, then a
+ * resize handle — only for `resizableBlockId`, the one ordinary block
+ * currently allowed to show them, or the boundary frame unconditionally
+ * (see DragStateMachine.getResizableBlockId) — then block body, then the
+ * boundary's own resize handle dead last. `boundary`, when the current
+ * level has one, is `{ block, geometry }` for the container you're inside.
+ * Returns null if nothing was hit (caller should try a wire trunk, then
+ * fall back to pan/marquee).
  */
-export function hitTest(project, worldX, worldY, boundary) {
+export function hitTest(project, worldX, worldY, boundary, resizableBlockId) {
   const blocks = project.listBlocks();
 
+  // Ports outrank a resize handle exactly like they outranked the old
+  // border-drag zone: a port is the more specific target, so on the rare
+  // occasion a handle and a port's connector reach do overlap, the port
+  // still wins.
   const portHit = hitPortsAcrossBlocks(blocks, worldX, worldY);
   if (portHit) return portHit;
 
@@ -90,18 +109,15 @@ export function hitTest(project, worldX, worldY, boundary) {
     }
   }
 
-  // A precise click right on a block's own border is ambiguous the same
-  // way the boundary's own edge already was (see 'boundaryEdge' below): a
-  // release without much movement adds a port there, a drag past the
-  // threshold resizes that edge instead (splitter-style — DragStateMachine
-  // handles both hit types the same way). Checked before the body so it
-  // doesn't get swallowed by "drag to move," but after ports so it never
-  // shadows a more specific handle.
-  for (let i = blocks.length - 1; i >= 0; i -= 1) {
-    const block = blocks[i];
-    const border = getBorderHit(block.geometry, worldX, worldY);
-    if (border) {
-      return { type: 'border', blockId: block.id, side: border.side, offset: border.offset };
+  // The one ordinary block currently allowed to show resize handles (see
+  // DragStateMachine.getResizableBlockId) — checked before any block's
+  // body so a handle floating just past this block's own border isn't
+  // swallowed by "drag to move" if it happens to sit over another block.
+  if (resizableBlockId) {
+    const block = project.getBlock(resizableBlockId);
+    if (block) {
+      const side = hitResizeHandle(block.geometry, worldX, worldY);
+      if (side) return { type: 'resizeHandle', blockId: block.id, side, isBoundary: false };
     }
   }
 
@@ -113,15 +129,11 @@ export function hitTest(project, worldX, worldY, boundary) {
   }
 
   if (boundary) {
-    // A child block drawn over part of the boundary's edge should win —
-    // hence this is checked only after every real block's body above. The
-    // boundary's plain interior isn't a click target at all: there's
-    // nothing to select there, so an unmatched click here just falls
-    // through to a wire-trunk check and then panning.
-    const edge = getBorderHit(boundary.geometry, worldX, worldY);
-    if (edge) {
-      return { type: 'boundaryEdge', blockId: boundary.block.id, side: edge.side, offset: edge.offset };
-    }
+    // Checked dead last, same position the old boundaryEdge hit held: a
+    // child block drawn over part of the boundary's own resize zone
+    // should still win the body check above it.
+    const side = hitResizeHandle(boundary.geometry, worldX, worldY);
+    if (side) return { type: 'resizeHandle', blockId: boundary.block.id, side, isBoundary: true };
   }
 
   return null;

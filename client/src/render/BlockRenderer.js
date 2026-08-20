@@ -131,44 +131,53 @@ export function projectPointToPerimeter(block, worldX, worldY) {
 
 const BORDER_HIT_THRESHOLD = 8;
 
-// Detects a click near a rectangle's edge (any of the four sides, within
-// its actual span, not the infinite line) — used both to add a port right
-// where you click a block's border, and to find which edge of the boundary
-// frame a splitter-style drag should resize. Returns the same {side,
-// offset} shape a port itself uses, so a border click can become a port at
-// exactly that spot with no extra conversion.
-export function getBorderHit(geometry, worldX, worldY, threshold = BORDER_HIT_THRESHOLD) {
+// The four resize handles a selected block (or the boundary frame,
+// unconditionally) shows — one per edge, floating outside the block
+// rather than sitting on the border the way the old drag-to-resize zone
+// did. Ports and their connector nubs already occupy the border and reach
+// up to ~24 world units past it (PORT_SLOT_SIZE/2 plus the nub and its own
+// hit padding); the 40-unit outset here clears that with room to spare
+// even in the worst case, a port sitting at the exact same edge midpoint a
+// handle occupies — which is the actual point of moving them off the
+// border: nothing to collide with there anymore, so touch doesn't need
+// hover to disambiguate the two the way a mouse did.
+export const RESIZE_HANDLE_SIZE = 12;
+export const RESIZE_HANDLE_OUTSET = 40;
+
+export function getResizeHandleRects(geometry) {
   const { x, y, width, height } = geometry;
-  const withinX = worldX >= x - threshold && worldX <= x + width + threshold;
-  const withinY = worldY >= y - threshold && worldY <= y + height + threshold;
-  if (!withinX && !withinY) return null;
+  const half = RESIZE_HANDLE_SIZE / 2;
+  const cx = x + width / 2;
+  const cy = y + height / 2;
+  const square = (side, cx2, cy2) => ({ side, x: cx2 - half, y: cy2 - half, width: RESIZE_HANDLE_SIZE, height: RESIZE_HANDLE_SIZE });
+  return {
+    top: square('top', cx, y - RESIZE_HANDLE_OUTSET),
+    bottom: square('bottom', cx, y + height + RESIZE_HANDLE_OUTSET),
+    left: square('left', x - RESIZE_HANDLE_OUTSET, cy),
+    right: square('right', x + width + RESIZE_HANDLE_OUTSET, cy),
+  };
+}
 
-  const candidates = [];
-  if (withinY) {
-    const distLeft = Math.abs(worldX - x);
-    const distRight = Math.abs(worldX - (x + width));
-    if (distLeft <= threshold) candidates.push({ side: 'left', dist: distLeft, offset: worldY - y });
-    if (distRight <= threshold) candidates.push({ side: 'right', dist: distRight, offset: worldY - y });
+// Drawn last in drawBlock/drawBoundary so the handles always sit on top —
+// they're an edit affordance, not part of the diagram, so nothing should
+// ever paint over them once they're showing.
+export function drawResizeHandles(ctx, geometry) {
+  const rects = getResizeHandleRects(geometry);
+  for (const rect of Object.values(rects)) {
+    ctx.beginPath();
+    ctx.rect(rect.x, rect.y, rect.width, rect.height);
+    ctx.fillStyle = '#10151c';
+    ctx.fill();
+    ctx.strokeStyle = SELECTION_COLOR;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
   }
-  if (withinX) {
-    const distTop = Math.abs(worldY - y);
-    const distBottom = Math.abs(worldY - (y + height));
-    if (distTop <= threshold) candidates.push({ side: 'top', dist: distTop, offset: worldX - x });
-    if (distBottom <= threshold) candidates.push({ side: 'bottom', dist: distBottom, offset: worldX - x });
-  }
-  if (!candidates.length) return null;
-
-  candidates.sort((a, b) => a.dist - b.dist);
-  const best = candidates[0];
-  const bounds = getPortOffsetBounds(sideAxis(best.side) === 'x' ? height : width);
-  return { side: best.side, offset: snap(clamp(best.offset, bounds.min, bounds.max)) };
 }
 
 // Detects the cursor sitting *inside* the block, just past the border's own
-// resize zone and no deeper than a slot square's own depth — this is
+// hit padding and no deeper than a slot square's own depth — this is
 // "a little inside the box": hovering there is what reveals an add-port
-// ghost (see DragStateMachine's hover-ghost handling), a separate gesture
-// from a press on the border line itself, which is resize-only now.
+// ghost (see DragStateMachine's hover-ghost handling).
 export function getEdgeZoneOffset(geometry, ports, worldX, worldY) {
   const { x, y, width, height } = geometry;
   if (worldX < x || worldX > x + width || worldY < y || worldY > y + height) return null;
@@ -441,6 +450,7 @@ export function drawBlock(ctx, block, { selected = false, portHighlights = null 
   ctx.restore();
 
   drawPorts(ctx, block, { portHighlights, showEmptySlots: selected });
+  if (selected) drawResizeHandles(ctx, block.geometry);
 }
 
 // The frame representing "the current system" — the block you're inside,
@@ -470,6 +480,11 @@ export function drawBoundary(ctx, block, geometry, { selected = false, portHighl
   ctx.fillText(block.name, x + 4, y - 6);
 
   drawPorts(ctx, { ...block, geometry }, { inverted: true, portHighlights });
+  // Not gated on `selected`, unlike an ordinary block's handles: the
+  // boundary has no reliable "selected" state to gate on (nothing in the
+  // app currently selects the container you're inside), and it was always
+  // resizable before regardless of selection anyway — this keeps that.
+  drawResizeHandles(ctx, geometry);
 }
 
 export const BOUNDARY_LABEL_FONT = '11px -apple-system, Segoe UI, Roboto, sans-serif';

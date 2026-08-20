@@ -53,6 +53,10 @@ to the editable diagram.
   in a new parent when the scope grows.
 - **Ports on a grid** — connectors snap to fixed slots on every edge, so
   wires between blocks line up instead of almost lining up.
+- **Resize handles** — select a block to see four floating handles, one
+  per edge, sitting outside the block rather than on its border so they
+  never fight with a port for the same touch. The container frame you're
+  inside shows its own handles the same way, always.
 - **Orthogonal routing** — wires pave themselves around blocks, with a
   draggable trunk segment when you want a different route. Wires that cross
   without joining bow over each other, so a crossing never reads as a
