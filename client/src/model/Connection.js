@@ -16,5 +16,9 @@ export function createConnection({ sourceBlockId, sourcePortId, targetBlockId, t
     // block moves. manualBend is the one thing a user-drag actually changes:
     // the fixed coordinate of the paved trunk segment, null until dragged.
     manualBend: null,
+    // `color` is deliberately absent rather than null: a wire nobody has
+    // recolored is drawn in the default, and storing that as data would
+    // put a field on every connection in every share link to say nothing.
+    // main.js's colorSelection adds and deletes it.
   };
 }

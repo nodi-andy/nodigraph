@@ -85,6 +85,25 @@ html, body {
   padding: 4px;
 }
 
+/* Live-session state, shown in the banner because it is a mode the whole
+   app is in rather than a one-off action. The dot is the at-a-glance part:
+   the label changes too, but a green pip reads without being read. */
+.session-button.active {
+  color: #e6e9ef;
+  border-color: #3ecf5d;
+}
+
+.session-button.active::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #3ecf5d;
+  vertical-align: baseline;
+}
+
 .file-toolbar-divider {
   width: 1px;
   height: 18px;
@@ -267,6 +286,107 @@ html, body {
   transform: translateY(0) scale(0.94);
 }
 
+/* Selection controls, stacked directly above the add FAB in the same
+   corner. Anchored to the same edge and shifted by the same amount when
+   the inspector opens (see the desktop media rule below), so the column
+   stays a column. */
+.fab-stack {
+  position: fixed;
+  right: 20px;
+  bottom: calc(20px + 56px + 12px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 20;
+}
+
+.fab-stack[hidden] {
+  display: none;
+}
+
+/* Smaller and muted: these act on an existing selection, so they must not
+   compete with "add a block" for the eye. */
+.fab.fab-mini {
+  position: static;
+  width: 44px;
+  height: 44px;
+  background: #2c3644;
+}
+
+.fab.fab-mini:hover {
+  background: #3a4556;
+}
+
+.fab.fab-danger:hover {
+  background: #a52a2f;
+}
+
+/* Opens to the left of the stack rather than above it: above is where the
+   canvas content usually is, and the stack already sits near the bottom
+   edge on a phone. */
+.fab-palette {
+  position: absolute;
+  right: calc(100% + 12px);
+  bottom: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 28px);
+  gap: 8px;
+  padding: 10px;
+  background: #1e2530;
+  border: 1px solid #2c3644;
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.fab-palette[hidden] {
+  display: none;
+}
+
+.fab-swatch {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  cursor: pointer;
+  background: none;
+}
+
+.fab-swatch:hover {
+  border-color: #e6e9ef;
+}
+
+/* "Back to the default" is the absence of a colour, so it is drawn as an
+   absence — an outline, not a sample of the default blue, which would
+   read as just another choice. */
+.fab-swatch-default {
+  position: relative;
+  background: #12161d;
+}
+
+.fab-swatch-default::after {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 1px dashed #8b93a3;
+  border-radius: 3px;
+}
+
+.fab-swatch-custom {
+  -webkit-appearance: none;
+  appearance: none;
+  background: none;
+}
+
+.fab-swatch-custom::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.fab-swatch-custom::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
 /* Hidden until a block is actually selected (body.inspector-open, set by
    InspectorPanel.syncOpenState) — an always-there empty panel just ate a
    300px column to say "select a block". */
@@ -293,7 +413,8 @@ body.inspector-open #inspector {
 @media (min-width: 769px) {
   /* Only the right-hand FAB needs to dodge the inspector column; the
      left one is anchored to the opposite edge and never overlaps it. */
-  body.inspector-open .fab:not(.fab-left) {
+  body.inspector-open .fab:not(.fab-left),
+  body.inspector-open .fab-stack {
     right: calc(300px + 20px);
   }
 }
@@ -549,6 +670,35 @@ body.inspector-open #inspector {
       "canvas";
   }
 
+  /* Six controls of labelled text don't fit a phone's width, and a button
+     pushed off the edge is a button that doesn't exist. Letting the cluster
+     scroll keeps every one of them reachable without inventing an overflow
+     menu; the brand goes, since it is the one thing here that isn't a
+     control. */
+  #topbar {
+    gap: 8px;
+    padding: 0 10px;
+  }
+
+  #topbar .brand {
+    display: none;
+  }
+
+  .file-toolbar {
+    flex-shrink: 1;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .file-toolbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .file-toolbar-button {
+    flex-shrink: 0;
+  }
+
   /* Selected but sheet not open yet — offer the explicit opener. */
   body.block-selected:not(.inspector-open) .inspector-toggle {
     display: block;
@@ -593,7 +743,8 @@ body.inspector-open #inspector {
     display: none;
   }
 
-  body.inspector-open .fab {
+  body.inspector-open .fab,
+  body.inspector-open .fab-stack {
     opacity: 0;
     pointer-events: none;
   }

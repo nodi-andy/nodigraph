@@ -9,6 +9,7 @@ import {
   SIDES,
 } from '../model/grid.js';
 import { getStateColor } from '../model/BlockDescription.js';
+import { DEFAULT_BLOCK_COLOR } from '../model/Block.js';
 
 const CORNER_RADIUS = 6;
 export const PORT_RADIUS = 5;
@@ -36,7 +37,8 @@ const SLOT_RING_RADIUS = PORT_SLOT_SIZE / 2 + 4;
 // block; an in-progress wire's own source stays that same "active" blue;
 // a hovered drop target turns green once it's actually compatible, or red
 // when it's a real port but the wrong effective direction to pair with.
-export const PORT_SELECTED_RING_COLOR = '#4f8cff';
+const SELECTION_COLOR = '#4f8cff';
+export const PORT_SELECTED_RING_COLOR = SELECTION_COLOR;
 export const PORT_SOURCE_RING_COLOR = '#4f8cff';
 export const PORT_TARGET_VALID_RING_COLOR = '#3ecf5d';
 export const PORT_TARGET_INVALID_RING_COLOR = '#e5484d';
@@ -406,13 +408,24 @@ function roundRectPath(ctx, x, y, width, height, radius) {
 // that shows those same ports (Milestone 3).
 export function drawBlock(ctx, block, { selected = false, portHighlights = null } = {}) {
   const { x, y, width, height } = block.geometry;
-  const accentColor = block.style?.color || '#3b6fa0';
+  const accentColor = block.style?.color || DEFAULT_BLOCK_COLOR;
+
+  // Selection is an outline *around* the block, not a recolor of its own
+  // border: the border carries the block's accent colour, and repainting it
+  // to show selection would hide the colour at the exact moment someone is
+  // picking one.
+  if (selected) {
+    roundRectPath(ctx, x - 3, y - 3, width + 6, height + 6, CORNER_RADIUS + 3);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = SELECTION_COLOR;
+    ctx.stroke();
+  }
 
   roundRectPath(ctx, x, y, width, height, CORNER_RADIUS);
   ctx.fillStyle = '#1c2431';
   ctx.fill();
   ctx.lineWidth = selected ? 2 : 1.5;
-  ctx.strokeStyle = selected ? '#4f8cff' : accentColor;
+  ctx.strokeStyle = accentColor;
   ctx.stroke();
 
   ctx.save();

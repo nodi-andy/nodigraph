@@ -54,13 +54,18 @@ to the editable diagram.
 - **Ports on a grid** — connectors snap to fixed slots on every edge, so
   wires between blocks line up instead of almost lining up.
 - **Orthogonal routing** — wires pave themselves around blocks, with a
-  draggable trunk segment when you want a different route.
+  draggable trunk segment when you want a different route. Wires that cross
+  without joining bow over each other, so a crossing never reads as a
+  connection.
+- **Coloured pipes** — click any wire (or any block) and give it a colour
+  from the palette beside the add button, to group the pipes that belong
+  together.
 - **Multi-select** — shift-drag a marquee or shift-click to build a
   selection, then move the whole group, or copy/paste it (wires between
   selected blocks come along, and nested sub-architecture is copied too).
 - **Undo/redo** — toolbar buttons and Ctrl/Cmd+Z, across every edit.
 - **Share by link** — the whole diagram, gzip-compressed into a URL.
-- **Local files** — Save/Open plain JSON, independent of any server.
+- **Local files** — Download/Upload plain JSON, independent of any server.
 - **Live sessions** — invite someone with a link and edit the same diagram
   together, blocks mid-drag included. A public broker only introduces the
   two browsers to each other; the diagram itself travels directly between
