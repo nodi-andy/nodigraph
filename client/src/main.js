@@ -365,6 +365,10 @@ async function bootstrap() {
       if (!block) return;
       block.name = name;
       persist();
+      // persist() already retitles the tab from the product's own name;
+      // this covers the other case, an ancestor's name changing while its
+      // boundary label is what shows in the breadcrumb.
+      breadcrumbApi?.refresh();
       renderLoop.requestRender();
     },
   });
@@ -678,10 +682,23 @@ async function bootstrap() {
     enterBlock,
   });
 
-  breadcrumbApi = mountBreadcrumb(breadcrumbEl, { project, onNavigate: navigateToDepth });
+  breadcrumbApi = mountBreadcrumb(breadcrumbEl, {
+    project,
+    onNavigate: navigateToDepth,
+    onRenameCurrent: () => openRename(project.getContainerBlock().id),
+  });
   parentFabEl.addEventListener('click', () => {
-    if (project.path.length === 0) createParent();
-    else navigateToDepth(project.path.length - 1);
+    if (project.path.length === 0) {
+      // Wrapping the whole product changes what "the top level" means —
+      // worth a confirmation, unlike navigating up, which shows nothing it
+      // can't be undone by simply navigating back.
+      const name = project.rootBlock.name || 'this product';
+      if (window.confirm(`Create a new parent above "${name}"? This adds a level containing everything you have now.`)) {
+        createParent();
+      }
+      return;
+    }
+    navigateToDepth(project.path.length - 1);
   });
 
   // Doc sync is parked behind a flag (see config.js) — the handlers above

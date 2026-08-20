@@ -21,6 +21,17 @@ export class WireSelection {
     else this.selected.add(id);
   }
 
+  // Mirrors SelectionManager's add/remove: Ctrl always grows the
+  // selection, Ctrl+Shift always shrinks it — neither can flip into doing
+  // the other's job the way toggle does.
+  add(id) {
+    this.selected.add(id);
+  }
+
+  remove(id) {
+    this.selected.delete(id);
+  }
+
   clear() {
     this.selected.clear();
   }

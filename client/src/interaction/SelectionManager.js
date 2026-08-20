@@ -46,14 +46,47 @@ export class SelectionManager {
 
   // Shift-clicking a block adds or removes it without disturbing the rest.
   toggle(blockId) {
-    if (this.selectedBlockIds.has(blockId)) {
-      this.selectedBlockIds.delete(blockId);
-      if (this.selectedBlockId === blockId) {
-        this.selectedBlockId = this.count ? this.list()[this.count - 1] : null;
-      }
-    } else {
-      this.selectedBlockIds.add(blockId);
-      this.selectedBlockId = blockId;
+    if (this.selectedBlockIds.has(blockId)) this.remove(blockId);
+    else this.add(blockId);
+  }
+
+  // Ctrl/Cmd-clicking a block: always adds, never removes — unlike toggle,
+  // clicking an already-selected block is a no-op rather than dropping it.
+  add(blockId) {
+    this.selectedBlockIds.add(blockId);
+    this.selectedBlockId = blockId;
+    this.selectedPortId = null;
+    this.notify();
+  }
+
+  // Ctrl/Cmd+Shift-clicking a block: always removes, never adds — the
+  // counterpart to add(), so the two together read as "grow" and "shrink"
+  // rather than one of them also being able to do the other's job.
+  remove(blockId) {
+    if (!this.selectedBlockIds.has(blockId)) return;
+    this.selectedBlockIds.delete(blockId);
+    if (this.selectedBlockId === blockId) {
+      this.selectedBlockId = this.count ? this.list()[this.count - 1] : null;
+    }
+    this.selectedPortId = null;
+    this.notify();
+  }
+
+  // Marquee sweep with Ctrl/Cmd held: the swept ids join the existing
+  // selection instead of replacing it.
+  addMany(blockIds) {
+    for (const id of blockIds) this.selectedBlockIds.add(id);
+    if (blockIds.length) this.selectedBlockId = blockIds[blockIds.length - 1];
+    this.selectedPortId = null;
+    this.notify();
+  }
+
+  // Marquee sweep with Ctrl/Cmd+Shift held: the swept ids drop out of the
+  // existing selection instead of replacing it.
+  removeMany(blockIds) {
+    for (const id of blockIds) this.selectedBlockIds.delete(id);
+    if (blockIds.includes(this.selectedBlockId)) {
+      this.selectedBlockId = this.count ? this.list()[this.count - 1] : null;
     }
     this.selectedPortId = null;
     this.notify();

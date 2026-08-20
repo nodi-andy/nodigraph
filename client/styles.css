@@ -275,14 +275,20 @@ html, body {
   border-radius: 3px;
 }
 
-.breadcrumb .crumb:hover:not(:disabled) {
+.breadcrumb .crumb:hover {
   color: #c3c9d4;
   background: #2c3644;
 }
 
+/* Clickable too (opens rename), so it keeps the pointer cursor and hover
+   feedback of an ordinary crumb — only the color marks it as "you are
+   here" rather than "go here". */
 .breadcrumb .crumb.current {
   color: #e6e9ef;
-  cursor: default;
+}
+
+.breadcrumb .crumb.current:hover {
+  color: #ffffff;
 }
 
 .breadcrumb .crumb-sep {
