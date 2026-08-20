@@ -21,7 +21,9 @@ import { mountDocSync } from './ui/DocSyncPanel.js';
 import { ENABLE_DOC_SYNC } from './config.js';
 import { mountFileToolbar } from './ui/FileToolbar.js';
 import { createNameEditor } from './ui/NameEditor.js';
-import { createShareDialog } from './ui/ShareDialog.js';
+import { createShareLinkDialog } from './ui/ShareLinkDialog.js';
+import { createGoogleDocsExportDialog } from './ui/GoogleDocsExportDialog.js';
+import { createLiveSessionDialog } from './ui/LiveSessionDialog.js';
 import { mountSelectionFabs } from './ui/SelectionFabs.js';
 import { renderCurrentLevelDataUrl, renderCurrentLevelBlob } from './model/diagramImage.js';
 import { getBoundaryLabelRect } from './render/BlockRenderer.js';
@@ -418,21 +420,28 @@ async function bootstrap() {
     return `${window.location.origin}${window.location.pathname}?d=${encoded}`;
   }
 
-  const shareDialog = createShareDialog({
-    getShareUrl: async () => {
-      try {
-        return await buildShareUrl();
-      } catch (err) {
-        return `Couldn't create a share link: ${err.message}`;
-      }
-    },
-    renderImage: async () => ({
-      dataUrl: renderCurrentLevelDataUrl(project),
-      blob: await renderCurrentLevelBlob(project),
-    }),
-    // The level you're looking at is the thing the figure depicts, so its
-    // name is what the figure's description should say.
-    getFigureName: () => project.getContainerBlock()?.name || project.name,
+  const buildShareUrlOrError = async () => {
+    try {
+      return await buildShareUrl();
+    } catch (err) {
+      return `Couldn't create a share link: ${err.message}`;
+    }
+  };
+  const renderFigureImage = async () => ({
+    dataUrl: renderCurrentLevelDataUrl(project),
+    blob: await renderCurrentLevelBlob(project),
+  });
+  // The level you're looking at is the thing the figure depicts, so its
+  // name is what the figure's description should say.
+  const getFigureName = () => project.getContainerBlock()?.name || project.name;
+
+  const shareLinkDialog = createShareLinkDialog({ getShareUrl: buildShareUrlOrError });
+  const googleDocsExportDialog = createGoogleDocsExportDialog({
+    getShareUrl: buildShareUrlOrError,
+    renderImage: renderFigureImage,
+    getFigureName,
+  });
+  const liveSessionDialog = createLiveSessionDialog({
     session: {
       getState: () => peerSession?.getState() || { state: 'idle', peers: 0 },
       stop: () => peerSession.stop(),
@@ -440,28 +449,32 @@ async function bootstrap() {
   });
 
   // Starting a session is a banner action (see ui/FileToolbar.js); the
-  // Share dialog is where the invite link and the participant count live
-  // once it is running, so starting opens it there.
+  // live-session dialog is where the invite link and the participant count
+  // live once it is running, so starting opens it there.
   async function handleSession() {
     if (peerSession.getState().state === 'live') {
-      shareDialog.open('Live session');
+      liveSessionDialog.open();
       return;
     }
     try {
       const sessionId = await peerSession.host();
       // The invite carries the diagram as well as the session id, so a
       // guest still sees it if the peer connection can't be established.
-      shareDialog.setInviteUrl(`${await buildShareUrl()}&join=${encodeURIComponent(sessionId)}`);
+      liveSessionDialog.setInviteUrl(`${await buildShareUrl()}&join=${encodeURIComponent(sessionId)}`);
     } catch (err) {
       fileToolbarApi?.refreshSession(peerSession.getState());
       window.alert(`Couldn't start a live session: ${err.message}`);
       return;
     }
-    shareDialog.open('Live session');
+    liveSessionDialog.open();
   }
 
-  function handleExportLink() {
-    shareDialog.open();
+  function handleShare() {
+    shareLinkDialog.open();
+  }
+
+  function handleExportGoogleDocs() {
+    googleDocsExportDialog.open();
   }
 
   // Opening a local file replaces the whole tree the same way a pushed
@@ -607,7 +620,7 @@ async function bootstrap() {
       if (status.joined) {
         peerSession.sendTo(status.joined, { type: 'project', data: project.toJSON() });
       }
-      shareDialog.refreshSession?.(status);
+      liveSessionDialog.refresh();
       fileToolbarApi?.refreshSession(status);
     },
   });
@@ -710,7 +723,8 @@ async function bootstrap() {
     onSaveUrl: handleSaveToUrl,
     onSave: handleSaveFile,
     onOpen: handleOpenFile,
-    onExportLink: handleExportLink,
+    onShare: handleShare,
+    onExportGoogleDocs: handleExportGoogleDocs,
     onSession: handleSession,
     onAnimate: toggleAnimation,
     onUndo: undo,
