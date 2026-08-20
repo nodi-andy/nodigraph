@@ -7,7 +7,13 @@ import {
   PORT_TARGET_VALID_RING_COLOR,
   PORT_TARGET_INVALID_RING_COLOR,
 } from './BlockRenderer.js';
-import { drawPath, getConnectionGeometry, verticalSegmentsOf } from './ConnectionRenderer.js';
+import {
+  drawPath,
+  getConnectionGeometry,
+  verticalSegmentsOf,
+  FLOW_DASH,
+  PREVIEW_DASH,
+} from './ConnectionRenderer.js';
 import { GRID_SIZE } from '../model/grid.js';
 
 const GRID_COLOR = '#1a212b';
@@ -110,7 +116,7 @@ function sharesEndpoint(a, b) {
   );
 }
 
-function drawConnections(ctx, project, wireSelection, boundary) {
+function drawConnections(ctx, project, wireSelection, boundary, flowOffset) {
   // Routed up front, because drawing any one wire needs to know where all
   // the others run in order to bow over the ones it merely crosses.
   const routed = [];
@@ -127,6 +133,8 @@ function drawConnections(ctx, project, wireSelection, boundary) {
     // Selection is a halo behind the wire rather than a recolor of it: the
     // main reason to select a pipe is to change its color, and repainting
     // it to show it is selected would hide the very thing being chosen.
+    // The halo stays solid while the wire above it marches, which also
+    // makes the dashes read as gaps in a wire rather than as a new shape.
     const selected = wireSelection?.isSelected(entry.connection.id);
     if (selected) {
       drawPath(ctx, entry.geometry.points, { color: WIRE_SELECTED_HALO, width: 9, hopOver });
@@ -135,6 +143,8 @@ function drawConnections(ctx, project, wireSelection, boundary) {
       color: entry.connection.color || WIRE_COLOR,
       width: 3,
       hopOver,
+      dash: flowOffset === null ? null : FLOW_DASH,
+      dashOffset: flowOffset ?? 0,
     });
   }
 }
@@ -178,6 +188,10 @@ export function renderScene(
     remoteCursors,
     hoverGhost,
     marqueeRect,
+    // Where the marching-dash pattern currently starts, or null for solid
+    // wires. Null by default so an exported diagram image (see
+    // model/diagramImage.js) is never caught mid-animation.
+    flowOffset = null,
     // Off for exported diagram images (see docSync.js) — the grid is an
     // editing aid, not part of the diagram, and leaving it out keeps the
     // exported PNG's background genuinely transparent instead of a faint
@@ -202,7 +216,7 @@ export function renderScene(
   // triangle (drawn as part of the block/boundary pass) always paints over
   // the wire's endpoint, not the other way around — a wire sits under the
   // handles it connects to, not through them.
-  drawConnections(ctx, project, wireSelection, boundary);
+  drawConnections(ctx, project, wireSelection, boundary, flowOffset);
 
   // Drawn before the real blocks so they visually sit "inside" the frame
   // rather than the dashed outline cutting across them.
@@ -220,7 +234,7 @@ export function renderScene(
   if (marqueeRect) drawMarquee(ctx, marqueeRect, camera.zoom);
 
   if (pendingConnectionPath) {
-    drawPath(ctx, pendingConnectionPath, { color: WIRE_COLOR, dashed: true });
+    drawPath(ctx, pendingConnectionPath, { color: WIRE_COLOR, dash: PREVIEW_DASH });
   }
 
   // The "click here to add a port" preview — drawn on top of the block it

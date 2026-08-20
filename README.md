@@ -63,10 +63,13 @@ to the editable diagram.
 - **Multi-select** — shift-drag a marquee or shift-click to build a
   selection, then move the whole group, or copy/paste it (wires between
   selected blocks come along, and nested sub-architecture is copied too).
-- **Undo/redo** — toolbar buttons and Ctrl/Cmd+Z, across every edit.
-- **Save into the address bar** — Save writes the diagram into this page's
-  own URL, so a bookmark or a reload brings it back. A dot on the button
-  marks edits that aren't in the address yet.
+- **Undo/redo** — toolbar buttons, Ctrl/Cmd+Z, and Ctrl/Cmd+Shift+Z or
+  Ctrl+Y to redo, across every edit.
+- **Flow animation** — Animate marches the wires as moving dashes, from
+  each output toward the input it feeds, to show which way things run.
+- **Save into the address bar** — Save (or Ctrl/Cmd+S) writes the diagram
+  into this page's own URL, so a bookmark or a reload brings it back. A
+  dot on the button marks edits that aren't in the address yet.
 - **Share by link** — the whole diagram, gzip-compressed into a URL.
 - **Local files** — Download/Upload plain JSON, independent of any server.
 - **Live sessions** — invite someone with a link and edit the same diagram
