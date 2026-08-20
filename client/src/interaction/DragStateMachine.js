@@ -42,12 +42,9 @@ const STATES = {
   DRAGGING_PORT: 'draggingPort',
   DRAWING_CONNECTION: 'drawingConnection',
   DRAGGING_WIRE_TRUNK: 'draggingWireTrunk',
-  // A click on a block's or the boundary's edge is ambiguous until the
-  // pointer either releases without moving much (add a port there) or
-  // moves past the threshold (become an actual splitter-resize drag) —
-  // every edge of both is a resize splitter now, there's no separate
-  // corner-handle resize anymore.
-  PENDING_EDGE: 'pendingEdge',
+  // Dragging one of the four floating handles a selected block (or the
+  // boundary frame) shows — every edge is a resize splitter, there's no
+  // separate corner-handle resize.
   RESIZING_EDGE: 'resizingEdge',
   // Pressed the boundary frame's title. The editor opens on release, not
   // here: focusing an input during pointerdown loses that focus again when
@@ -57,9 +54,6 @@ const STATES = {
   MARQUEE: 'marquee',
 };
 
-// Screen-space so the same finger/mouse movement counts as "a drag" the
-// same way regardless of current zoom level.
-const CLICK_DRAG_THRESHOLD = 5;
 const BOUNDARY_MIN_SIZE = GRID_SIZE * 3;
 
 function invertDirection(direction) {
@@ -135,8 +129,19 @@ export class DragStateMachine {
     }
 
     const boundary = this.getBoundaryInfo();
-    const hit = hitTest(this.project, world.x, world.y, boundary);
+    const hit = hitTest(this.project, world.x, world.y, boundary, this.getResizableBlockId());
     if (hit) this.wireSelection.clear();
+
+    if (hit?.type === 'resizeHandle') {
+      // Unambiguous, unlike the old border-drag: a handle only ever means
+      // "resize," so the drag starts immediately rather than waiting to
+      // see whether the pointer crosses a threshold.
+      const startGeometry = hit.isBoundary ? boundary.geometry : this.project.getBlock(hit.blockId).geometry;
+      this.state = STATES.RESIZING_EDGE;
+      this.context = { blockId: hit.blockId, edge: hit.side, startGeometry: { ...startGeometry }, isBoundary: hit.isBoundary };
+      this.requestRender();
+      return;
+    }
 
     if (hit?.type === 'connector') {
       const isBoundary = Boolean(boundary) && hit.blockId === boundary.block.id;
@@ -160,24 +165,6 @@ export class DragStateMachine {
       this.state = STATES.DRAGGING_PORT;
       this.context = { blockId: block.id, portId: hit.portId, isBoundary };
       this.requestRender();
-      return;
-    }
-
-    if (hit?.type === 'border' || hit?.type === 'boundaryEdge') {
-      // Ambiguous until release: a tap adds a port right there, a drag
-      // resizes that edge (splitter-style — the opposite edge stays put),
-      // same as the boundary's own edge already worked.
-      const isBoundary = hit.type === 'boundaryEdge';
-      const startGeometry = isBoundary ? boundary.geometry : this.project.getBlock(hit.blockId).geometry;
-      this.state = STATES.PENDING_EDGE;
-      this.context = {
-        blockId: hit.blockId,
-        edge: hit.side,
-        offset: hit.offset,
-        startScreen: screen,
-        startGeometry: { ...startGeometry },
-        isBoundary,
-      };
       return;
     }
 
@@ -446,15 +433,6 @@ export class DragStateMachine {
         this.requestRender();
         break;
       }
-      case STATES.PENDING_EDGE: {
-        const dx = screen.x - this.context.startScreen.x;
-        const dy = screen.y - this.context.startScreen.y;
-        if (Math.hypot(dx, dy) > CLICK_DRAG_THRESHOLD) {
-          this.state = STATES.RESIZING_EDGE;
-          this.resizeEdge(world);
-        }
-        break;
-      }
       case STATES.RESIZING_EDGE: {
         this.resizeEdge(world);
         break;
@@ -532,10 +510,20 @@ export class DragStateMachine {
     return this.hoverGhost?.ready ? this.hoverGhost : null;
   }
 
+  // Which block, if any, is allowed to show resize handles right now — a
+  // lone selected block, or none. Multi-select has no defined "resize all
+  // of these together" behavior, so nothing offers a handle once more than
+  // one block is selected. The boundary frame isn't gated by this at all
+  // (see hitTest): its handles are always available while you're inside it,
+  // the same as its edge-drag was before.
+  getResizableBlockId() {
+    return this.selection.count === 1 ? this.selection.selectedBlockId : null;
+  }
+
   computeHoverCursor(world) {
     const boundary = this.getBoundaryInfo();
-    const hit = hitTest(this.project, world.x, world.y, boundary);
-    if (hit?.type === 'border' || hit?.type === 'boundaryEdge') {
+    const hit = hitTest(this.project, world.x, world.y, boundary, this.getResizableBlockId());
+    if (hit?.type === 'resizeHandle') {
       return hit.side === 'left' || hit.side === 'right' ? 'ew-resize' : 'ns-resize';
     }
     if (hit?.type === 'boundaryLabel') return 'text';
@@ -544,10 +532,10 @@ export class DragStateMachine {
 
   // What InputRouter should set canvas.style.cursor to right now — a
   // resize cursor stays on for the whole drag once one starts (not just
-  // while the pointer sits exactly on the edge pixel), otherwise whatever
-  // the last hover pass computed.
+  // while the pointer sits exactly on the handle), otherwise whatever the
+  // last hover pass computed.
   getCursor() {
-    if (this.state === STATES.PENDING_EDGE || this.state === STATES.RESIZING_EDGE) {
+    if (this.state === STATES.RESIZING_EDGE) {
       return this.context.edge === 'left' || this.context.edge === 'right' ? 'ew-resize' : 'ns-resize';
     }
     if (this.hoverGhost?.ready) return 'pointer';
@@ -625,11 +613,6 @@ export class DragStateMachine {
       this.tryCompleteConnection(world);
     } else if (this.state === STATES.DRAGGING_WIRE_TRUNK) {
       this.persist();
-    } else if (this.state === STATES.PENDING_EDGE) {
-      // Released without ever crossing the drag threshold — the border is
-      // resize-only now (see the hover-ghost handling in onPointerDown for
-      // how a port actually gets added), so a plain press-release here
-      // just does nothing.
     } else if (this.state === STATES.RESIZING_EDGE) {
       this.persist();
     } else if (this.state === STATES.MARQUEE) {
