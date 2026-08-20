@@ -61,8 +61,12 @@ to the editable diagram.
 - **Undo/redo** — toolbar buttons and Ctrl/Cmd+Z, across every edit.
 - **Share by link** — the whole diagram, gzip-compressed into a URL.
 - **Local files** — Save/Open plain JSON, independent of any server.
+- **Live sessions** — invite someone with a link and edit the same diagram
+  together, blocks mid-drag included. A public broker only introduces the
+  two browsers to each other; the diagram itself travels directly between
+  them over WebRTC and never reaches a server.
 - **Live multi-client editing** — everyone on the same server instance sees
-  changes as they happen, including blocks mid-drag.
+  changes as they happen.
 
 ### Planned
 
@@ -109,8 +113,13 @@ fine for the shared-link workflow, not yet durable storage.
 
 - **Shared links are snapshots, not sessions.** Editing a link produces a
   new link. Two people editing the same one will not see each other's
-  changes — send the updated link back. Real-time collaboration works only
-  between clients on the same server instance.
+  changes — send the updated link back, or start a live session.
+- **Live sessions are best-effort.** They use the public PeerJS broker,
+  which is rate-limited and offers no uptime guarantee, and a direct WebRTC
+  connection without a TURN relay is often blocked by strict corporate
+  firewalls. Point `peerSession.js` at your own PeerServer and TURN server
+  if you need it to be dependable. Edits are last-write-wins, and the
+  session ends when the host closes the tab.
 - Server-side storage is a single JSON file with no auth. Anyone who can
   reach the server can edit it.
 - Very large diagrams (several hundred blocks) can exceed URL length limits

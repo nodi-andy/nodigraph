@@ -1,9 +1,10 @@
-// The share surface, replacing the old window.prompt. Two tabs because
-// there are genuinely two different jobs:
+// The share surface, replacing the old window.prompt. Three tabs, because
+// there are genuinely three different jobs:
 //
-//   Link        — hand someone the editable diagram (the URL *is* the file)
-//   Google Docs — drop a figure into a document that still points back at
-//                 the editable diagram
+//   Link         — hand someone the editable diagram (the URL *is* the file)
+//   Google Docs  — drop a figure into a document that still points back at
+//                  the editable diagram
+//   Live session — edit it together, right now (see model/peerSession.js)
 //
 // The Google Docs tab exists because a picture in a doc is a dead end
 // otherwise: six months later nobody knows where the source lives. Google
@@ -11,7 +12,7 @@
 // the recipe here is to put the block's name in the description and the
 // noditron link in the title — the figure carries its own way back.
 
-const TABS = ['Link', 'Google Docs'];
+const TABS = ['Link', 'Google Docs', 'Live session'];
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -72,7 +73,7 @@ function copyRow(labelText, value, hint) {
  * the current level is called — that's what goes in the figure's
  * description.
  */
-export function createShareDialog({ getShareUrl, renderImage, getFigureName }) {
+export function createShareDialog({ getShareUrl, renderImage, getFigureName, session }) {
   const dialog = el('dialog', 'share-dialog');
 
   const header = el('div', 'share-header');
@@ -91,6 +92,7 @@ export function createShareDialog({ getShareUrl, renderImage, getFigureName }) {
   let activeTab = TABS[0];
   let shareUrl = '';
   let image = null;
+  let inviteUrl = '';
 
   function renderLinkTab() {
     body.innerHTML = '';
@@ -165,9 +167,85 @@ export function createShareDialog({ getShareUrl, renderImage, getFigureName }) {
     body.appendChild(copyRow('Description — what the figure shows', `Block ${figureName}`));
   }
 
+  // Peer-to-peer collaboration. The point worth making in the UI is where
+  // the data goes: a public broker introduces the two browsers to each
+  // other, and from then on edits travel directly between them.
+  function renderSessionTab() {
+    body.innerHTML = '';
+    const status = session.getState();
+
+    if (status.state === 'connecting') {
+      body.appendChild(el('p', 'share-hint', 'Connecting…'));
+      return;
+    }
+
+    if (status.state === 'live') {
+      if (status.role === 'host' && inviteUrl) {
+        body.appendChild(
+          copyRow(
+            'Invite link',
+            inviteUrl,
+            'Whoever opens this joins the same diagram live. Edits travel browser-to-browser; only the connection handshake goes through a public server.',
+          ),
+        );
+      } else {
+        body.appendChild(el('p', 'share-hint', 'Connected to the host\u2019s session.'));
+      }
+
+      const count = el('p', 'share-hint', status.peers === 1 ? '1 person connected.' : `${status.peers} people connected.`);
+      body.appendChild(count);
+
+      const stop = el('button', 'share-button', 'End session');
+      stop.type = 'button';
+      stop.addEventListener('click', () => {
+        session.stop();
+        inviteUrl = '';
+        renderBody();
+      });
+      body.appendChild(stop);
+
+      const warning = el('p', 'share-warning');
+      warning.textContent =
+        'The session lasts only while this tab is open, and edits are last-write-wins — two people changing the same block at the same moment will still overwrite each other.';
+      body.appendChild(warning);
+      return;
+    }
+
+    body.appendChild(
+      el(
+        'p',
+        'share-hint',
+        'Start a session to edit this diagram together in real time. The diagram itself never reaches a server: a public broker is used only to introduce the two browsers, then edits travel directly between them.',
+      ),
+    );
+
+    const start = el('button', 'share-button share-button-primary', 'Start session');
+    start.type = 'button';
+    start.addEventListener('click', async () => {
+      start.disabled = true;
+      start.textContent = 'Starting…';
+      try {
+        const id = await session.start();
+        inviteUrl = await session.buildInviteUrl(id);
+      } catch (err) {
+        body.innerHTML = '';
+        const failed = el('p', 'share-warning', `Couldn't start a session: ${err.message}`);
+        body.appendChild(failed);
+        return;
+      }
+      renderBody();
+    });
+    body.appendChild(start);
+
+    if (status.state === 'error') {
+      body.appendChild(el('p', 'share-warning', 'The last session ended with a connection error.'));
+    }
+  }
+
   function renderBody() {
     if (activeTab === 'Link') renderLinkTab();
-    else renderDocsTab();
+    else if (activeTab === 'Google Docs') renderDocsTab();
+    else renderSessionTab();
   }
 
   function renderTabs() {
@@ -185,6 +263,12 @@ export function createShareDialog({ getShareUrl, renderImage, getFigureName }) {
   }
 
   return {
+    // Called on every peer-session change so an open dialog reflects
+    // people joining or leaving without needing to be reopened.
+    refreshSession() {
+      if (dialog.open && activeTab === 'Live session') renderSessionTab();
+    },
+
     async open() {
       body.innerHTML = '';
       body.appendChild(el('p', 'share-hint', 'Preparing…'));
