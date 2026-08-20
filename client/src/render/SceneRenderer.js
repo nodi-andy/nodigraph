@@ -7,12 +7,12 @@ import {
   PORT_TARGET_VALID_RING_COLOR,
   PORT_TARGET_INVALID_RING_COLOR,
 } from './BlockRenderer.js';
-import { drawPath, getConnectionGeometry } from './ConnectionRenderer.js';
+import { drawPath, getConnectionGeometry, verticalSegmentsOf } from './ConnectionRenderer.js';
 import { GRID_SIZE } from '../model/grid.js';
 
 const GRID_COLOR = '#1a212b';
 const WIRE_COLOR = '#4f8cff';
-const WIRE_SELECTED_COLOR = '#ffb454';
+const WIRE_SELECTED_HALO = 'rgba(255, 180, 84, 0.55)';
 
 // A handful of visually-distinct colors, deterministically picked per
 // remote client id — enough to tell separate cursors apart without any
@@ -98,13 +98,44 @@ function drawGrid(ctx, camera, canvasWidth, canvasHeight) {
   ctx.stroke();
 }
 
+// Two wires that leave or arrive at the same port are the same signal, so
+// where they meet is a junction, not a crossing — bowing there would claim
+// the opposite of what's true.
+function sharesEndpoint(a, b) {
+  return (
+    a.sourcePortId === b.sourcePortId
+    || a.targetPortId === b.targetPortId
+    || a.sourcePortId === b.targetPortId
+    || a.targetPortId === b.sourcePortId
+  );
+}
+
 function drawConnections(ctx, project, wireSelection, boundary) {
+  // Routed up front, because drawing any one wire needs to know where all
+  // the others run in order to bow over the ones it merely crosses.
+  const routed = [];
   for (const connection of project.listConnections()) {
     const geometry = getConnectionGeometry(project, connection, boundary);
-    if (!geometry) continue;
+    if (geometry) routed.push({ connection, geometry, verticals: verticalSegmentsOf(geometry.points) });
+  }
 
-    const selected = wireSelection?.isSelected(connection.id);
-    drawPath(ctx, geometry.points, { color: selected ? WIRE_SELECTED_COLOR : WIRE_COLOR, width: selected ? 4 : 3 });
+  for (const entry of routed) {
+    const hopOver = routed
+      .filter((other) => other !== entry && !sharesEndpoint(other.connection, entry.connection))
+      .flatMap((other) => other.verticals);
+
+    // Selection is a halo behind the wire rather than a recolor of it: the
+    // main reason to select a pipe is to change its color, and repainting
+    // it to show it is selected would hide the very thing being chosen.
+    const selected = wireSelection?.isSelected(entry.connection.id);
+    if (selected) {
+      drawPath(ctx, entry.geometry.points, { color: WIRE_SELECTED_HALO, width: 9, hopOver });
+    }
+    drawPath(ctx, entry.geometry.points, {
+      color: entry.connection.color || WIRE_COLOR,
+      width: 3,
+      hopOver,
+    });
   }
 }
 

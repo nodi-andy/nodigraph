@@ -1,9 +1,15 @@
-// Topbar control cluster for local save/open plus a shareable link —
-// draw.io-style "File > Save As... / Open" as two plain buttons, plus a
-// third for the URL export (see model/shareLink.js). A hidden
-// <input type=file> drives Open (the only way to get a real file picker
-// without extra permissions); Save just triggers a browser download.
-export function mountFileToolbar(container, { onSave, onOpen, onExportLink, onUndo, onRedo, canUndo, canRedo }) {
+// Topbar control cluster for local files, the shareable link, and the
+// live session. The file buttons are named for what they actually do to
+// the browser rather than for the abstract File-menu verbs: the project
+// leaves as a downloaded file and comes back as an uploaded one, so
+// "Download"/"Upload" describe the observable behaviour and "Save" doesn't
+// (nothing is saved anywhere you could later find it). A hidden
+// <input type=file> drives Upload — the only way to get a real file picker
+// without extra permissions.
+export function mountFileToolbar(
+  container,
+  { onSave, onOpen, onExportLink, onSession, onUndo, onRedo, canUndo, canRedo },
+) {
   container.innerHTML = '';
   container.className = 'file-toolbar';
 
@@ -35,15 +41,15 @@ export function mountFileToolbar(container, { onSave, onOpen, onExportLink, onUn
   const saveButton = document.createElement('button');
   saveButton.type = 'button';
   saveButton.className = 'file-toolbar-button';
-  saveButton.textContent = 'Save';
-  saveButton.title = 'Save the project to a local file';
+  saveButton.textContent = 'Download';
+  saveButton.title = 'Download the project as a local file';
   saveButton.addEventListener('click', () => onSave());
 
   const openButton = document.createElement('button');
   openButton.type = 'button';
   openButton.className = 'file-toolbar-button';
-  openButton.textContent = 'Open';
-  openButton.title = 'Open a project from a local file';
+  openButton.textContent = 'Upload';
+  openButton.title = 'Upload a project file from this device';
 
   const fileInput = document.createElement('input');
   fileInput.type = 'file';
@@ -63,10 +69,28 @@ export function mountFileToolbar(container, { onSave, onOpen, onExportLink, onUn
   linkButton.title = 'Get a URL that opens this diagram directly, with no server or account needed';
   linkButton.addEventListener('click', () => onExportLink());
 
+  // Starting a live session lives here rather than inside the Share dialog:
+  // it is a mode the whole app is in, not a way of handing the diagram over
+  // once, and the banner is where a mode belongs — visible at a glance,
+  // whether or not any dialog happens to be open.
+  const sessionButton = document.createElement('button');
+  sessionButton.type = 'button';
+  sessionButton.className = 'file-toolbar-button session-button';
+  sessionButton.addEventListener('click', () => onSession());
+
   const divider = document.createElement('span');
   divider.className = 'file-toolbar-divider';
 
-  container.append(undoButton, redoButton, divider, saveButton, openButton, linkButton, fileInput);
+  container.append(
+    undoButton,
+    redoButton,
+    divider,
+    saveButton,
+    openButton,
+    linkButton,
+    sessionButton,
+    fileInput,
+  );
 
   return {
     // Called after anything that could change what's undoable, so the
@@ -74,6 +98,23 @@ export function mountFileToolbar(container, { onSave, onOpen, onExportLink, onUn
     refreshHistory() {
       undoButton.disabled = !canUndo();
       redoButton.disabled = !canRedo();
+    },
+
+    // `peers` counts connections, so on the host it is "everyone but me".
+    refreshSession(status = {}) {
+      const live = status.state === 'live';
+      const connecting = status.state === 'connecting';
+      sessionButton.classList.toggle('active', live);
+      sessionButton.disabled = connecting;
+      if (connecting) {
+        sessionButton.textContent = 'Connecting…';
+        sessionButton.title = 'Setting up the live session';
+        return;
+      }
+      sessionButton.textContent = live ? `Live · ${status.peers + 1}` : 'Start Session';
+      sessionButton.title = live
+        ? 'Live session in progress — click for the invite link'
+        : 'Edit this diagram together with someone, browser to browser';
     },
   };
 }

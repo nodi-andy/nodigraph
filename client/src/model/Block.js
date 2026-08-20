@@ -11,6 +11,8 @@ export const DEFAULT_BLOCK_WIDTH = GRID_SIZE * 6;
 export const DEFAULT_BLOCK_HEIGHT = GRID_SIZE * 4;
 export const MIN_BLOCK_WIDTH = GRID_SIZE * 2;
 export const MIN_BLOCK_HEIGHT = GRID_SIZE * 2;
+// The accent a block is drawn with until someone picks another one.
+export const DEFAULT_BLOCK_COLOR = '#3b6fa0';
 
 export function createBlock({ x, y, name } = {}) {
   const blockName = name || 'New Block';
@@ -25,7 +27,7 @@ export function createBlock({ x, y, name } = {}) {
       width: DEFAULT_BLOCK_WIDTH,
       height: DEFAULT_BLOCK_HEIGHT,
     },
-    style: { color: '#3b6fa0' },
+    style: { color: DEFAULT_BLOCK_COLOR },
     ports: [],
     props: [],
     hasChildren: false,

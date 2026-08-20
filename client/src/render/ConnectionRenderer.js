@@ -129,7 +129,87 @@ export function getConnectionGeometry(project, connection, boundary) {
   return { ...routed, sourcePos, targetPos };
 }
 
-export function drawPath(ctx, points, { color = '#4f8cff', width = 3, dashed = false } = {}) {
+// Two wires that merely cross look exactly like two wires that join, which
+// on a diagram whose whole job is saying what is connected to what is a
+// real ambiguity, not a cosmetic one. The schematic convention fixes it
+// with a hop: one of the two lines bows over the other. Only horizontal
+// segments hop, so a crossing is never drawn twice and the choice needs no
+// coordination between the two wires.
+// Sized against the wire width rather than the grid: at 3px thick, a bow
+// much under this reads as a nub on a straight line instead of a line
+// going over something.
+const HOP_RADIUS = 8;
+
+// Every vertical run of a path, as { x, y1, y2 } with y1 < y2 — the
+// candidates a horizontal segment might have to bow over.
+export function verticalSegmentsOf(points) {
+  const segments = [];
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const a = points[i];
+    const b = points[i + 1];
+    if (a.x === b.x && a.y !== b.y) {
+      segments.push({ x: a.x, y1: Math.min(a.y, b.y), y2: Math.max(a.y, b.y) });
+    }
+  }
+  return segments;
+}
+
+// Where along a horizontal segment the bows go. A crossing is skipped when
+// it sits within a hop's own width of either end, since an arc merging into
+// a corner reads as a kink rather than a hop. Crossings closer together
+// than two hops are merged into one wider bow instead of drawing arcs that
+// overlap each other.
+function hopCentersOn(a, b, verticals) {
+  const left = Math.min(a.x, b.x);
+  const right = Math.max(a.x, b.x);
+  const xs = [];
+  for (const v of verticals) {
+    if (v.x <= left + HOP_RADIUS || v.x >= right - HOP_RADIUS) continue;
+    if (a.y <= v.y1 + 0.5 || a.y >= v.y2 - 0.5) continue;
+    xs.push(v.x);
+  }
+  if (!xs.length) return [];
+
+  xs.sort((m, n) => m - n);
+  const clusters = [];
+  let start = xs[0];
+  let end = xs[0];
+  for (let i = 1; i < xs.length; i += 1) {
+    if (xs[i] - end <= HOP_RADIUS * 2) {
+      end = xs[i];
+      continue;
+    }
+    clusters.push({ start, end });
+    start = xs[i];
+    end = xs[i];
+  }
+  clusters.push({ start, end });
+
+  return clusters.map(({ start: s, end: e }) => ({
+    center: (s + e) / 2,
+    radius: (e - s) / 2 + HOP_RADIUS,
+  }));
+}
+
+// Always bows upward, whichever way the segment is being traced: the arc
+// runs through the point above the crossing either way, so a diagram never
+// mixes bows that go over with bows that go under.
+function traceHorizontalWithHops(ctx, a, b, verticals) {
+  const hops = hopCentersOn(a, b, verticals);
+  if (!hops.length) {
+    ctx.lineTo(b.x, b.y);
+    return;
+  }
+  const forward = b.x > a.x;
+  const ordered = forward ? hops : [...hops].reverse();
+  for (const hop of ordered) {
+    if (forward) ctx.arc(hop.center, a.y, hop.radius, Math.PI, 0, false);
+    else ctx.arc(hop.center, a.y, hop.radius, 0, Math.PI, true);
+  }
+  ctx.lineTo(b.x, b.y);
+}
+
+export function drawPath(ctx, points, { color = '#4f8cff', width = 3, dashed = false, hopOver = null } = {}) {
   if (points.length < 2) return;
   ctx.save();
   ctx.setLineDash(dashed ? [6, 4] : []);
@@ -137,7 +217,15 @@ export function drawPath(ctx, points, { color = '#4f8cff', width = 3, dashed = f
   ctx.lineCap = 'round';
   ctx.beginPath();
   ctx.moveTo(points[0].x, points[0].y);
-  for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
+  for (let i = 1; i < points.length; i += 1) {
+    const from = points[i - 1];
+    const to = points[i];
+    if (hopOver?.length && from.y === to.y && from.x !== to.x) {
+      traceHorizontalWithHops(ctx, from, to, hopOver);
+    } else {
+      ctx.lineTo(to.x, to.y);
+    }
+  }
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
   ctx.stroke();
@@ -157,10 +245,25 @@ function distanceToSegment(px, py, ax, ay, bx, by) {
 
 // Only the trunk segment is a valid drag target — the two stub segments are
 // anchored directly to a port's fixed exit point, so they aren't offered up
-// for hit-testing here at all.
+// for dragging at all. Selecting is a different question: see
+// hitTestConnectionPath.
 export function hitTestConnectionTrunk(geometry, worldX, worldY, threshold = 8) {
   if (!geometry || geometry.trunkIndex < 0) return false;
   const a = geometry.points[geometry.trunkIndex];
   const b = geometry.points[geometry.trunkIndex + 1];
   return distanceToSegment(worldX, worldY, a.x, a.y, b.x, b.y) <= threshold;
+}
+
+// Any part of the wire selects it, trunk or stub — picking a pipe to
+// recolor it shouldn't require finding the one draggable segment, which on
+// a short wire can be a few pixels long or absent entirely.
+export function hitTestConnectionPath(geometry, worldX, worldY, threshold = 8) {
+  if (!geometry) return false;
+  const { points } = geometry;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const a = points[i];
+    const b = points[i + 1];
+    if (distanceToSegment(worldX, worldY, a.x, a.y, b.x, b.y) <= threshold) return true;
+  }
+  return false;
 }

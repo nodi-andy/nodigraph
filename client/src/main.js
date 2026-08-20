@@ -1,5 +1,6 @@
 import { Project } from './model/Project.js';
 import { removePort } from './model/BlockDescription.js';
+import { DEFAULT_BLOCK_COLOR } from './model/Block.js';
 import { loadProject, saveProject } from './model/store.js';
 import { connectLiveSync } from './model/liveSync.js';
 import { buildUpdatePayload } from './model/docSync.js';
@@ -21,6 +22,7 @@ import { ENABLE_DOC_SYNC } from './config.js';
 import { mountFileToolbar } from './ui/FileToolbar.js';
 import { createNameEditor } from './ui/NameEditor.js';
 import { createShareDialog } from './ui/ShareDialog.js';
+import { mountSelectionFabs } from './ui/SelectionFabs.js';
 import { renderCurrentLevelDataUrl, renderCurrentLevelBlob } from './model/diagramImage.js';
 import { getBoundaryLabelRect } from './render/BlockRenderer.js';
 import { downloadProjectFile, readProjectFile } from './model/localFile.js';
@@ -39,6 +41,7 @@ const parentUpIconEl = parentFabEl.querySelector('[data-icon="up"]');
 const parentAddIconEl = parentFabEl.querySelector('[data-icon="add-parent"]');
 const docSyncEl = document.getElementById('doc-sync');
 const fileToolbarEl = document.getElementById('file-toolbar');
+const fabStackEl = document.getElementById('fab-stack');
 
 // A per-tab identity purely for telling cursors apart on other clients'
 // screens — there's no accounts system to draw a real name from yet.
@@ -95,6 +98,7 @@ async function bootstrap() {
   let inspectorApi = null;
   let docSyncApi = null;
   let fileToolbarApi = null;
+  let selectionFabsApi = null;
   // Assigned further down, once applyRemoteProject/applyLiveUpdate exist —
   // declared here so persist() can reach it without a dead-zone error.
   let peerSession = null;
@@ -158,6 +162,49 @@ async function bootstrap() {
   function deleteSelectedWires() {
     for (const id of wireSelection.list()) project.removeConnection(id);
     wireSelection.clear();
+    persist();
+    renderLoop.requestRender();
+  }
+
+  // What the delete FAB acts on: whichever kind of thing is currently
+  // selected. Wires go without a prompt (a wire is one fact, and undo is a
+  // click away); blocks ask first, since deleting one takes its whole
+  // sub-architecture and every wire touching it with it.
+  function deleteSelection() {
+    if (wireSelection.list().length > 0) {
+      deleteSelectedWires();
+      return;
+    }
+    // A selected port is a selection *within* the selected block, so it
+    // wins over the block it belongs to — otherwise picking a port and
+    // pressing delete would take the whole block.
+    if (selection.selectedPortId) {
+      deleteSelectedPort();
+      return;
+    }
+    if (selection.count > 1) {
+      if (window.confirm(`Delete ${selection.count} blocks and their connections?`)) deleteSelectedBlocks();
+      return;
+    }
+    const block = project.getBlock(selection.selectedBlockId);
+    if (block && window.confirm(`Delete "${block.name}" and its connections?`)) deleteBlock(block.id);
+  }
+
+  // `color` of null means "back to the default", which is stored as the
+  // absence of a color rather than as the default's own hex — so a diagram
+  // nobody has recolored carries no color data at all, and changing the
+  // default later still reaches it.
+  function colorSelection(color) {
+    for (const connectionId of wireSelection.list()) {
+      const connection = project.getConnection(connectionId);
+      if (!connection) continue;
+      if (color) connection.color = color;
+      else delete connection.color;
+    }
+    for (const blockId of selection.list()) {
+      const block = project.getBlock(blockId);
+      if (block) block.style = { ...block.style, color: color || DEFAULT_BLOCK_COLOR };
+    }
     persist();
     renderLoop.requestRender();
   }
@@ -343,13 +390,30 @@ async function bootstrap() {
     getFigureName: () => project.getContainerBlock()?.name || project.name,
     session: {
       getState: () => peerSession?.getState() || { state: 'idle', peers: 0 },
-      start: () => peerSession.host(),
       stop: () => peerSession.stop(),
-      // The invite carries the diagram as well as the session id, so a
-      // guest still sees it if the peer connection can't be established.
-      buildInviteUrl: async (sessionId) => `${await buildShareUrl()}&join=${encodeURIComponent(sessionId)}`,
     },
   });
+
+  // Starting a session is a banner action (see ui/FileToolbar.js); the
+  // Share dialog is where the invite link and the participant count live
+  // once it is running, so starting opens it there.
+  async function handleSession() {
+    if (peerSession.getState().state === 'live') {
+      shareDialog.open('Live session');
+      return;
+    }
+    try {
+      const sessionId = await peerSession.host();
+      // The invite carries the diagram as well as the session id, so a
+      // guest still sees it if the peer connection can't be established.
+      shareDialog.setInviteUrl(`${await buildShareUrl()}&join=${encodeURIComponent(sessionId)}`);
+    } catch (err) {
+      fileToolbarApi?.refreshSession(peerSession.getState());
+      window.alert(`Couldn't start a live session: ${err.message}`);
+      return;
+    }
+    shareDialog.open('Live session');
+  }
 
   function handleExportLink() {
     shareDialog.open();
@@ -425,6 +489,10 @@ async function bootstrap() {
     renderLoop.requestRender();
   }
 
+  function selectionCount() {
+    return selection.count + wireSelection.list().length;
+  }
+
   function visibleRemoteCursors() {
     const now = Date.now();
     const visible = new Map();
@@ -439,6 +507,11 @@ async function bootstrap() {
   }
 
   function draw() {
+    // Block selection has an observer; the wire selection deliberately
+    // doesn't (see WireSelection), and every change to either already ends
+    // in a render. Refreshing here therefore covers both, and refresh()
+    // itself no-ops unless the count actually moved.
+    selectionFabsApi?.refresh();
     const dpr = window.devicePixelRatio || 1;
     const dragHighlights = stateMachine.getConnectionDragHighlights();
     renderScene(ctx, camera, project, {
@@ -485,6 +558,7 @@ async function bootstrap() {
         peerSession.sendTo(status.joined, { type: 'project', data: project.toJSON() });
       }
       shareDialog.refreshSession?.(status);
+      fileToolbarApi?.refreshSession(status);
     },
   });
 
@@ -573,12 +647,21 @@ async function bootstrap() {
     onSave: handleSaveFile,
     onOpen: handleOpenFile,
     onExportLink: handleExportLink,
+    onSession: handleSession,
     onUndo: undo,
     onRedo: redo,
     canUndo: () => history.canUndo,
     canRedo: () => history.canRedo,
   });
   fileToolbarApi.refreshHistory();
+  fileToolbarApi.refreshSession(peerSession.getState());
+
+  selectionFabsApi = mountSelectionFabs(fabStackEl, {
+    getSelectionCount: selectionCount,
+    onDelete: deleteSelection,
+    onColor: colorSelection,
+  });
+  selectionFabsApi.refresh();
 
   // Delete/Backspace removes the selected block or wire(s), but only when
   // focus isn't in a text field — otherwise editing the Name field or
@@ -588,30 +671,9 @@ async function bootstrap() {
     const tag = document.activeElement?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
-    if (wireSelection.list().length > 0) {
-      event.preventDefault();
-      deleteSelectedWires();
-      return;
-    }
-
-    if (selection.selectedPortId) {
-      event.preventDefault();
-      deleteSelectedPort();
-      return;
-    }
-
-    if (!selection.selectedBlockId) return;
+    if (selectionCount() === 0) return;
     event.preventDefault();
-    if (selection.count > 1) {
-      if (window.confirm(`Delete ${selection.count} blocks and their connections? This can't be undone.`)) {
-        deleteSelectedBlocks();
-      }
-      return;
-    }
-    const block = project.getBlock(selection.selectedBlockId);
-    if (block && window.confirm(`Delete "${block.name}" and its connections? This can't be undone.`)) {
-      deleteBlock(block.id);
-    }
+    deleteSelection();
   });
 
   window.addEventListener('keydown', (event) => {

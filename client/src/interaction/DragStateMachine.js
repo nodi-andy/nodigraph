@@ -2,7 +2,12 @@ import { hitTest } from './HitTest.js';
 import { MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT } from '../model/Block.js';
 import { snap, GRID_SIZE, sideAxis, nearestPortSlot } from '../model/grid.js';
 import { findConnectorPosition, projectPointToPerimeter, getEdgeZoneOffset } from '../render/BlockRenderer.js';
-import { getConnectionGeometry, previewPathToCursor, hitTestConnectionTrunk } from '../render/ConnectionRenderer.js';
+import {
+  getConnectionGeometry,
+  previewPathToCursor,
+  hitTestConnectionTrunk,
+  hitTestConnectionPath,
+} from '../render/ConnectionRenderer.js';
 import { createConnection } from '../model/Connection.js';
 import { addPort } from '../model/BlockDescription.js';
 
@@ -224,9 +229,17 @@ export class DragStateMachine {
       }
       if (!this.wireSelection.isSelected(wireHit.connectionId)) {
         this.wireSelection.selectOnly(wireHit.connectionId);
+        // Mirrors what hitting a block does to the wire selection: only one
+        // kind of thing is selected at a time, so the delete/color controls
+        // never have to guess which of two selections was meant.
+        this.selection.clear();
       }
-      this.state = STATES.DRAGGING_WIRE_TRUNK;
-      this.context = { items: this.buildTrunkDragItems(boundary), startWorld: world };
+      // Grabbing a stub selects the wire but starts no drag: a stub is
+      // anchored to its port's fixed exit point and has nothing to move.
+      if (wireHit.onTrunk) {
+        this.state = STATES.DRAGGING_WIRE_TRUNK;
+        this.context = { items: this.buildTrunkDragItems(boundary), startWorld: world };
+      }
       this.requestRender();
       return;
     }
@@ -280,13 +293,26 @@ export class DragStateMachine {
       .map((block) => block.id);
   }
 
+  // Trunks are checked across every wire before any stub is, so a trunk
+  // lying under another wire's stub stays draggable rather than being
+  // shadowed by the segment on top of it.
   hitTestWires(worldX, worldY, boundary) {
     const connections = this.project.listConnections();
-    for (let i = connections.length - 1; i >= 0; i -= 1) {
-      const connection = connections[i];
-      const geometry = getConnectionGeometry(this.project, connection, boundary);
+    const geometries = connections.map((connection) => ({
+      connection,
+      geometry: getConnectionGeometry(this.project, connection, boundary),
+    }));
+
+    for (let i = geometries.length - 1; i >= 0; i -= 1) {
+      const { connection, geometry } = geometries[i];
       if (hitTestConnectionTrunk(geometry, worldX, worldY)) {
-        return { connectionId: connection.id };
+        return { connectionId: connection.id, onTrunk: true };
+      }
+    }
+    for (let i = geometries.length - 1; i >= 0; i -= 1) {
+      const { connection, geometry } = geometries[i];
+      if (hitTestConnectionPath(geometry, worldX, worldY)) {
+        return { connectionId: connection.id, onTrunk: false };
       }
     }
     return null;
