@@ -60,9 +60,11 @@ to the editable diagram.
 - **Coloured pipes** — click any wire (or any block) and give it a colour
   from the palette beside the add button, to group the pipes that belong
   together.
-- **Multi-select** — shift-drag a marquee or shift-click to build a
-  selection, then move the whole group, or copy/paste it (wires between
-  selected blocks come along, and nested sub-architecture is copied too).
+- **Multi-select** — shift-click or shift-drag a marquee to toggle blocks
+  in and out of a selection; Ctrl/Cmd-click or -drag always adds, and
+  Ctrl/Cmd+Shift always removes. Move the group, or copy/paste it (wires
+  between selected blocks come along, and nested sub-architecture is
+  copied too).
 - **Undo/redo** — toolbar buttons, Ctrl/Cmd+Z, and Ctrl/Cmd+Shift+Z or
   Ctrl+Y to redo, across every edit.
 - **Flow animation** — Animate marches the wires as moving dashes, from

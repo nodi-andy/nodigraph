@@ -25,8 +25,13 @@
       <svg data-icon="up" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
         <path d="M11 9v10h2V9h4.5L12 3.5 6.5 9z" fill="currentColor" />
       </svg>
+      <!-- Distinct from the add-block plus: a dashed box (the boundary
+           frame this creates, in the same dashed style it's drawn with)
+           around a small plus, reading as "wrap this in a new frame"
+           rather than "add a thing". -->
       <svg data-icon="add-parent" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" style="display: none">
-        <path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z" fill="currentColor" />
+        <rect x="3.5" y="3.5" width="17" height="17" rx="3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 2.5" />
+        <path d="M11 9.5h2v2.5h2.5v2H13V16.5h-2V14H8.5v-2H11z" fill="currentColor" />
       </svg>
     </button>
     <!-- Delete / colour for the current selection, stacked above the add

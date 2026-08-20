@@ -30,8 +30,24 @@ export function attachInputRouter(canvas, camera, stateMachine) {
     tryCapture(canvas.setPointerCapture, event.pointerId);
     const screen = toScreen(event);
     const world = camera.screenToWorld(screen.x, screen.y);
-    stateMachine.onPointerDown(screen, world, { shiftKey: event.shiftKey, button: event.button });
+    stateMachine.onPointerDown(screen, world, {
+      shiftKey: event.shiftKey,
+      // Cmd is treated the same as Ctrl here, matching every other
+      // Ctrl-based shortcut in the app (undo, save, ...) — Mac users don't
+      // have a separate "Ctrl-click" gesture, Cmd-click is it.
+      ctrlKey: event.ctrlKey || event.metaKey,
+      button: event.button,
+    });
     canvas.style.cursor = stateMachine.getCursor();
+  });
+
+  // On a Mac without a two-button mouse, Ctrl-click is also the OS gesture
+  // for "open the context menu" — left unblocked, it would pop a browser
+  // menu over the diagram exactly when someone is trying to add to a
+  // selection. Scoped to the Ctrl-held case only, so a real right-click
+  // still has room for a context menu later.
+  canvas.addEventListener('contextmenu', (event) => {
+    if (event.ctrlKey || event.metaKey) event.preventDefault();
   });
 
   canvas.addEventListener('pointermove', (event) => {

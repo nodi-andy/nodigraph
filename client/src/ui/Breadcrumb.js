@@ -1,6 +1,8 @@
-// Every crumb (including the product root) is clickable except the current
-// (last) one, so jumping back out isn't limited to one level at a time.
-export function mountBreadcrumb(container, { project, onNavigate }) {
+// Every earlier crumb jumps back out to that level; the current (last) one
+// instead opens the rename editor, the same one a click on the boundary
+// label opens — the breadcrumb's own text is the more discoverable place to
+// find that, and there is nowhere else to navigate to from here anyway.
+export function mountBreadcrumb(container, { project, onNavigate, onRenameCurrent }) {
   function refresh() {
     container.innerHTML = '';
     const crumbs = project.getBreadcrumb();
@@ -18,8 +20,12 @@ export function mountBreadcrumb(container, { project, onNavigate }) {
       button.type = 'button';
       button.className = 'crumb' + (isCurrent ? ' current' : '');
       button.textContent = crumb.name;
-      button.disabled = isCurrent;
-      button.addEventListener('click', () => onNavigate(crumb.depth));
+      if (isCurrent) {
+        button.title = 'Click to rename';
+        button.addEventListener('click', () => onRenameCurrent());
+      } else {
+        button.addEventListener('click', () => onNavigate(crumb.depth));
+      }
       container.appendChild(button);
     });
   }

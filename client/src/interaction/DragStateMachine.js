@@ -8,6 +8,20 @@ import {
   hitTestConnectionTrunk,
   hitTestConnectionPath,
 } from '../render/ConnectionRenderer.js';
+
+// Resolves a click's modifiers into one selection verb, applied the same
+// way to blocks, wires, and a marquee sweep so the convention doesn't
+// differ by what's being clicked:
+//   plain        -> replace the whole selection with just this
+//   Shift        -> toggle this in or out
+//   Ctrl/Cmd     -> add this, never removing anything already selected
+//   Ctrl+Shift   -> remove this, never adding anything
+function selectionVerb(modifiers) {
+  if (modifiers.ctrlKey && modifiers.shiftKey) return 'remove';
+  if (modifiers.ctrlKey) return 'add';
+  if (modifiers.shiftKey) return 'toggle';
+  return 'replace';
+}
 import { createConnection } from '../model/Connection.js';
 import { addPort } from '../model/BlockDescription.js';
 
@@ -179,10 +193,13 @@ export class DragStateMachine {
     if (hit?.type === 'body') {
       const block = this.project.getBlock(hit.blockId);
 
-      // Shift-click adjusts the selection rather than starting a drag —
-      // same convention as shift-clicking a wire trunk just above.
-      if (modifiers.shiftKey) {
-        this.selection.toggle(block.id);
+      // A modified click adjusts the selection rather than starting a drag —
+      // same convention used for a wire trunk just below.
+      const verb = selectionVerb(modifiers);
+      if (verb !== 'replace') {
+        if (verb === 'toggle') this.selection.toggle(block.id);
+        else if (verb === 'add') this.selection.add(block.id);
+        else this.selection.remove(block.id);
         this.requestRender();
         return;
       }
@@ -220,10 +237,13 @@ export class DragStateMachine {
 
     const wireHit = this.hitTestWires(world.x, world.y, boundary);
     if (wireHit) {
-      if (modifiers.shiftKey) {
-        // Shift-click only toggles membership — a following drag (grabbing
-        // any selected trunk) is what actually moves the group.
-        this.wireSelection.toggle(wireHit.connectionId);
+      const wireVerb = selectionVerb(modifiers);
+      if (wireVerb !== 'replace') {
+        // A modified click only adjusts membership — a following drag
+        // (grabbing any selected trunk) is what actually moves the group.
+        if (wireVerb === 'toggle') this.wireSelection.toggle(wireHit.connectionId);
+        else if (wireVerb === 'add') this.wireSelection.add(wireHit.connectionId);
+        else this.wireSelection.remove(wireHit.connectionId);
         this.requestRender();
         return;
       }
@@ -244,13 +264,16 @@ export class DragStateMachine {
       return;
     }
 
-    // Empty background. Shift turns the drag into a selection marquee
-    // instead of a pan — panning is the far more frequent action, so it
-    // keeps the unmodified drag.
-    if (modifiers.shiftKey) {
+    // Empty background. Shift (or Ctrl, or both) turns the drag into a
+    // selection marquee instead of a pan — panning is the far more frequent
+    // action, so it keeps the unmodified drag. The verb travels with the
+    // marquee so pointerUp knows whether to replace, add, or remove.
+    if (modifiers.shiftKey || modifiers.ctrlKey) {
+      // Matches every block hit above: selecting blocks always clears
+      // whatever wires were selected, regardless of which verb is in play.
       this.wireSelection.clear();
       this.state = STATES.MARQUEE;
-      this.context = { startWorld: world, currentWorld: world };
+      this.context = { startWorld: world, currentWorld: world, verb: selectionVerb(modifiers) };
       this.requestRender();
       return;
     }
@@ -612,11 +635,24 @@ export class DragStateMachine {
     } else if (this.state === STATES.MARQUEE) {
       const rect = this.getMarqueeRect();
       const ids = this.blocksIntersecting(rect);
-      // A shift-click on empty background (no real sweep) reads as "start
-      // over", so an empty marquee clears rather than leaving the previous
-      // selection stranded.
-      if (ids.length) this.selection.selectMany(ids);
-      else this.selection.clear();
+      const verb = this.context.verb || 'replace';
+      if (verb === 'add') this.selection.addMany(ids);
+      else if (verb === 'remove') this.selection.removeMany(ids);
+      else if (verb === 'toggle') {
+        // No batch toggle: each swept block flips independently, so
+        // sweeping back over a mix of selected and unselected blocks does
+        // the expected per-block thing rather than one all-or-nothing flip.
+        for (const id of ids) this.selection.toggle(id);
+      } else if (ids.length) {
+        this.selection.selectMany(ids);
+      } else {
+        // A plain drag on empty background with no real sweep reads as
+        // "start over" — an empty marquee clears rather than leaving the
+        // previous selection stranded. Add/remove/toggle with an empty
+        // sweep are correctly no-ops instead, since there's nothing to
+        // apply the verb to.
+        this.selection.clear();
+      }
     } else if (this.state === STATES.PENDING_LABEL_RENAME) {
       this.onRequestRename?.(this.context.blockId);
     }
