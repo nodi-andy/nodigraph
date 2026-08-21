@@ -3,7 +3,7 @@
 // short field would be heavier than the edit itself. Positioned in screen
 // coordinates by whoever opens it (main.js converts the block's world rect
 // via the camera), so it sits exactly over the name it's editing.
-export function createNameEditor({ onCommit }) {
+export function createNameEditor({ onCommit, allowEmpty = false }) {
   const input = document.createElement('input');
   input.type = 'text';
   input.className = 'name-editor';
@@ -25,7 +25,11 @@ export function createNameEditor({ onCommit }) {
     const id = editingId;
     const value = input.value.trim();
     close();
-    if (value) onCommit(id, value);
+    // A block always needs some name, so an empty commit there is ignored
+    // rather than left blank. A wire's label is optional — allowEmpty lets
+    // that same commit clear one back out, rather than the only way to
+    // remove a label being some separate control.
+    if (value || allowEmpty) onCommit(id, value);
   }
 
   input.addEventListener('blur', commit);

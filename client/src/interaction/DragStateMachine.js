@@ -66,7 +66,7 @@ function invertDirection(direction) {
  * a wire" vs "drag a wire's trunk" vs "pan background" unambiguous.
  */
 export class DragStateMachine {
-  constructor({ camera, project, selection, wireSelection, requestRender, persist, onEnterBlock, onRequestRename, onLiveUpdate }) {
+  constructor({ camera, project, selection, wireSelection, requestRender, persist, onEnterBlock, onRequestRename, onRequestWireLabel, onLiveUpdate }) {
     this.camera = camera;
     this.project = project;
     this.selection = selection;
@@ -81,6 +81,10 @@ export class DragStateMachine {
     // click lands first.
     this.onRequestRename = onRequestRename;
     this.renameTimer = null;
+    // Opens an inline label editor over a wire (see main.js) — double
+    // click only, unlike a block's rename, since a wire has no "already
+    // selected, click it again" gesture to reuse for it.
+    this.onRequestWireLabel = onRequestWireLabel;
     // Fired on every pointermove while dragging something positional (a
     // block, a port, a wire trunk, a boundary edge) — this is what lets
     // another open client see the move as it happens instead of only once
@@ -492,6 +496,16 @@ export class DragStateMachine {
     this.clearHoverGhost();
     if (!target) return;
 
+    // The dwell exists so a cursor merely passing through doesn't flash a
+    // ghost at every edge it crosses — that doesn't apply to a block
+    // that's already selected, since you're already looking right at it.
+    // Skips straight to ready with no timer at all.
+    if (target.blockId === this.getResizableBlockId()) {
+      this.hoverGhost = { ...target, ready: true };
+      this.requestRender();
+      return;
+    }
+
     // Captured by reference so the timeout only ever marks *this* ghost
     // ready — clearHoverGhost cancels the timer on any change, but this
     // guards against it firing anyway in some edge case.
@@ -763,7 +777,13 @@ export class DragStateMachine {
     const hit = hitTest(this.project, world.x, world.y);
     if (hit?.type === 'body') {
       this.onEnterBlock?.(hit.blockId);
+      return;
     }
+    // Anywhere along a wire, not only its draggable trunk — same reach as
+    // clicking to select it (see hitTestWires), so there's no dead length
+    // of wire double-clicking does nothing on.
+    const wireHit = this.hitTestWires(world.x, world.y, this.getBoundaryInfo());
+    if (wireHit) this.onRequestWireLabel?.(wireHit.connectionId);
   }
 
   onWheelZoom(screen, factor) {

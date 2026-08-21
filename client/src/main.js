@@ -27,6 +27,7 @@ import { createLiveSessionDialog } from './ui/LiveSessionDialog.js';
 import { mountSelectionFabs } from './ui/SelectionFabs.js';
 import { renderCurrentLevelDataUrl, renderCurrentLevelBlob } from './model/diagramImage.js';
 import { getBoundaryLabelRect } from './render/BlockRenderer.js';
+import { getConnectionGeometry, getConnectionLabelPosition } from './render/ConnectionRenderer.js';
 import { downloadProjectFile, readProjectFile } from './model/localFile.js';
 import { encodeProjectToParam, decodeProjectFromParam } from './model/shareLink.js';
 import { serializeSelection, pasteSelection, isClipboardPayload } from './model/clipboard.js';
@@ -172,6 +173,18 @@ async function bootstrap() {
   function deleteSelectedWires() {
     for (const id of wireSelection.list()) project.removeConnection(id);
     wireSelection.clear();
+    persist();
+    renderLoop.requestRender();
+  }
+
+  // Deleting one specific wire — the Inspector's own delete button, as
+  // opposed to deleteSelectedWires() which drops the whole selection (the
+  // Delete key, or the canvas FAB). Removed from the selection too, since
+  // leaving a now-nonexistent id in there would make the next repaint
+  // try to draw geometry for a connection that's gone.
+  function deleteConnection(connectionId) {
+    project.removeConnection(connectionId);
+    wireSelection.remove(connectionId);
     persist();
     renderLoop.requestRender();
   }
@@ -375,6 +388,48 @@ async function bootstrap() {
     },
   });
 
+  // Opens an inline editor over a wire's own label, positioned the same
+  // place the label itself is drawn — the middle of its trunk, or the
+  // arc-length midpoint of the whole path when it has no trunk (see
+  // ConnectionRenderer.getConnectionLabelPosition).
+  function openWireLabelRename(connectionId) {
+    const connection = project.getConnection(connectionId);
+    if (!connection) return;
+    const container = project.getContainerBlock();
+    const boundary = container?.boundaryGeometry ? { block: container, geometry: container.boundaryGeometry } : null;
+    const geometry = getConnectionGeometry(project, connection, boundary);
+    if (!geometry) return;
+
+    const labelPos = getConnectionLabelPosition(geometry);
+    const topLeft = camera.worldToScreen(labelPos.x, labelPos.y);
+    const canvasRect = canvas.getBoundingClientRect();
+    // A wire has no box of its own the way a block does, so the editor
+    // gets a fixed size centered on the label position rather than one
+    // measured from anything.
+    const width = 120;
+    const height = 24;
+    wireLabelEditor.open(connectionId, connection.label || '', {
+      x: canvasRect.left + topLeft.x - width / 2,
+      y: canvasRect.top + topLeft.y - height / 2,
+      width,
+      height,
+    });
+  }
+
+  const wireLabelEditor = createNameEditor({
+    // A blank commit is a real answer here (clear the label), unlike a
+    // block's name, which always needs something.
+    allowEmpty: true,
+    onCommit: (connectionId, label) => {
+      const connection = project.getConnection(connectionId);
+      if (!connection) return;
+      if (label) connection.label = label;
+      else delete connection.label;
+      persist();
+      renderLoop.requestRender();
+    },
+  });
+
   // Marching dashes along every wire, to show which way things flow. Purely
   // a way of looking at the diagram: nothing about it is stored, shared or
   // undoable, so it lives here as a plain flag rather than in the project.
@@ -565,10 +620,9 @@ async function bootstrap() {
   }
 
   function draw() {
-    // Block selection has an observer; the wire selection deliberately
-    // doesn't (see WireSelection), and every change to either already ends
-    // in a render. Refreshing here therefore covers both, and refresh()
-    // itself no-ops unless the count actually moved.
+    // Both block and wire selection have observers, and every change to
+    // either already ends in a render — refreshing here covers both,
+    // and refresh() itself no-ops unless the count actually moved.
     selectionFabsApi?.refresh();
     const dpr = window.devicePixelRatio || 1;
     const dragHighlights = stateMachine.getConnectionDragHighlights();
@@ -642,6 +696,7 @@ async function bootstrap() {
     persist,
     onEnterBlock: enterBlock,
     onRequestRename: openRename,
+    onRequestWireLabel: openWireLabelRename,
     onLiveUpdate: (message) => {
       liveSync.sendLive(message);
       broadcastToPeers({ type: 'live', ...message });
@@ -689,10 +744,12 @@ async function bootstrap() {
   inspectorApi = mountInspector(inspectorEl, {
     project,
     selection,
+    wireSelection,
     requestRender: () => renderLoop.requestRender(),
     persist,
     deleteBlock,
     enterBlock,
+    deleteConnection,
   });
 
   breadcrumbApi = mountBreadcrumb(breadcrumbEl, {

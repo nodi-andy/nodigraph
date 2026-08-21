@@ -62,9 +62,10 @@ diagram.
   draggable trunk segment when you want a different route. Wires that cross
   without joining bow over each other, so a crossing never reads as a
   connection.
-- **Coloured pipes** — click any wire (or any block) and give it a colour
-  from the palette beside the add button, to group the pipes that belong
-  together.
+- **Labelled, styled pipes** — double-click a wire to name it, in place,
+  the same way double-clicking a block renames it. A selected wire (or
+  block) opens in the Inspector too, where its label, colour, and line
+  style (solid, dashed, dotted) are all editable fields.
 - **Multi-select** — shift-click or shift-drag a marquee to toggle blocks
   in and out of a selection; Ctrl/Cmd-click or -drag always adds, and
   Ctrl/Cmd+Shift always removes. Move the group, or copy/paste it (wires
