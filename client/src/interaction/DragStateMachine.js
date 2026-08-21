@@ -127,23 +127,24 @@ export class DragStateMachine {
       const zone = getEdgeZoneOffset(ghost.geometry, ghost.ports, world.x, world.y);
       this.clearHoverGhost();
       if (zone && zone.side === ghost.side && zone.offset === ghost.offset) {
-        const port = this.addPortAt(ghost.blockId, zone.side, zone.offset, ghost.geometry);
-        // Same one motion an existing port's connector handle already
-        // offers: dropping straight back onto the block a wire started
-        // from is never a valid target (see resolveConnectionTarget), so
-        // a plain click with no drag just leaves the new port sitting
-        // there — only an actual drag from here goes anywhere.
-        const boundary = this.getBoundaryInfo();
-        this.state = STATES.DRAWING_CONNECTION;
-        this.context = {
-          sourceBlockId: ghost.blockId,
-          sourcePortId: port.id,
-          sourceInverted: Boolean(boundary) && ghost.blockId === boundary.block.id,
-          currentWorld: world,
-        };
-        this.requestRender();
+        this.startConnectionFromNewPort(zone, world);
         return;
       }
+    } else if (modifiers.pointerType && modifiers.pointerType !== 'mouse') {
+      // Touch (or pen) has no hover phase before the first contact — the
+      // dwell above exists purely to filter a *mouse cursor* merely
+      // passing through on its way elsewhere, a hazard that doesn't apply
+      // to a single discrete tap. So a touch landing directly in an
+      // otherwise-empty edge zone (nothing else there to hit — an
+      // existing port, a resize handle, ...) skips the dwell entirely and
+      // acts on it immediately: grab a block's middle to move it, grab
+      // its edge to wire it, the same split most touch diagram tools use.
+      const zone = this.resolveGhostZone(world);
+      if (zone) {
+        this.startConnectionFromNewPort(zone, world);
+        return;
+      }
+      this.clearHoverGhost();
     } else {
       this.clearHoverGhost();
     }
@@ -659,6 +660,26 @@ export class DragStateMachine {
     // onPointerDown's ghost-click branch) — a plain click, with no drag,
     // just leaves the port sitting there same as before.
     return port;
+  }
+
+  // Creates a port at `zone` and immediately starts a connection drag from
+  // it — shared by the ready-ghost click (mouse, after the hover dwell)
+  // and the touch fast path (no dwell at all) in onPointerDown. Dropping
+  // straight back onto the block it came from is never a valid target
+  // (see resolveConnectionTarget), so a press with no real drag away from
+  // here just leaves the new port sitting there, same as clicking a ghost
+  // always has.
+  startConnectionFromNewPort(zone, world) {
+    const port = this.addPortAt(zone.blockId, zone.side, zone.offset, zone.geometry);
+    const boundary = this.getBoundaryInfo();
+    this.state = STATES.DRAWING_CONNECTION;
+    this.context = {
+      sourceBlockId: zone.blockId,
+      sourcePortId: port.id,
+      sourceInverted: Boolean(boundary) && zone.blockId === boundary.block.id,
+      currentWorld: world,
+    };
+    this.requestRender();
   }
 
   onPointerUp(world) {
