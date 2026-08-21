@@ -9,8 +9,11 @@ export function generateId(prefix) {
 
 export const DEFAULT_BLOCK_WIDTH = GRID_SIZE * 6;
 export const DEFAULT_BLOCK_HEIGHT = GRID_SIZE * 4;
-export const MIN_BLOCK_WIDTH = GRID_SIZE * 2;
-export const MIN_BLOCK_HEIGHT = GRID_SIZE * 2;
+// A single grid cell is the floor — small enough for a block that's
+// really just one named socket, and there's nothing smaller on the grid
+// to snap to anyway.
+export const MIN_BLOCK_WIDTH = GRID_SIZE * 1;
+export const MIN_BLOCK_HEIGHT = GRID_SIZE * 1;
 // The accent a block is drawn with until someone picks another one.
 export const DEFAULT_BLOCK_COLOR = '#3b6fa0';
 

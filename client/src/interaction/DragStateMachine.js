@@ -56,6 +56,28 @@ const STATES = {
 
 const BOUNDARY_MIN_SIZE = GRID_SIZE * 3;
 
+// Decomposes every resize-handle side (see BlockRenderer.getResizeHandleRects)
+// into which single-axis edge(s) it drags — a plain edge only ever runs one,
+// a corner runs both from the one gesture. resizeEdge below reads this
+// instead of branching on the eight sides individually.
+const RESIZE_EDGE_AXES = {
+  left: { horizontal: 'left', vertical: null },
+  right: { horizontal: 'right', vertical: null },
+  top: { horizontal: null, vertical: 'top' },
+  bottom: { horizontal: null, vertical: 'bottom' },
+  nw: { horizontal: 'left', vertical: 'top' },
+  ne: { horizontal: 'right', vertical: 'top' },
+  sw: { horizontal: 'left', vertical: 'bottom' },
+  se: { horizontal: 'right', vertical: 'bottom' },
+};
+
+function cursorForResizeEdge(edge) {
+  if (edge === 'left' || edge === 'right') return 'ew-resize';
+  if (edge === 'top' || edge === 'bottom') return 'ns-resize';
+  if (edge === 'nw' || edge === 'se') return 'nwse-resize';
+  return 'nesw-resize'; // 'ne' or 'sw'
+}
+
 function invertDirection(direction) {
   if (direction === 'out') return 'in';
   if (direction === 'in') return 'out';
@@ -578,9 +600,7 @@ export class DragStateMachine {
   computeHoverCursor(world) {
     const boundary = this.getBoundaryInfo();
     const hit = hitTest(this.project, world.x, world.y, boundary, this.getResizableBlockId());
-    if (hit?.type === 'resizeHandle') {
-      return hit.side === 'left' || hit.side === 'right' ? 'ew-resize' : 'ns-resize';
-    }
+    if (hit?.type === 'resizeHandle') return cursorForResizeEdge(hit.side);
     if (hit?.type === 'boundaryLabel') return 'text';
     return 'default';
   }
@@ -590,9 +610,7 @@ export class DragStateMachine {
   // while the pointer sits exactly on the handle), otherwise whatever the
   // last hover pass computed.
   getCursor() {
-    if (this.state === STATES.RESIZING_EDGE) {
-      return this.context.edge === 'left' || this.context.edge === 'right' ? 'ew-resize' : 'ns-resize';
-    }
+    if (this.state === STATES.RESIZING_EDGE) return cursorForResizeEdge(this.context.edge);
     if (this.hoverGhost?.ready) return 'pointer';
     return this.hoverCursor || 'default';
   }
@@ -600,7 +618,10 @@ export class DragStateMachine {
   // Splitter-style: dragging one edge moves only that edge, keeping the
   // opposite one fixed, rather than resizing uniformly from a corner.
   // Works the same for an ordinary block's own geometry and the boundary's
-  // — only which geometry object and minimum size apply differs.
+  // — only which geometry object and minimum size apply differs. A corner
+  // handle (see RESIZE_EDGE_AXES) just runs both a horizontal and a
+  // vertical edge from the one drag, so it's the same two blocks of logic
+  // below rather than a separate code path of its own.
   resizeEdge(world) {
     const block = this.project.getBlock(this.context.blockId);
     const { edge, startGeometry, isBoundary } = this.context;
@@ -608,22 +629,26 @@ export class DragStateMachine {
     if (!geom) return;
     const minWidth = isBoundary ? BOUNDARY_MIN_SIZE : MIN_BLOCK_WIDTH;
     const minHeight = isBoundary ? BOUNDARY_MIN_SIZE : MIN_BLOCK_HEIGHT;
+    const { horizontal, vertical } = RESIZE_EDGE_AXES[edge];
 
-    if (edge === 'left') {
+    if (horizontal === 'left') {
       const rightEdge = startGeometry.x + startGeometry.width;
       const newX = Math.min(rightEdge - minWidth, snap(world.x));
       geom.x = newX;
       geom.width = rightEdge - newX;
-    } else if (edge === 'right') {
+    } else if (horizontal === 'right') {
       geom.width = Math.max(minWidth, snap(world.x) - startGeometry.x);
-    } else if (edge === 'top') {
+    }
+
+    if (vertical === 'top') {
       const bottomEdge = startGeometry.y + startGeometry.height;
       const newY = Math.min(bottomEdge - minHeight, snap(world.y));
       geom.y = newY;
       geom.height = bottomEdge - newY;
-    } else if (edge === 'bottom') {
+    } else if (vertical === 'bottom') {
       geom.height = Math.max(minHeight, snap(world.y) - startGeometry.y);
     }
+
     this.requestRender();
     if (isBoundary) {
       this.onLiveUpdate?.({ kind: 'boundary', blockId: block.id, boundaryGeometry: geom });
