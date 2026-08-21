@@ -16,6 +16,10 @@ const HANDLE_HIT_PADDING = 6;
 // ports get costs nothing, and a bigger, easier-to-grab target is exactly
 // the point of them existing on a touch screen.
 const RESIZE_HANDLE_HIT_PADDING = 8;
+// How close a click has to land to the boundary's own dashed line to
+// select it — a plain pixel-perfect hit on a 1.5px line would be
+// unusably fussy.
+const BORDER_HIT_THRESHOLD = 8;
 
 function pointInRect(px, py, rect, padding = 0) {
   return (
@@ -37,6 +41,21 @@ function hitResizeHandle(geometry, worldX, worldY) {
     if (pointInRect(worldX, worldY, rect, RESIZE_HANDLE_HIT_PADDING)) return rect.side;
   }
   return null;
+}
+
+// A precise click on the boundary frame's own dashed line (not a floating
+// handle, not the title, just the outline) selects it, the same way
+// clicking a block's body selects that block — the boundary's handles
+// only show once it's selected (see BlockRenderer.drawBoundary), so
+// there has to be a way to select it at all.
+function hitBoundaryLine(geometry, worldX, worldY, threshold = BORDER_HIT_THRESHOLD) {
+  const { x, y, width, height } = geometry;
+  const withinX = worldX >= x - threshold && worldX <= x + width + threshold;
+  const withinY = worldY >= y - threshold && worldY <= y + height + threshold;
+  if (!withinX || !withinY) return false;
+  const nearVerticalEdge = Math.abs(worldX - x) <= threshold || Math.abs(worldX - (x + width)) <= threshold;
+  const nearHorizontalEdge = Math.abs(worldY - y) <= threshold || Math.abs(worldY - (y + height)) <= threshold;
+  return nearVerticalEdge || nearHorizontalEdge;
 }
 
 function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false) {
@@ -77,13 +96,14 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false) {
  * Tests smallest/highest-priority targets first: port connector/move
  * handles across every block (including the surrounding boundary frame's
  * own ports) win over everything, then the boundary's own title, then a
- * resize handle — only for `resizableBlockId`, the one ordinary block
- * currently allowed to show them, or the boundary frame unconditionally
- * (see DragStateMachine.getResizableBlockId) — then block body, then the
- * boundary's own resize handle dead last. `boundary`, when the current
- * level has one, is `{ block, geometry }` for the container you're inside.
- * Returns null if nothing was hit (caller should try a wire trunk, then
- * fall back to pan/marquee).
+ * resize handle for `resizableBlockId` — whichever single block or the
+ * boundary frame is currently selected (see
+ * DragStateMachine.getResizableBlockId; both need to already be selected
+ * to show a handle at all) — then block body, then the boundary's own
+ * dashed line dead last, which selects it the way a block's body selects
+ * that block. `boundary`, when the current level has one, is `{ block,
+ * geometry }` for the container you're inside. Returns null if nothing
+ * was hit (caller should try a wire trunk, then fall back to pan/marquee).
  */
 export function hitTest(project, worldX, worldY, boundary, resizableBlockId) {
   const blocks = project.listBlocks();
@@ -109,15 +129,21 @@ export function hitTest(project, worldX, worldY, boundary, resizableBlockId) {
     }
   }
 
-  // The one ordinary block currently allowed to show resize handles (see
-  // DragStateMachine.getResizableBlockId) — checked before any block's
-  // body so a handle floating just past this block's own border isn't
-  // swallowed by "drag to move" if it happens to sit over another block.
+  // Whichever single thing is currently selected — an ordinary block or
+  // the boundary frame — is the only one allowed to show a resize handle
+  // (see DragStateMachine.getResizableBlockId). The boundary's own
+  // geometry for this is its boundaryGeometry (the frame drawn around its
+  // children), not the plain `.geometry` project.getBlock resolves it
+  // to — that's where it sits as a block one level up, a different
+  // rectangle entirely. Checked before any block's body so a handle
+  // floating just past this target's own border isn't swallowed by "drag
+  // to move" if it happens to sit over another block.
   if (resizableBlockId) {
-    const block = project.getBlock(resizableBlockId);
-    if (block) {
-      const side = hitResizeHandle(block.geometry, worldX, worldY);
-      if (side) return { type: 'resizeHandle', blockId: block.id, side, isBoundary: false };
+    const isBoundaryTarget = Boolean(boundary) && resizableBlockId === boundary.block.id;
+    const geometry = isBoundaryTarget ? boundary.geometry : project.getBlock(resizableBlockId)?.geometry;
+    if (geometry) {
+      const side = hitResizeHandle(geometry, worldX, worldY);
+      if (side) return { type: 'resizeHandle', blockId: resizableBlockId, side, isBoundary: isBoundaryTarget };
     }
   }
 
@@ -128,12 +154,8 @@ export function hitTest(project, worldX, worldY, boundary, resizableBlockId) {
     }
   }
 
-  if (boundary) {
-    // Checked dead last, same position the old boundaryEdge hit held: a
-    // child block drawn over part of the boundary's own resize zone
-    // should still win the body check above it.
-    const side = hitResizeHandle(boundary.geometry, worldX, worldY);
-    if (side) return { type: 'resizeHandle', blockId: boundary.block.id, side, isBoundary: true };
+  if (boundary && hitBoundaryLine(boundary.geometry, worldX, worldY)) {
+    return { type: 'boundaryLine', blockId: boundary.block.id };
   }
 
   return null;

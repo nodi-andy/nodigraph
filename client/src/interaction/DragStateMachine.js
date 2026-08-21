@@ -222,6 +222,20 @@ export class DragStateMachine {
       return;
     }
 
+    // A click on the boundary frame's own dashed line — selects it, the
+    // same modifier convention as a block's body, but never starts a
+    // drag: the boundary has nowhere to be dragged to from in here, only
+    // resized (via its own handles, once this selects it).
+    if (hit?.type === 'boundaryLine') {
+      const verb = selectionVerb(modifiers);
+      if (verb === 'toggle') this.selection.toggle(hit.blockId);
+      else if (verb === 'add') this.selection.add(hit.blockId);
+      else if (verb === 'remove') this.selection.remove(hit.blockId);
+      else this.selection.select(hit.blockId);
+      this.requestRender();
+      return;
+    }
+
     const wireHit = this.hitTestWires(world.x, world.y, boundary);
     if (wireHit) {
       const wireVerb = selectionVerb(modifiers);

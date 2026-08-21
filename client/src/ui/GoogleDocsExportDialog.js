@@ -28,8 +28,11 @@ const LINK_LABEL = 'View the editable diagram';
 
 async function copyFigure({ image, description, shareUrl }) {
   const caption = `${description} — ${LINK_LABEL}: ${shareUrl}`;
+  // The image itself is a link too, not just the caption below it — most
+  // people reach for the picture first, and a figure that's a dead end
+  // until you notice the caption underneath defeats the point.
   const html =
-    `<img src="${image.dataUrl}" alt="${escapeHtml(description)}">` +
+    `<a href="${shareUrl}"><img src="${image.dataUrl}" alt="${escapeHtml(description)}"></a>` +
     `<p>${escapeHtml(description)} — <a href="${shareUrl}">${escapeHtml(LINK_LABEL)}</a></p>`;
 
   await navigator.clipboard.write([
