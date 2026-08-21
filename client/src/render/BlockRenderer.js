@@ -286,6 +286,19 @@ function drawConnectorArrow(ctx, handlePos, side, inverted, isOutput) {
   ctx.fill();
 }
 
+// A direction-less port still needs *something* marking where to grab it to
+// start a wire — the arrowhead was doing double duty as both "which way
+// data flows" and "here's the handle," so dropping it outright for an
+// undecided port left the handle with no visible marker at all. This is
+// the same handle with no directional claim: a plain dot, same place, same
+// color, just no triangle pointing anywhere.
+function drawConnectorHandleDot(ctx, handlePos) {
+  ctx.beginPath();
+  ctx.arc(handlePos.x, handlePos.y, CONNECTOR_ARROW_SIZE / 2, 0, Math.PI * 2);
+  ctx.fillStyle = CONNECTOR_HANDLE_COLOR;
+  ctx.fill();
+}
+
 function drawPortRing(ctx, x, y, color, radius = PORT_RING_RADIUS) {
   ctx.beginPath();
   ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -444,6 +457,7 @@ function drawPorts(ctx, block, { inverted = false, portHighlights = null, showEm
     }
 
     if (isEffectivelyOutput !== null) drawConnectorArrow(ctx, handle, port.side, inverted, isEffectivelyOutput);
+    else drawConnectorHandleDot(ctx, handle);
     drawPortLabel(ctx, port, { x: px, y: py }, inverted);
 
     const ringColor = portHighlights?.get(`${block.id}:${port.id}`);
