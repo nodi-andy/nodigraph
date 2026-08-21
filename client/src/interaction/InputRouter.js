@@ -81,6 +81,10 @@ export function attachInputRouter(canvas, camera, stateMachine) {
       // have a separate "Ctrl-click" gesture, Cmd-click is it.
       ctrlKey: event.ctrlKey || event.metaKey,
       button: event.button,
+      // 'mouse' | 'touch' | 'pen' — lets the state machine tell a touch
+      // press (no hover phase before it, so no dwell can run first) from
+      // a mouse click (see its own note on the add-port ghost).
+      pointerType: event.pointerType,
     });
     canvas.style.cursor = stateMachine.getCursor();
   });
@@ -139,7 +143,7 @@ export function attachInputRouter(canvas, camera, stateMachine) {
       if (activePointers.size === 1) {
         const [remaining] = activePointers.values();
         const world = camera.screenToWorld(remaining.x, remaining.y);
-        stateMachine.onPointerDown(remaining, world, { shiftKey: false, ctrlKey: false, button: 0 });
+        stateMachine.onPointerDown(remaining, world, { shiftKey: false, ctrlKey: false, button: 0, pointerType: 'touch' });
       }
       canvas.style.cursor = stateMachine.getCursor();
       return;
