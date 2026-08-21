@@ -149,6 +149,13 @@ export function getResizeHandleRects(geometry) {
   const cx = x + width / 2;
   const cy = y + height / 2;
   const square = (side, cx2, cy2) => ({ side, x: cx2 - half, y: cy2 - half, width: RESIZE_HANDLE_SIZE, height: RESIZE_HANDLE_SIZE });
+  // A corner's x and y offsets compound diagonally — offsetting both by
+  // the same RESIZE_HANDLE_OUTSET an edge handle uses would put the corner
+  // handle sqrt(2) times farther from the shape than an edge one is.
+  // Dividing each axis by sqrt(2) cancels that out, so every handle sits
+  // the same straight-line distance from the block/boundary regardless of
+  // which one it is.
+  const cornerOutset = RESIZE_HANDLE_OUTSET / Math.SQRT2;
   return {
     top: square('top', cx, y - RESIZE_HANDLE_OUTSET),
     bottom: square('bottom', cx, y + height + RESIZE_HANDLE_OUTSET),
@@ -158,10 +165,10 @@ export function getResizeHandleRects(geometry) {
     // corner, and DragStateMachine.resizeEdge reads that as its own
     // horizontal + vertical edge pair rather than needing a separate code
     // path from the four single-axis handles above.
-    nw: square('nw', x - RESIZE_HANDLE_OUTSET, y - RESIZE_HANDLE_OUTSET),
-    ne: square('ne', x + width + RESIZE_HANDLE_OUTSET, y - RESIZE_HANDLE_OUTSET),
-    sw: square('sw', x - RESIZE_HANDLE_OUTSET, y + height + RESIZE_HANDLE_OUTSET),
-    se: square('se', x + width + RESIZE_HANDLE_OUTSET, y + height + RESIZE_HANDLE_OUTSET),
+    nw: square('nw', x - cornerOutset, y - cornerOutset),
+    ne: square('ne', x + width + cornerOutset, y - cornerOutset),
+    sw: square('sw', x - cornerOutset, y + height + cornerOutset),
+    se: square('se', x + width + cornerOutset, y + height + cornerOutset),
   };
 }
 
@@ -173,7 +180,7 @@ export function getResizeHandleRects(geometry) {
 // area from getResizeHandleRects, which stays generous and un-rotated —
 // a bar this thin would be a fussy target to actually grab otherwise.
 const RESIZE_GRIP_LENGTH = 20;
-const RESIZE_GRIP_THICKNESS = 8;
+const RESIZE_GRIP_THICKNESS = 4;
 // Selection used to also draw its own outline ring around the block (see
 // drawBlock) — with these handles now the only thing that shows up on
 // selecting something, that redundant ring is gone, and these lean a
