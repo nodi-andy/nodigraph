@@ -156,32 +156,40 @@ export function getResizeHandleRects(geometry) {
   };
 }
 
-// Drawn last in drawBlock/drawBoundary so the handles always sit on top —
-// they're an edit affordance, not part of the diagram, so nothing should
-// ever paint over them once they're showing. Diamonds rather than squares
-// so they read as a "move/reshape" grip (the familiar four-pointed
-// rotated-square glyph) rather than a plain UI control; the hit area
-// underneath stays the square bounding box from getResizeHandleRects — a
-// generous rectangular target is exactly as effective as a diamond one for
-// hit-testing, so there's no reason to complicate that half of it.
+// A grip bar running *along* its edge — wide and short on top/bottom
+// (which resize vertically), tall and narrow on left/right (which resize
+// horizontally) — the same "bar perpendicular to the drag axis" shape
+// most resize grips use, so the handle's own silhouette already tells you
+// which way it moves before you touch it. Independent of the square hit
+// area from getResizeHandleRects, which stays generous and un-rotated —
+// a bar this thin would be a fussy target to actually grab otherwise.
+const RESIZE_GRIP_LENGTH = 20;
+const RESIZE_GRIP_THICKNESS = 8;
+// Selection used to also draw its own outline ring around the block (see
+// drawBlock) — with these handles now the only thing that shows up on
+// selecting something, that redundant ring is gone, and these lean a
+// little translucent so they read as an overlaid control rather than
+// another opaque shape competing with the block/boundary underneath.
+const RESIZE_HANDLE_ALPHA = 0.75;
+
 export function drawResizeHandles(ctx, geometry) {
   const rects = getResizeHandleRects(geometry);
+  ctx.save();
+  ctx.globalAlpha = RESIZE_HANDLE_ALPHA;
   for (const rect of Object.values(rects)) {
     const cx = rect.x + rect.width / 2;
     const cy = rect.y + rect.height / 2;
-    const half = rect.width / 2;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy - half);
-    ctx.lineTo(cx + half, cy);
-    ctx.lineTo(cx, cy + half);
-    ctx.lineTo(cx - half, cy);
-    ctx.closePath();
+    const horizontalEdge = rect.side === 'top' || rect.side === 'bottom';
+    const w = horizontalEdge ? RESIZE_GRIP_LENGTH : RESIZE_GRIP_THICKNESS;
+    const h = horizontalEdge ? RESIZE_GRIP_THICKNESS : RESIZE_GRIP_LENGTH;
+    roundRectPath(ctx, cx - w / 2, cy - h / 2, w, h, RESIZE_GRIP_THICKNESS / 2);
     ctx.fillStyle = '#10151c';
     ctx.fill();
     ctx.strokeStyle = SELECTION_COLOR;
     ctx.lineWidth = 1.5;
     ctx.stroke();
   }
+  ctx.restore();
 }
 
 // Detects the cursor sitting *inside* the block, just past the border's own
@@ -492,21 +500,16 @@ export function drawBlock(ctx, block, { selected = false, portHighlights = null,
   const { x, y, width, height } = block.geometry;
   const accentColor = block.style?.color || DEFAULT_BLOCK_COLOR;
 
-  // Selection is an outline *around* the block, not a recolor of its own
-  // border: the border carries the block's accent colour, and repainting it
-  // to show selection would hide the colour at the exact moment someone is
-  // picking one.
-  if (selected) {
-    roundRectPath(ctx, x - 3, y - 3, width + 6, height + 6, CORNER_RADIUS + 3);
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = SELECTION_COLOR;
-    ctx.stroke();
-  }
-
+  // Selection used to also draw a second outline ring around the block,
+  // and thicken this border a touch on top of that — the four resize
+  // handles that appear on selection already say "this is the selected
+  // one" on their own, so either was just the same fact told again. The
+  // border stays exactly as it looks unselected, in the block's own
+  // accent colour, whether or not it's the one picked right now.
   roundRectPath(ctx, x, y, width, height, CORNER_RADIUS);
   ctx.fillStyle = '#1c2431';
   ctx.fill();
-  ctx.lineWidth = selected ? 2 : 1.5;
+  ctx.lineWidth = 1.5;
   ctx.strokeStyle = accentColor;
   ctx.stroke();
 
@@ -549,10 +552,12 @@ export function drawBlock(ctx, block, { selected = false, portHighlights = null,
 export function drawBoundary(ctx, block, geometry, { selected = false, portHighlights = null } = {}) {
   const { x, y, width, height } = geometry;
 
+  // No selected-state recolor here either (see drawBlock's own note) — the
+  // resize handles below already say this frame is the selected one.
   ctx.save();
   ctx.setLineDash([8, 6]);
-  ctx.strokeStyle = selected ? '#4f8cff' : 'rgba(255, 255, 255, 0.25)';
-  ctx.lineWidth = selected ? 2 : 1.5;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+  ctx.lineWidth = 1.5;
   ctx.strokeRect(x, y, width, height);
   ctx.restore();
 
