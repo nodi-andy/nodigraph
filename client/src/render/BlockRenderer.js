@@ -130,8 +130,6 @@ export function projectPointToPerimeter(block, worldX, worldY) {
   return { side: best.side, offset: snap(clamp(best.offset, bounds.min, bounds.max)) };
 }
 
-const BORDER_HIT_THRESHOLD = 8;
-
 // The four resize handles a selected block (or the selected boundary
 // frame) shows — one per edge, floating outside the block rather than
 // sitting on the border the way the old drag-to-resize zone did, so
@@ -187,9 +185,17 @@ export function drawResizeHandles(ctx, geometry) {
 }
 
 // Detects the cursor sitting *inside* the block, just past the border's own
-// hit padding and no deeper than a slot square's own depth — this is
-// "a little inside the box": hovering there is what reveals an add-port
-// ghost (see DragStateMachine's hover-ghost handling).
+// no deeper than a slot square's own depth — this is "inside the box, no
+// deeper than a socket reaches" — hovering there is what reveals an
+// add-port ghost (see DragStateMachine's hover-ghost handling). Matches
+// the ghost square's own drawn footprint exactly (see
+// getSlotRectFromBorderPoint, same PORT_SLOT_SIZE depth from the same
+// border point) — it used to stop 8 units short of the border, a leftover
+// from when this zone also had to leave room for the old border-drag-
+// resize gesture. That gesture is gone (resize is floating handles now,
+// nowhere near here), so the exclusion just meant the near half of the
+// visible ghost square didn't respond to the hover or the click that was
+// supposed to confirm it.
 export function getEdgeZoneOffset(geometry, ports, worldX, worldY) {
   const { x, y, width, height } = geometry;
   if (worldX < x || worldX > x + width || worldY < y || worldY > y + height) return null;
@@ -202,7 +208,7 @@ export function getEdgeZoneOffset(geometry, ports, worldX, worldY) {
   ];
   candidates.sort((a, b) => a.dist - b.dist);
   const best = candidates[0];
-  if (best.dist <= BORDER_HIT_THRESHOLD || best.dist > PORT_SLOT_SIZE) return null;
+  if (best.dist > PORT_SLOT_SIZE) return null;
 
   const length = sideAxis(best.side) === 'x' ? height : width;
   const occupied = (ports || []).filter((p) => p.side === best.side).map((p) => nearestPortSlot(length, p.offset));
@@ -360,7 +366,7 @@ export function drawPortGhost(ctx, geometry, side, offset) {
 // port saved before slots existed still correctly claims whichever slot
 // it now renders at, rather than leaving a stray empty square drawn right
 // on top of it.
-function drawEmptySlots(ctx, block) {
+function drawEmptySlots(ctx, block, inverted = false) {
   const { width, height } = block.geometry;
   for (const side of SIDES) {
     const sideLength = sideAxis(side) === 'x' ? height : width;
@@ -370,7 +376,21 @@ function drawEmptySlots(ctx, block) {
     for (const offset of getPortSlotOffsets(sideLength)) {
       if (occupied.includes(offset)) continue;
       const { x: px, y: py } = borderPointForOffset(block.geometry, side, offset);
-      drawSlotSquare(ctx, getSlotRectFromBorderPoint(px, py, side), EMPTY_SLOT_FILL, EMPTY_SLOT_STROKE);
+      if (inverted) {
+        // The boundary's real ports are plain dots, not inset squares (see
+        // the note on drawPorts) — its empty slots match that so a
+        // selected frame reads the same way a selected block does, not
+        // like it borrowed the wrong shape.
+        ctx.beginPath();
+        ctx.arc(px, py, PORT_RADIUS, 0, Math.PI * 2);
+        ctx.fillStyle = EMPTY_SLOT_FILL;
+        ctx.fill();
+        ctx.strokeStyle = EMPTY_SLOT_STROKE;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      } else {
+        drawSlotSquare(ctx, getSlotRectFromBorderPoint(px, py, side), EMPTY_SLOT_FILL, EMPTY_SLOT_STROKE);
+      }
     }
   }
 }
@@ -386,14 +406,18 @@ function drawEmptySlots(ctx, block) {
 function drawPorts(ctx, block, { inverted = false, portHighlights = null, showEmptySlots = false } = {}) {
   const outputColor = getStateColor(block) || DEFAULT_OUTPUT_PORT_COLOR;
 
-  // The boundary frame is a dashed abstract container, not a solid face —
-  // it keeps the plain-dot style. An ordinary block only shows its empty
-  // sockets while selected (about to add or drag a port there) — showing
-  // them on every block all the time cluttered ones you weren't touching.
-  if (!inverted && showEmptySlots) drawEmptySlots(ctx, block);
+  // Shown while selected (about to add or drag a port there) — showing
+  // them all the time, on every block, cluttered ones you weren't
+  // touching. The boundary frame gets the same treatment once it can be
+  // selected too (see HitTest's 'boundaryLine' hit); drawEmptySlots just
+  // draws its dot style instead of a square one when inverted.
+  if (showEmptySlots) drawEmptySlots(ctx, block, inverted);
 
   for (const { port, x: px, y: py } of getAllPortPositions(block)) {
-    const isEffectivelyOutput = inverted ? port.direction === 'in' : port.direction === 'out';
+    // A port with no direction yet isn't "effectively an input" — it's
+    // neither, so it gets the neutral (input-colored) nub with no arrowhead
+    // at all rather than a color/arrow that would falsely claim a role.
+    const isEffectivelyOutput = port.direction === null ? null : inverted ? port.direction === 'in' : port.direction === 'out';
     const color = isEffectivelyOutput ? outputColor : INPUT_PORT_COLOR;
     const handle = getConnectorHandlePosition({ x: px, y: py }, port.side, inverted);
 
@@ -419,7 +443,7 @@ function drawPorts(ctx, block, { inverted = false, portHighlights = null, showEm
       drawSlotSquare(ctx, getSlotRectFromBorderPoint(px, py, port.side), color, '#12161d');
     }
 
-    drawConnectorArrow(ctx, handle, port.side, inverted, isEffectivelyOutput);
+    if (isEffectivelyOutput !== null) drawConnectorArrow(ctx, handle, port.side, inverted, isEffectivelyOutput);
     drawPortLabel(ctx, port, { x: px, y: py }, inverted);
 
     const ringColor = portHighlights?.get(`${block.id}:${port.id}`);
@@ -515,7 +539,7 @@ export function drawBoundary(ctx, block, geometry, { selected = false, portHighl
   ctx.textBaseline = 'bottom';
   ctx.fillText(block.name, x + 4, y - 6);
 
-  drawPorts(ctx, { ...block, geometry }, { inverted: true, portHighlights });
+  drawPorts(ctx, { ...block, geometry }, { inverted: true, portHighlights, showEmptySlots: selected });
   // Gated on `selected` exactly like an ordinary block: clicking the
   // dashed line itself now selects the boundary (see HitTest's
   // 'boundaryLine' hit and DragStateMachine's handling of it), so there's

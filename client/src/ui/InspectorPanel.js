@@ -297,21 +297,25 @@ export function mountInspector(container, { project, selection, wireSelection, r
 
       const dirSelect = document.createElement('select');
       dirSelect.className = 'port-dir-select';
-      for (const dir of ['in', 'out']) {
+      // '' stands in for null here — <option> values are always strings,
+      // so the empty string is the only way to give "undecided" a value at
+      // all, and the change handler below maps it back to null on the way out.
+      for (const [value, label] of [['', '?'], ['in', 'IN'], ['out', 'OUT']]) {
         const option = document.createElement('option');
-        option.value = dir;
-        option.textContent = dir.toUpperCase();
-        option.selected = dir === port.direction;
+        option.value = value;
+        option.textContent = label;
+        option.selected = value === (port.direction || '');
         dirSelect.appendChild(option);
       }
       dirSelect.addEventListener('change', () => {
-        port.direction = dirSelect.value;
+        port.direction = dirSelect.value || null;
         syncPortChange(block, requestRender, persist);
       });
 
       const nameInput = document.createElement('input');
       nameInput.type = 'text';
       nameInput.className = 'port-name-input';
+      nameInput.placeholder = 'Name';
       nameInput.value = port.name;
       nameInput.addEventListener('input', () => {
         port.name = nameInput.value;

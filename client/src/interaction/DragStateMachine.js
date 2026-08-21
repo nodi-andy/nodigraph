@@ -57,7 +57,9 @@ const STATES = {
 const BOUNDARY_MIN_SIZE = GRID_SIZE * 3;
 
 function invertDirection(direction) {
-  return direction === 'out' ? 'in' : 'out';
+  if (direction === 'out') return 'in';
+  if (direction === 'in') return 'out';
+  return null;
 }
 
 /**
@@ -608,13 +610,15 @@ export class DragStateMachine {
   addPortAt(blockId, side, offset, geometry) {
     const block = this.project.getBlock(blockId);
     if (!block) return;
-    const direction = side === 'right' ? 'out' : 'in';
     const sideLength = sideAxis(side) === 'x' ? geometry.height : geometry.width;
     // Resolved slot, not raw offset — see the same note in the
     // DRAGGING_PORT case above.
     const occupied = block.ports.filter((p) => p.side === side).map((p) => nearestPortSlot(sideLength, p.offset));
     const slotOffset = nearestPortSlot(sideLength, offset, occupied);
-    addPort(block, { direction, side, offset: slotOffset });
+    // No direction is inferred from which edge got clicked — a port
+    // starts undecided regardless of where it's placed (see addPort's own
+    // note); side is just where it visually sits.
+    addPort(block, { side, offset: slotOffset });
     this.selection.select(block.id);
     this.persist();
     this.requestRender();
@@ -703,16 +707,24 @@ export class DragStateMachine {
     const blockId = targetHit.blockId;
     const portId = targetHit.portId;
 
-    if (sourceEffective === targetEffective) {
+    // Only two ports both already committed to the same real role (in-in,
+    // out-out) actually conflict — an undecided (null) side never does,
+    // since it just takes on whichever role the other side leaves open.
+    if (sourceEffective && targetEffective && sourceEffective === targetEffective) {
       return { valid: false, blockId, portId };
     }
 
+    // Whichever side has a committed role decides; if neither does, the
+    // dragged-from port defaults to being the source (out) end so a
+    // connection between two undecided ports still resolves to something.
+    const sourceIsOut = sourceEffective === 'out' || (!sourceEffective && targetEffective !== 'out');
+
     // Normalize so sourcePortId is always the effective source, regardless
     // of which handle the user actually grabbed first.
-    const outSide = sourceEffective === 'out'
+    const outSide = sourceIsOut
       ? { blockId: sourceBlockId, portId: sourcePortId }
       : { blockId, portId };
-    const inSide = sourceEffective === 'out'
+    const inSide = sourceIsOut
       ? { blockId, portId }
       : { blockId: sourceBlockId, portId: sourcePortId };
 
