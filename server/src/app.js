@@ -20,6 +20,18 @@ const MIME_TYPES = {
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  // Every extension the block-text-as-image feature accepts (see
+  // client/src/render/imageCache.js) needs a real image Content-Type here
+  // — browsers won't render an <img> (or a `new Image()`) from a response
+  // served as application/octet-stream, whatever the URL's extension
+  // claims. Without these, self-hosting an image on this same server for
+  // that feature would silently fail to load.
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
 };
 
 function serveStatic(req, res) {

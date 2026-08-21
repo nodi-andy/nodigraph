@@ -10,6 +10,7 @@ import {
 } from '../model/grid.js';
 import { getStateColor } from '../model/BlockDescription.js';
 import { DEFAULT_BLOCK_COLOR } from '../model/Block.js';
+import { isImageUrl, getCachedImage } from './imageCache.js';
 
 const CORNER_RADIUS = 6;
 export const PORT_RADIUS = 5;
@@ -212,6 +213,20 @@ export function getEdgeZoneOffset(geometry, ports, worldX, worldY) {
 // overlap: normally that's inward (the handle points outward), but on an
 // inverted (boundary) port the handle points inward instead, so the label
 // has to swap to the outward side to stay clear of it.
+// object-fit: contain, by hand — scales (including up, unlike CSS's
+// default) so the whole image fits inside the block with a small margin,
+// centered, without distorting its aspect ratio.
+const IMAGE_PADDING = 8;
+
+function drawContainImage(ctx, img, x, y, width, height) {
+  const availW = width - IMAGE_PADDING * 2;
+  const availH = height - IMAGE_PADDING * 2;
+  const scale = Math.min(availW / img.naturalWidth, availH / img.naturalHeight);
+  const w = img.naturalWidth * scale;
+  const h = img.naturalHeight * scale;
+  ctx.drawImage(img, x + width / 2 - w / 2, y + height / 2 - h / 2, w, h);
+}
+
 function drawPortLabel(ctx, port, pos, inverted = false) {
   if (!port.name) return;
   ctx.fillStyle = PORT_LABEL_COLOR;
@@ -426,7 +441,7 @@ function roundRectPath(ctx, x, y, width, height, radius) {
 // Its Input/Output ports are handles on the border, on any of the four
 // sides. When you drill into a block, its own border becomes the frame
 // that shows those same ports (Milestone 3).
-export function drawBlock(ctx, block, { selected = false, portHighlights = null } = {}) {
+export function drawBlock(ctx, block, { selected = false, portHighlights = null, requestRender = () => {} } = {}) {
   const { x, y, width, height } = block.geometry;
   const accentColor = block.style?.color || DEFAULT_BLOCK_COLOR;
 
@@ -452,11 +467,21 @@ export function drawBlock(ctx, block, { selected = false, portHighlights = null 
   roundRectPath(ctx, x, y, width, height, CORNER_RADIUS);
   ctx.clip();
 
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '13px -apple-system, Segoe UI, Roboto, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(block.name, x + width / 2, y + height / 2, width - 16);
+  // A block's name doubles as an image source: point it at a picture
+  // instead of typing a label, and that's what fills the block. Falls
+  // back to the plain name (as the URL, admittedly not pretty, but
+  // truthful about what's there) until the image has actually loaded, or
+  // if it never does.
+  const image = isImageUrl(block.name) ? getCachedImage(block.name, requestRender) : null;
+  if (image) {
+    drawContainImage(ctx, image, x, y, width, height);
+  } else {
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '13px -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(block.name, x + width / 2, y + height / 2, width - 16);
+  }
 
   ctx.restore();
 
