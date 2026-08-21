@@ -215,6 +215,22 @@ function traceHorizontalWithHops(ctx, a, b, verticals) {
 export const FLOW_DASH = [14, 10];
 export const PREVIEW_DASH = [6, 4];
 
+// A wire's own resting line style, set from the Inspector (see
+// ui/InspectorPanel.js) — independent of the flow animation's dashes,
+// which take over the whole wire while Animate is running regardless of
+// this setting (see SceneRenderer.drawConnections).
+export const DASH_STYLES = ['solid', 'dashed', 'dotted'];
+const DASH_PATTERNS = {
+  dashed: [10, 6],
+  // A short dash plus the round line cap already set in drawPath draws as
+  // a dot, not a dash — no separate "dotted" rendering path needed.
+  dotted: [1, 7],
+};
+
+export function getDashPattern(style) {
+  return DASH_PATTERNS[style] || null;
+}
+
 /**
  * `dash` is a dash pattern or null for a solid line, and `dashOffset`
  * shifts where the pattern starts — animating it is what makes the dashes
@@ -247,6 +263,70 @@ export function drawPath(
   ctx.lineWidth = width;
   ctx.stroke();
   ctx.restore();
+}
+
+// Where a wire's own label sits: the middle of the trunk when there is one
+// (the one straight, centrally-placed segment every wire with a bend has),
+// or the geometric midpoint by arc length when there isn't (a single-
+// corner route). Either way this is also what places the inline editor
+// over the label when you double-click it (see main.js).
+export function getConnectionLabelPosition(geometry) {
+  const { points, trunkIndex } = geometry;
+  if (trunkIndex >= 0) {
+    const a = points[trunkIndex];
+    const b = points[trunkIndex + 1];
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  }
+
+  const lengths = [];
+  let total = 0;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const len = Math.hypot(points[i + 1].x - points[i].x, points[i + 1].y - points[i].y);
+    lengths.push(len);
+    total += len;
+  }
+  let remaining = total / 2;
+  for (let i = 0; i < lengths.length; i += 1) {
+    if (remaining <= lengths[i]) {
+      const t = lengths[i] === 0 ? 0 : remaining / lengths[i];
+      const a = points[i];
+      const b = points[i + 1];
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    }
+    remaining -= lengths[i];
+  }
+  return points[Math.floor(points.length / 2)];
+}
+
+const LABEL_FONT = '11px -apple-system, Segoe UI, Roboto, sans-serif';
+const LABEL_PAD_X = 5;
+const LABEL_PAD_Y = 3;
+
+// A small pill behind the text — a wire crosses grid lines and other
+// wires constantly, and text with nothing behind it reads poorly over
+// either. Drawn centered on the label position, on top of the wire so
+// it's always legible regardless of what color the wire itself is.
+export function drawConnectionLabel(ctx, geometry, label) {
+  if (!label) return;
+  const pos = getConnectionLabelPosition(geometry);
+
+  ctx.font = LABEL_FONT;
+  const textWidth = ctx.measureText(label).width;
+  const w = textWidth + LABEL_PAD_X * 2;
+  const h = 14 + LABEL_PAD_Y;
+  const rectX = pos.x - w / 2;
+  const rectY = pos.y - h / 2;
+
+  ctx.fillStyle = '#10151c';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+  ctx.lineWidth = 1;
+  ctx.fillRect(rectX, rectY, w, h);
+  ctx.strokeRect(rectX, rectY, w, h);
+
+  ctx.fillStyle = '#e6e9ef';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, pos.x, pos.y);
 }
 
 function distanceToSegment(px, py, ax, ay, bx, by) {

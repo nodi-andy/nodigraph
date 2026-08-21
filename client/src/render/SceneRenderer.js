@@ -9,7 +9,9 @@ import {
 } from './BlockRenderer.js';
 import {
   drawPath,
+  drawConnectionLabel,
   getConnectionGeometry,
+  getDashPattern,
   verticalSegmentsOf,
   FLOW_DASH,
   PREVIEW_DASH,
@@ -139,13 +141,17 @@ function drawConnections(ctx, project, wireSelection, boundary, flowOffset) {
     if (selected) {
       drawPath(ctx, entry.geometry.points, { color: WIRE_SELECTED_HALO, width: 9, hopOver });
     }
+    // Animate takes over the whole wire's dashing while it's running,
+    // regardless of the wire's own resting style — the marching dashes
+    // are the point of it, not something a dotted wire should opt out of.
     drawPath(ctx, entry.geometry.points, {
       color: entry.connection.color || WIRE_COLOR,
       width: 3,
       hopOver,
-      dash: flowOffset === null ? null : FLOW_DASH,
+      dash: flowOffset === null ? getDashPattern(entry.connection.dashStyle) : FLOW_DASH,
       dashOffset: flowOffset ?? 0,
     });
+    drawConnectionLabel(ctx, entry.geometry, entry.connection.label);
   }
 }
 

@@ -7,6 +7,7 @@ import {
   removePort,
   serializeBlockDescription,
 } from '../model/BlockDescription.js';
+import { DASH_STYLES } from '../render/ConnectionRenderer.js';
 
 // A structural port edit (name/direction/description/add/delete) changes
 // the model directly, so the raw Description text has to be regenerated
@@ -69,7 +70,7 @@ function tabBar(activeTab, onSelect) {
   return bar;
 }
 
-export function mountInspector(container, { project, selection, requestRender, persist, deleteBlock, enterBlock }) {
+export function mountInspector(container, { project, selection, wireSelection, requestRender, persist, deleteBlock, enterBlock, deleteConnection }) {
   // Shows either the structured Inspector or the raw Description editor at
   // once, not both stacked — persists across refresh() calls (e.g. after
   // every prop edit) since it lives outside the rebuild functions below.
@@ -93,9 +94,81 @@ export function mountInspector(container, { project, selection, requestRender, p
     heading.textContent = 'Inspector';
     const empty = document.createElement('p');
     empty.className = 'empty';
-    empty.textContent = 'Select a block to edit its properties.';
+    empty.textContent = 'Select a block or wire to edit its properties.';
     container.appendChild(heading);
     container.appendChild(empty);
+  }
+
+  const DASH_LABELS = { solid: 'Solid', dashed: 'Dashed', dotted: 'Dotted' };
+
+  // A selected wire's own properties — label, line style, colour — plus
+  // delete. Reachable the same way a block is (select it, panel opens),
+  // rather than needing the Share-style dialog treatment a whole diagram
+  // gets; a single wire's fields are exactly this small.
+  function renderWire(connection, count) {
+    container.innerHTML = '';
+    container.appendChild(sheetHeader());
+    const heading = document.createElement('h3');
+    heading.textContent = 'Wire';
+    container.appendChild(heading);
+
+    if (count > 1) {
+      const hint = document.createElement('p');
+      hint.className = 'hint-text';
+      hint.textContent = `${count} wires selected — showing the one you picked last.`;
+      container.appendChild(hint);
+    }
+
+    const labelInput = document.createElement('input');
+    labelInput.type = 'text';
+    labelInput.placeholder = 'Unlabeled';
+    labelInput.value = connection.label || '';
+    labelInput.addEventListener('input', () => {
+      if (labelInput.value) connection.label = labelInput.value;
+      else delete connection.label;
+      requestRender();
+    });
+    labelInput.addEventListener('change', persist);
+    container.appendChild(field('Label', labelInput));
+
+    const dashSelect = document.createElement('select');
+    for (const style of DASH_STYLES) {
+      const option = document.createElement('option');
+      option.value = style;
+      option.textContent = DASH_LABELS[style];
+      option.selected = (connection.dashStyle || 'solid') === style;
+      dashSelect.appendChild(option);
+    }
+    dashSelect.addEventListener('change', () => {
+      // Stored as absent for 'solid' rather than the literal string, same
+      // reason an uncoloured wire stores no colour: nothing to say for
+      // the common case means nothing added to every share link either.
+      if (dashSelect.value === 'solid') delete connection.dashStyle;
+      else connection.dashStyle = dashSelect.value;
+      requestRender();
+      persist();
+    });
+    container.appendChild(field('Line style', dashSelect));
+
+    const colorInput = document.createElement('input');
+    colorInput.type = 'color';
+    colorInput.value = connection.color || '#4f8cff';
+    colorInput.addEventListener('input', () => {
+      connection.color = colorInput.value;
+      requestRender();
+    });
+    colorInput.addEventListener('change', persist);
+    container.appendChild(field('Colour', colorInput));
+
+    const deleteRow = document.createElement('div');
+    deleteRow.className = 'delete-row';
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'delete-button';
+    deleteButton.textContent = 'Delete wire';
+    deleteButton.addEventListener('click', () => deleteConnection(connection.id));
+    deleteRow.appendChild(deleteButton);
+    container.appendChild(deleteRow);
   }
 
   function renderInspectorTab(container_, block) {
@@ -360,18 +433,20 @@ export function mountInspector(container, { project, selection, requestRender, p
 
   // body.inspector-open drives the layout (desktop column / mobile sheet
   // slide, FAB shift/hide); body.block-selected drives the mobile toggle
-  // button's visibility.
+  // button's visibility — named for the block case since that's the
+  // common one, but it opens for a selected wire exactly the same way.
   function syncOpenState() {
-    const hasSelection = Boolean(selection.selectedBlockId);
+    const hasSelection = Boolean(selection.selectedBlockId) || wireSelection.list().length > 0;
     if (!hasSelection) mobileSheetOpen = false;
     const isOpen = hasSelection && (!mobileLayout.matches || mobileSheetOpen);
     container.classList.toggle('open', isOpen);
     document.body.classList.toggle('inspector-open', isOpen);
     document.body.classList.toggle('block-selected', hasSelection);
+    toggleButton.textContent = selection.selectedBlockId ? 'Edit block' : 'Edit wire';
   }
 
   // The mobile sheet's explicit opener — CSS shows it only below the
-  // breakpoint, and only while a block is selected with the sheet closed.
+  // breakpoint, and only while something is selected with the sheet closed.
   const toggleButton = document.createElement('button');
   toggleButton.type = 'button';
   toggleButton.className = 'inspector-toggle';
@@ -384,13 +459,23 @@ export function mountInspector(container, { project, selection, requestRender, p
 
   function refresh() {
     const block = selection.selectedBlockId ? project.getBlock(selection.selectedBlockId) : null;
-    if (block) renderBlock(block);
-    else renderEmpty();
+    if (block) {
+      renderBlock(block);
+    } else {
+      // The wire selected last is the one shown, same rule a multi-block
+      // selection already uses to pick which one's fields the Inspector
+      // displays (see SelectionManager's own `selectedBlockId`).
+      const wireIds = wireSelection.list();
+      const connection = wireIds.length ? project.getConnection(wireIds[wireIds.length - 1]) : null;
+      if (connection) renderWire(connection, wireIds.length);
+      else renderEmpty();
+    }
 
     if (!pointerDown) syncOpenState();
   }
 
   selection.onChange(refresh);
+  wireSelection.onChange(refresh);
   refresh();
 
   // Capture phase so this runs before the canvas's own pointerdown handler
