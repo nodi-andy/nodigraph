@@ -50,6 +50,24 @@ html, body {
   flex-shrink: 0;
 }
 
+/* Hidden on desktop — see the max-width:768px rules below, the only place
+   either of these actually shows. */
+.menu-toggle {
+  display: none;
+}
+
+/* `contents` makes this wrapper invisible to the flex layout on desktop:
+   its children (.file-toolbar, .doc-sync) lay out as direct children of
+   #topbar exactly as if the wrapper weren't there. Only the mobile media
+   query turns it into a real, positioned dropdown panel. */
+.topbar-menu {
+  display: contents;
+}
+
+.topbar-menu-backdrop {
+  display: none;
+}
+
 /* Only the first of the two right-aligned topbar clusters needs to claim
    the leftover space — the second just follows it via #topbar's own gap. */
 .file-toolbar {
@@ -725,32 +743,85 @@ body.inspector-open #inspector {
   }
 
   /* Six controls of labelled text don't fit a phone's width, and a button
-     pushed off the edge is a button that doesn't exist. Letting the cluster
-     scroll keeps every one of them reachable without inventing an overflow
-     menu; the brand goes, since it is the one thing here that isn't a
-     control. */
+     pushed off the edge is a button that doesn't exist. Rather than
+     leaving the cluster to scroll sideways (nothing hinted there was more
+     to find past the edge), it's tucked behind an explicit menu button
+     instead — the brand goes too, since it's the one thing here that
+     isn't a control and menu-toggle needs the room. */
   #topbar {
     gap: 8px;
     padding: 0 10px;
+    position: relative;
   }
 
   #topbar .brand {
     display: none;
   }
 
-  .file-toolbar {
-    flex-shrink: 1;
-    min-width: 0;
-    overflow-x: auto;
-    scrollbar-width: none;
+  .menu-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    margin-left: auto;
+    padding: 0;
+    background: none;
+    border: 1px solid #2c3644;
+    border-radius: 6px;
+    color: #c3c9d4;
+    cursor: pointer;
   }
 
-  .file-toolbar::-webkit-scrollbar {
+  .menu-toggle:hover {
+    color: #e6e9ef;
+    border-color: #3a4556;
+  }
+
+  .topbar-menu-backdrop:not([hidden]) {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 19;
+  }
+
+  /* Overrides the desktop `display: contents` — here it's a real,
+     positioned dropdown panel instead of a transparent layout wrapper. */
+  .topbar-menu {
     display: none;
   }
 
-  .file-toolbar-button {
-    flex-shrink: 0;
+  .topbar-menu.open {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 10px;
+    left: 10px;
+    background: #1e2530;
+    border: 1px solid #2c3644;
+    border-radius: 12px;
+    padding: 14px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+    z-index: 20;
+    max-height: calc(100vh - 76px);
+    overflow-y: auto;
+  }
+
+  /* Inside the dropdown there's no width pressure any more, so both
+     clusters wrap onto as many lines as they need instead of the
+     desktop's single scrollable row. */
+  .topbar-menu.open .file-toolbar,
+  .topbar-menu.open .doc-sync {
+    flex-wrap: wrap;
+    margin-left: 0;
+  }
+
+  .topbar-menu.open .file-toolbar-button {
+    flex: 1 1 auto;
   }
 
   /* Selected but sheet not open yet — offer the explicit opener. */
