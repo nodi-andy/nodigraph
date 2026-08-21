@@ -149,7 +149,11 @@ export class DragStateMachine {
       const zone = getEdgeZoneOffset(ghost.geometry, ghost.ports, world.x, world.y);
       this.clearHoverGhost();
       if (zone && zone.side === ghost.side && zone.offset === ghost.offset) {
-        this.startConnectionFromNewPort(zone, world);
+        // `ghost` itself carries blockId/geometry alongside the just-
+        // reverified side/offset — `zone` alone is only ever {side,
+        // offset} (see getEdgeZoneOffset), so passing that bare would
+        // start a connection with no source block at all.
+        this.startConnectionFromNewPort(ghost, world);
         return;
       }
     } else if (modifiers.pointerType && modifiers.pointerType !== 'mouse') {
@@ -696,6 +700,12 @@ export class DragStateMachine {
   // always has.
   startConnectionFromNewPort(zone, world) {
     const port = this.addPortAt(zone.blockId, zone.side, zone.offset, zone.geometry);
+    // addPortAt only fails to make one when its own blockId doesn't
+    // resolve to a real block — shouldn't happen for a zone that was
+    // just resolved against the live project, but leaving state/context
+    // untouched here is what keeps a bad zone a no-op instead of stranding
+    // the state machine in DRAWING_CONNECTION with nothing behind it.
+    if (!port) return;
     const boundary = this.getBoundaryInfo();
     this.state = STATES.DRAWING_CONNECTION;
     this.context = {
