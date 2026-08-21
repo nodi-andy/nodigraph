@@ -13,8 +13,20 @@
     <header id="topbar">
       <span class="brand">noditron</span>
       <nav id="breadcrumb" class="breadcrumb"></nav>
-      <div id="file-toolbar"></div>
-      <div id="doc-sync"></div>
+      <!-- Mobile-only: the file-toolbar/doc-sync cluster below is too wide
+           for a phone's width, so it's tucked behind this button instead
+           (see the max-width:768px rules in styles.css) — hidden entirely
+           on desktop, where that cluster shows inline as always. -->
+      <button id="menu-toggle" class="menu-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="topbar-menu">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path d="M4 6h16v2H4zM4 11h16v2H4zM4 16h16v2H4z" fill="currentColor" />
+        </svg>
+      </button>
+      <div id="topbar-menu-backdrop" class="topbar-menu-backdrop" hidden></div>
+      <div id="topbar-menu" class="topbar-menu">
+        <div id="file-toolbar"></div>
+        <div id="doc-sync"></div>
+      </div>
     </header>
     <canvas id="scene-canvas"></canvas>
     <div id="inspector"></div>

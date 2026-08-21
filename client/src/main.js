@@ -20,6 +20,7 @@ import { mountBreadcrumb } from './ui/Breadcrumb.js';
 import { mountDocSync } from './ui/DocSyncPanel.js';
 import { ENABLE_DOC_SYNC } from './config.js';
 import { mountFileToolbar } from './ui/FileToolbar.js';
+import { mountTopbarMenu } from './ui/TopbarMenu.js';
 import { createNameEditor } from './ui/NameEditor.js';
 import { createShareLinkDialog } from './ui/ShareLinkDialog.js';
 import { createGoogleDocsExportDialog } from './ui/GoogleDocsExportDialog.js';
@@ -45,6 +46,11 @@ const parentAddIconEl = parentFabEl.querySelector('[data-icon="add-parent"]');
 const docSyncEl = document.getElementById('doc-sync');
 const fileToolbarEl = document.getElementById('file-toolbar');
 const fabStackEl = document.getElementById('fab-stack');
+const menuToggleEl = document.getElementById('menu-toggle');
+const topbarMenuEl = document.getElementById('topbar-menu');
+const topbarMenuBackdropEl = document.getElementById('topbar-menu-backdrop');
+
+mountTopbarMenu(menuToggleEl, topbarMenuEl, topbarMenuBackdropEl);
 
 // A per-tab identity purely for telling cursors apart on other clients'
 // screens — there's no accounts system to draw a real name from yet.
