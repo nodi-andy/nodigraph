@@ -127,7 +127,21 @@ export class DragStateMachine {
       const zone = getEdgeZoneOffset(ghost.geometry, ghost.ports, world.x, world.y);
       this.clearHoverGhost();
       if (zone && zone.side === ghost.side && zone.offset === ghost.offset) {
-        this.addPortAt(ghost.blockId, zone.side, zone.offset, ghost.geometry);
+        const port = this.addPortAt(ghost.blockId, zone.side, zone.offset, ghost.geometry);
+        // Same one motion an existing port's connector handle already
+        // offers: dropping straight back onto the block a wire started
+        // from is never a valid target (see resolveConnectionTarget), so
+        // a plain click with no drag just leaves the new port sitting
+        // there — only an actual drag from here goes anywhere.
+        const boundary = this.getBoundaryInfo();
+        this.state = STATES.DRAWING_CONNECTION;
+        this.context = {
+          sourceBlockId: ghost.blockId,
+          sourcePortId: port.id,
+          sourceInverted: Boolean(boundary) && ghost.blockId === boundary.block.id,
+          currentWorld: world,
+        };
+        this.requestRender();
         return;
       }
     } else {
@@ -536,7 +550,17 @@ export class DragStateMachine {
   // What SceneRenderer draws on top of everything once the dwell has
   // elapsed — null the rest of the time (including while still dwelling,
   // pre-ready), so nothing flashes on for a cursor just passing through.
+  //
+  // Mid-connection-drag is the one exception: no dwell there at all,
+  // since actively dragging a wire onto a spot is already the deliberate
+  // action a dwell exists to filter out for a cursor just passing by —
+  // the empty-zone target it'd land on (see resolveConnectionTarget's
+  // `pendingZone`) shows immediately instead.
   getHoverGhost() {
+    if (this.state === STATES.DRAWING_CONNECTION) {
+      const target = this.resolveConnectionTarget(this.context.currentWorld);
+      return target?.pendingZone || null;
+    }
     return this.hoverGhost?.ready ? this.hoverGhost : null;
   }
 
@@ -607,9 +631,17 @@ export class DragStateMachine {
     }
   }
 
-  addPortAt(blockId, side, offset, geometry) {
+  // `select`/`persist` default on for the plain "click a ghost, get a
+  // port" path, where this is the entire action and needs its own history
+  // entry. resolveConnectionTarget's create-on-drop branch passes both
+  // false: selecting the target block would yank the Inspector away from
+  // whatever it's showing mid-drag, and the persist that follows right
+  // after (once the connection itself is added) already covers this
+  // port's creation too, folding "port + wire" into one undo step instead
+  // of two.
+  addPortAt(blockId, side, offset, geometry, { select = true, persist = true } = {}) {
     const block = this.project.getBlock(blockId);
-    if (!block) return;
+    if (!block) return null;
     const sideLength = sideAxis(side) === 'x' ? geometry.height : geometry.width;
     // Resolved slot, not raw offset — see the same note in the
     // DRAGGING_PORT case above.
@@ -618,10 +650,15 @@ export class DragStateMachine {
     // No direction is inferred from which edge got clicked — a port
     // starts undecided regardless of where it's placed (see addPort's own
     // note); side is just where it visually sits.
-    addPort(block, { side, offset: slotOffset });
-    this.selection.select(block.id);
-    this.persist();
+    const port = addPort(block, { side, offset: slotOffset });
+    if (select) this.selection.select(block.id);
+    if (persist) this.persist();
     this.requestRender();
+    // Returned so a click-and-drag from an empty ghost zone can chain
+    // straight into a wire drag sourced from the port it just made (see
+    // onPointerDown's ghost-click branch) — a plain click, with no drag,
+    // just leaves the port sitting there same as before.
+    return port;
   }
 
   onPointerUp(world) {
@@ -676,63 +713,106 @@ export class DragStateMachine {
     this.context = null;
   }
 
-  // Shared by the live hover-highlight (so what's shown while dragging is
-  // exactly what dropping there will do) and the actual drop below. Returns
-  // null when the cursor isn't over any port/connector at all; otherwise a
-  // result that's either `valid` (with the normalized out/in sides ready to
-  // connect) or not (the port under the cursor is real but its effective
-  // direction can't pair with the source — e.g. a boundary port added on
-  // the wrong edge).
-  resolveConnectionTarget(world) {
-    if (!world) return null;
-    const boundary = this.getBoundaryInfo();
-    const { sourceBlockId, sourcePortId, sourceInverted } = this.context;
-    const targetHit = hitTest(this.project, world.x, world.y, boundary);
-    const isPortHit = targetHit?.type === 'port' || targetHit?.type === 'connector';
-    if (!isPortHit || targetHit.blockId === sourceBlockId) return null;
-
-    const sourceBlock = this.project.getBlock(sourceBlockId);
-    const targetBlock = this.project.getBlock(targetHit.blockId);
-    const sourcePort = sourceBlock?.ports.find((p) => p.id === sourcePortId);
-    const targetPort = targetBlock?.ports.find((p) => p.id === targetHit.portId);
-    if (!sourcePort || !targetPort) return null;
-
-    // A boundary port's role is inverted from this level's point of view
-    // (an outside input is an inside source, and vice versa) — comparing
-    // effective roles, not raw stored direction, is what lets a boundary
-    // port wire to a child of the same raw direction correctly.
-    const targetInverted = Boolean(boundary) && targetHit.blockId === boundary.block.id;
-    const sourceEffective = sourceInverted ? invertDirection(sourcePort.direction) : sourcePort.direction;
-    const targetEffective = targetInverted ? invertDirection(targetPort.direction) : targetPort.direction;
-    const blockId = targetHit.blockId;
-    const portId = targetHit.portId;
-
+  // Given both ends' *effective* direction (already inverted for a
+  // boundary port where that applies), decides which is the out side and
+  // which is the in side, or that they conflict. Shared by the real-port
+  // branch and the create-a-port-on-drop branch below, since a target
+  // that doesn't exist yet is just a target whose effective direction is
+  // always null (undecided).
+  resolveRoles(sourceEffective, targetEffective) {
     // Only two ports both already committed to the same real role (in-in,
     // out-out) actually conflict — an undecided (null) side never does,
     // since it just takes on whichever role the other side leaves open.
-    if (sourceEffective && targetEffective && sourceEffective === targetEffective) {
-      return { valid: false, blockId, portId };
-    }
-
+    if (sourceEffective && targetEffective && sourceEffective === targetEffective) return null;
     // Whichever side has a committed role decides; if neither does, the
     // dragged-from port defaults to being the source (out) end so a
     // connection between two undecided ports still resolves to something.
-    const sourceIsOut = sourceEffective === 'out' || (!sourceEffective && targetEffective !== 'out');
+    return sourceEffective === 'out' || (!sourceEffective && targetEffective !== 'out') ? 'out' : 'in';
+  }
 
-    // Normalize so sourcePortId is always the effective source, regardless
-    // of which handle the user actually grabbed first.
-    const outSide = sourceIsOut
-      ? { blockId: sourceBlockId, portId: sourcePortId }
-      : { blockId, portId };
-    const inSide = sourceIsOut
-      ? { blockId, portId }
-      : { blockId: sourceBlockId, portId: sourcePortId };
+  // Shared by the live hover-highlight (so what's shown while dragging is
+  // exactly what dropping there will do) and the actual drop below. Returns
+  // null when the cursor isn't over any port/connector *and* isn't over a
+  // valid empty edge zone either; otherwise a result that's either `valid`
+  // (with the normalized out/in sides ready to connect) or not (the port
+  // under the cursor is real but its effective direction can't pair with
+  // the source — e.g. a boundary port added on the wrong edge).
+  //
+  // `create` gates whether landing on empty edge actually adds a port
+  // there (only true on the real drop — see tryCompleteConnection) or
+  // just previews that it's a valid spot to drop on (mid-drag, via
+  // getConnectionDragHighlights/getHoverGhost) — a hover alone must never
+  // have the side effect of creating anything, only the release does.
+  resolveConnectionTarget(world, { create = false } = {}) {
+    if (!world) return null;
+    const boundary = this.getBoundaryInfo();
+    const { sourceBlockId, sourcePortId, sourceInverted } = this.context;
+    const sourceBlock = this.project.getBlock(sourceBlockId);
+    const sourcePort = sourceBlock?.ports.find((p) => p.id === sourcePortId);
+    if (!sourcePort) return null;
+    const sourceEffective = sourceInverted ? invertDirection(sourcePort.direction) : sourcePort.direction;
 
+    const targetHit = hitTest(this.project, world.x, world.y, boundary);
+    const isPortHit = targetHit?.type === 'port' || targetHit?.type === 'connector';
+
+    if (isPortHit) {
+      if (targetHit.blockId === sourceBlockId) return null;
+      const targetBlock = this.project.getBlock(targetHit.blockId);
+      const targetPort = targetBlock?.ports.find((p) => p.id === targetHit.portId);
+      if (!targetPort) return null;
+
+      // A boundary port's role is inverted from this level's point of view
+      // (an outside input is an inside source, and vice versa) — comparing
+      // effective roles, not raw stored direction, is what lets a boundary
+      // port wire to a child of the same raw direction correctly.
+      const targetInverted = Boolean(boundary) && targetHit.blockId === boundary.block.id;
+      const targetEffective = targetInverted ? invertDirection(targetPort.direction) : targetPort.direction;
+      const blockId = targetHit.blockId;
+      const portId = targetHit.portId;
+
+      const outRole = this.resolveRoles(sourceEffective, targetEffective);
+      if (!outRole) return { valid: false, blockId, portId };
+
+      // Normalize so sourcePortId is always the effective source,
+      // regardless of which handle the user actually grabbed first.
+      const outSide = outRole === 'out' ? { blockId: sourceBlockId, portId: sourcePortId } : { blockId, portId };
+      const inSide = outRole === 'out' ? { blockId, portId } : { blockId: sourceBlockId, portId: sourcePortId };
+      return { valid: true, blockId, portId, outSide, inSide };
+    }
+
+    // Nothing existing under the cursor — but an empty edge zone on some
+    // *other* block is still a valid place to land a wire: dragging one
+    // there is enough to give it a port to connect to, the same way
+    // dragging one from a bare edge (rather than an existing port) is now
+    // enough to give the wire a starting port too (see onPointerDown's
+    // ghost-click handling).
+    const zone = this.resolveGhostZone(world);
+    if (!zone || zone.blockId === sourceBlockId) return null;
+    if (!create) {
+      // Preview only, mid-drag: a not-yet-created port is always
+      // undecided, so it's always a compatible drop target — nothing to
+      // check roles against yet. `pendingZone` lets the hover-ghost
+      // renderer draw the same "add a port here" square this zone would
+      // show outside of a wire drag, so the preview reads the same way.
+      return { valid: true, blockId: zone.blockId, portId: null, pendingZone: zone };
+    }
+
+    const newPort = this.addPortAt(zone.blockId, zone.side, zone.offset, zone.geometry, { select: false, persist: false });
+    const targetInverted = Boolean(boundary) && zone.blockId === boundary.block.id;
+    // A brand new port has no direction yet, so this is really just
+    // resolveRoles(sourceEffective, null) — spelled out for clarity, since
+    // invertDirection(null) is null anyway.
+    const targetEffective = targetInverted ? invertDirection(newPort.direction) : newPort.direction;
+    const blockId = zone.blockId;
+    const portId = newPort.id;
+    const outRole = this.resolveRoles(sourceEffective, targetEffective);
+    const outSide = outRole === 'out' ? { blockId: sourceBlockId, portId: sourcePortId } : { blockId, portId };
+    const inSide = outRole === 'out' ? { blockId, portId } : { blockId: sourceBlockId, portId: sourcePortId };
     return { valid: true, blockId, portId, outSide, inSide };
   }
 
   tryCompleteConnection(world) {
-    const target = this.resolveConnectionTarget(world);
+    const target = this.resolveConnectionTarget(world, { create: true });
     if (!target?.valid) {
       this.requestRender();
       return;
