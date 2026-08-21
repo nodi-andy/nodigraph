@@ -24,7 +24,7 @@ const CONNECTOR_ARROW_SIZE = 8;
 // straddling the border line — the boundary frame (drawBoundary) keeps the
 // older dot style since it's a dashed abstract container, not a solid face
 // with room to inset into.
-export const PORT_SLOT_SIZE = 16;
+export const PORT_SLOT_SIZE = 13;
 const EMPTY_SLOT_FILL = 'rgba(255, 255, 255, 0.04)';
 const EMPTY_SLOT_STROKE = 'rgba(255, 255, 255, 0.14)';
 const INPUT_PORT_COLOR = '#8b93a3';
@@ -130,15 +130,16 @@ export function projectPointToPerimeter(block, worldX, worldY) {
   return { side: best.side, offset: snap(clamp(best.offset, bounds.min, bounds.max)) };
 }
 
-// The four resize handles a selected block (or the selected boundary
-// frame) shows — one per edge, floating outside the block rather than
-// sitting on the border the way the old drag-to-resize zone did, so
-// they're a target of their own rather than sharing pixels with a port's
-// connector nub. The outset is kept modest (half of an earlier, more
-// cautious value) so the handles read as attached to the block rather
-// than floating off on their own; a handle landing near a port's own nub
-// on the odd block whose ports happen to sit at an edge's midpoint is a
-// rarer case than the handles looking disconnected on every other block.
+// The eight resize handles a selected block (or the selected boundary
+// frame) shows — one per edge plus one per corner, floating outside the
+// block rather than sitting on the border the way the old drag-to-resize
+// zone did, so they're a target of their own rather than sharing pixels
+// with a port's connector nub. The outset is kept modest (half of an
+// earlier, more cautious value) so the handles read as attached to the
+// block rather than floating off on their own; a handle landing near a
+// port's own nub on the odd block whose ports happen to sit at an edge's
+// midpoint is a rarer case than the handles looking disconnected on every
+// other block.
 export const RESIZE_HANDLE_SIZE = 12;
 export const RESIZE_HANDLE_OUTSET = 20;
 
@@ -153,6 +154,14 @@ export function getResizeHandleRects(geometry) {
     bottom: square('bottom', cx, y + height + RESIZE_HANDLE_OUTSET),
     left: square('left', x - RESIZE_HANDLE_OUTSET, cy),
     right: square('right', x + width + RESIZE_HANDLE_OUTSET, cy),
+    // Corners resize both axes from the one drag — 'nw' etc. name which
+    // corner, and DragStateMachine.resizeEdge reads that as its own
+    // horizontal + vertical edge pair rather than needing a separate code
+    // path from the four single-axis handles above.
+    nw: square('nw', x - RESIZE_HANDLE_OUTSET, y - RESIZE_HANDLE_OUTSET),
+    ne: square('ne', x + width + RESIZE_HANDLE_OUTSET, y - RESIZE_HANDLE_OUTSET),
+    sw: square('sw', x - RESIZE_HANDLE_OUTSET, y + height + RESIZE_HANDLE_OUTSET),
+    se: square('se', x + width + RESIZE_HANDLE_OUTSET, y + height + RESIZE_HANDLE_OUTSET),
   };
 }
 
@@ -172,6 +181,13 @@ const RESIZE_GRIP_THICKNESS = 8;
 // another opaque shape competing with the block/boundary underneath.
 const RESIZE_HANDLE_ALPHA = 0.75;
 
+// A corner drags both axes at once, along the diagonal between its two
+// edges — 'nw'/'se' run top-left to bottom-right (nwse-resize), 'ne'/'sw'
+// run the other way (nesw-resize). Rotating the same vertical grip bar 45°
+// either direction draws that diagonal directly, rather than needing a
+// second shape just for corners.
+const CORNER_ROTATION = { nw: Math.PI / 4, se: Math.PI / 4, ne: -Math.PI / 4, sw: -Math.PI / 4 };
+
 export function drawResizeHandles(ctx, geometry) {
   const rects = getResizeHandleRects(geometry);
   ctx.save();
@@ -182,12 +198,17 @@ export function drawResizeHandles(ctx, geometry) {
     const horizontalEdge = rect.side === 'top' || rect.side === 'bottom';
     const w = horizontalEdge ? RESIZE_GRIP_LENGTH : RESIZE_GRIP_THICKNESS;
     const h = horizontalEdge ? RESIZE_GRIP_THICKNESS : RESIZE_GRIP_LENGTH;
-    roundRectPath(ctx, cx - w / 2, cy - h / 2, w, h, RESIZE_GRIP_THICKNESS / 2);
+    ctx.save();
+    ctx.translate(cx, cy);
+    const rotation = CORNER_ROTATION[rect.side];
+    if (rotation) ctx.rotate(rotation);
+    roundRectPath(ctx, -w / 2, -h / 2, w, h, RESIZE_GRIP_THICKNESS / 2);
     ctx.fillStyle = '#10151c';
     ctx.fill();
     ctx.strokeStyle = SELECTION_COLOR;
     ctx.lineWidth = 1.5;
     ctx.stroke();
+    ctx.restore();
   }
   ctx.restore();
 }
