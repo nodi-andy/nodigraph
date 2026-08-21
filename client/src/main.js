@@ -645,6 +645,11 @@ async function bootstrap() {
       // because a decreasing offset moves them along the path's own
       // direction, which runs output to input.
       flowOffset: animating ? -(performance.now() / 1000) * FLOW_SPEED : null,
+      // So a block whose text is an image URL can ask for a redraw once
+      // that image finishes loading (see render/imageCache.js) — it isn't
+      // loaded yet the first time a frame reaches it, so nothing else
+      // would trigger the frame where it actually appears.
+      requestRender: () => renderLoop.requestRender(),
     });
   }
 

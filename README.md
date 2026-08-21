@@ -66,6 +66,8 @@ diagram.
   the same way double-clicking a block renames it. A selected wire (or
   block) opens in the Inspector too, where its label, colour, and line
   style (solid, dashed, dotted) are all editable fields.
+- **Block pictures** — a block's name doubles as an image URL: point it at
+  a picture instead of typing a label, and that's what fills the block.
 - **Multi-select** — shift-click or shift-drag a marquee to toggle blocks
   in and out of a selection; Ctrl/Cmd-click or -drag always adds, and
   Ctrl/Cmd+Shift always removes. Move the group, or copy/paste it (wires
@@ -147,6 +149,10 @@ fine for the shared-link workflow, not yet durable storage.
   reach the server can edit it.
 - Very large diagrams (several hundred blocks) can exceed URL length limits
   imposed by proxies, though not by browsers themselves.
+- **A block picture needs a CORS-friendly host.** The browser refuses to
+  load it otherwise — safely, falling back to the block's plain-text
+  name rather than breaking the diagram's own PNG export. Images hosted
+  on this same server work automatically.
 
 ## License
 

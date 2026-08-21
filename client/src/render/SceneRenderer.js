@@ -203,6 +203,11 @@ export function renderScene(
     // exported PNG's background genuinely transparent instead of a faint
     // lattice of grid lines on a light Doc page.
     showGrid = true,
+    // Lets a block whose name is an image URL (see render/imageCache.js)
+    // ask for a redraw once that image finishes loading — a no-op by
+    // default so one-shot renders (the diagram-image exporter) don't need
+    // to supply one; they just draw with whatever's already cached.
+    requestRender = () => {},
   },
 ) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -234,7 +239,7 @@ export function renderScene(
   }
 
   for (const block of blocks) {
-    drawBlock(ctx, block, { selected: selectedBlockIds.has(block.id), portHighlights });
+    drawBlock(ctx, block, { selected: selectedBlockIds.has(block.id), portHighlights, requestRender });
   }
 
   if (marqueeRect) drawMarquee(ctx, marqueeRect, camera.zoom);
