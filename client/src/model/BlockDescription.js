@@ -10,16 +10,40 @@ import { sideAxis, getPortSlotOffsets, nearestPortSlot } from './grid.js';
  *
  *   input.24V: This is the power input
  *   output.5V: This is the output
+ *   port.Aux: Not yet wired up, direction undecided
  *
  *   prop.weight: 2kg
  *   prop.state: ON, OFF, Disabled, Error = ON
  *
  * A leading "-" (as in "- prop.weight: ...") is tolerated but not required,
- * since that's how it naturally gets typed as a bullet list.
+ * since that's how it naturally gets typed as a bullet list. `port.` (as
+ * opposed to `input.`/`output.`) is a port with no direction committed yet
+ * — see addPort's own note on why a new port starts that way. It still
+ * needs a name to appear as a line here at all; one added with no name
+ * (only possible from the Inspector, which has no name to type before a
+ * click) has no way to be written as a `prefix.NAME: ...` line and simply
+ * doesn't round-trip through this text — applyDescriptionText knows to
+ * leave those alone rather than treat their absence as "deleted."
  */
 const BLOCK_LINE = /^-?\s*Block\s*:\s*(.+)$/i;
-const PORT_LINE = /^-?\s*(input|output)\.([^:]+?)\s*:\s*(.*)$/i;
+const PORT_LINE = /^-?\s*(input|output|port)\.([^:]+?)\s*:\s*(.*)$/i;
 const PROP_LINE = /^-?\s*prop\.([^:]+?)\s*:\s*(.*)$/i;
+
+// input./output. always mean the same real direction; a bare port. line
+// means "undecided," stored as null the same way a port created from the
+// Inspector without picking one yet is.
+function directionFromPrefix(prefix) {
+  const lower = prefix.toLowerCase();
+  if (lower === 'input') return 'in';
+  if (lower === 'output') return 'out';
+  return null;
+}
+
+function prefixFromDirection(direction) {
+  if (direction === 'in') return 'input';
+  if (direction === 'out') return 'output';
+  return 'port';
+}
 
 function parsePropValue(name, rest) {
   const eqIndex = rest.lastIndexOf(' = ');
@@ -61,7 +85,7 @@ export function parseBlockDescription(text) {
     match = line.match(PORT_LINE);
     if (match) {
       ports.push({
-        direction: match[1].toLowerCase() === 'input' ? 'in' : 'out',
+        direction: directionFromPrefix(match[1]),
         name: match[2].trim(),
         description: match[3].trim(),
       });
@@ -81,10 +105,15 @@ export function serializeBlockDescription(block) {
   const lines = [`Block: ${block.name}`];
 
   const ports = block.ports || [];
-  if (ports.length) {
+  // A port with no name can't be written as a line at all — the format is
+  // prefix.NAME: ..., and there's no NAME to put there. Left out of the
+  // text rather than given a fake placeholder; applyDescriptionText knows
+  // not to read that absence as "deleted."
+  const namedPorts = ports.filter((p) => p.name);
+  if (namedPorts.length) {
     lines.push('');
-    for (const port of ports) {
-      const prefix = port.direction === 'in' ? 'input' : 'output';
+    for (const port of namedPorts) {
+      const prefix = prefixFromDirection(port.direction);
       lines.push(`${prefix}.${port.name}: ${port.description || ''}`.trimEnd());
     }
   }
@@ -112,7 +141,7 @@ export function applyDescriptionText(block, text) {
   if (parsed.name) block.name = parsed.name;
 
   const existingPortsByKey = new Map((block.ports || []).map((p) => [`${p.direction}:${p.name}`, p]));
-  block.ports = parsed.ports.map((p) => {
+  const parsedPorts = parsed.ports.map((p) => {
     const existing = existingPortsByKey.get(`${p.direction}:${p.name}`);
     const manualOffset = existing?.manualOffset || false;
     return {
@@ -120,8 +149,10 @@ export function applyDescriptionText(block, text) {
       direction: p.direction,
       name: p.name,
       description: p.description,
-      // Inputs default to the left, outputs to the right — dragging a port
-      // around the block's perimeter can move it to any side.
+      // Inputs default to the left, outputs to the right — an undecided
+      // port defaults left too, the same as an input, since it has no
+      // "out" pull yet. Dragging a port around the block's perimeter can
+      // move it to any side regardless.
       side: existing?.side || (p.direction === 'out' ? 'right' : 'left'),
       // Only a *dragged* offset survives re-parsing; an auto-placed one is
       // recomputed below so it can't collide with a newly added sibling on
@@ -130,6 +161,12 @@ export function applyDescriptionText(block, text) {
       manualOffset,
     };
   });
+  // A nameless port (only possible from the Inspector's "+ Add port",
+  // which has no name typed yet to give it a line here) never appears in
+  // the text at all — carried over untouched rather than read as "this
+  // line disappeared, so delete it."
+  const untouched = (block.ports || []).filter((p) => !p.name);
+  block.ports = [...parsedPorts, ...untouched];
   assignDefaultPortOffsets(block);
 
   const existingPropsByName = new Map((block.props || []).map((p) => [p.name, p]));
@@ -183,14 +220,21 @@ export function assignDefaultPortOffsets(block) {
 // — still keeps `description` in sync so the two views never disagree.
 // `side`/`offset` come from wherever the user actually clicked; when
 // omitted (the Inspector button has no click position to go on) the port
-// defaults to its direction's usual side and gets auto-placed.
-export function addPort(block, { direction = 'in', side, offset } = {}) {
+// defaults to the left and gets auto-placed.
+//
+// `direction` defaults to null, not 'in' — a brand new port is neither an
+// input nor an output yet, just a socket waiting to be one of those (or
+// neither, if it's never wired to anything). Naming it "In3" before it's
+// actually an input would be a claim the port hasn't earned; leaving both
+// name and direction blank means there's nothing to contradict once the
+// user does pick one, in the Inspector, whenever — or never — they want to.
+export function addPort(block, { direction = null, side, offset } = {}) {
   const resolvedSide = side || (direction === 'out' ? 'right' : 'left');
-  const countSameDirection = block.ports.filter((p) => p.direction === direction).length;
+  const countSameDirection = direction ? block.ports.filter((p) => p.direction === direction).length : 0;
   const port = {
     id: generateId('prt'),
     direction,
-    name: `${direction === 'out' ? 'Out' : 'In'}${countSameDirection + 1}`,
+    name: direction ? `${direction === 'out' ? 'Out' : 'In'}${countSameDirection + 1}` : '',
     description: '',
     side: resolvedSide,
     offset,

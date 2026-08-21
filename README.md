@@ -53,7 +53,10 @@ diagram.
   breadcrumbs to navigate back out, and a button to wrap the whole product
   in a new parent when the scope grows.
 - **Ports on a grid** — connectors snap to fixed slots on every edge, so
-  wires between blocks line up instead of almost lining up.
+  wires between blocks line up instead of almost lining up. A new port
+  starts undecided — no name, no in/out direction — until you set one in
+  the Inspector; it wires up just fine either way, taking on whichever
+  direction the other end doesn't already claim.
 - **Resize handles** — select a block to see four diamond handles, one
   per edge, sitting outside the block rather than on its border so they
   never fight with a port for the same touch. Click the dashed line of
