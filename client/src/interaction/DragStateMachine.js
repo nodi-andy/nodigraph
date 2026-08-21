@@ -883,6 +883,17 @@ export class DragStateMachine {
     this.requestRender();
   }
 
+  // A two-finger pinch: zooms around the pinch's own center point (same
+  // pivot math as onWheelZoom) and pans by however much that center
+  // itself drifted since the last move — a real pinch rarely holds
+  // perfectly still, so the pivot alone would leave the view sliding out
+  // from under the fingers instead of tracking them.
+  onPinchZoom(pivot, factor, panDx, panDy) {
+    this.camera.zoomAt(pivot.x, pivot.y, factor);
+    this.camera.pan(panDx, panDy);
+    this.requestRender();
+  }
+
   // Used by the remote-sync poll (see store.js/main.js) to avoid replacing
   // the model out from under an in-progress drag, resize, or wire draw.
   isIdle() {
