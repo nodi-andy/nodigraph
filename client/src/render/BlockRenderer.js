@@ -131,18 +131,17 @@ export function projectPointToPerimeter(block, worldX, worldY) {
 
 const BORDER_HIT_THRESHOLD = 8;
 
-// The four resize handles a selected block (or the boundary frame,
-// unconditionally) shows — one per edge, floating outside the block
-// rather than sitting on the border the way the old drag-to-resize zone
-// did. Ports and their connector nubs already occupy the border and reach
-// up to ~24 world units past it (PORT_SLOT_SIZE/2 plus the nub and its own
-// hit padding); the 40-unit outset here clears that with room to spare
-// even in the worst case, a port sitting at the exact same edge midpoint a
-// handle occupies — which is the actual point of moving them off the
-// border: nothing to collide with there anymore, so touch doesn't need
-// hover to disambiguate the two the way a mouse did.
+// The four resize handles a selected block (or the selected boundary
+// frame) shows — one per edge, floating outside the block rather than
+// sitting on the border the way the old drag-to-resize zone did, so
+// they're a target of their own rather than sharing pixels with a port's
+// connector nub. The outset is kept modest (half of an earlier, more
+// cautious value) so the handles read as attached to the block rather
+// than floating off on their own; a handle landing near a port's own nub
+// on the odd block whose ports happen to sit at an edge's midpoint is a
+// rarer case than the handles looking disconnected on every other block.
 export const RESIZE_HANDLE_SIZE = 12;
-export const RESIZE_HANDLE_OUTSET = 40;
+export const RESIZE_HANDLE_OUTSET = 20;
 
 export function getResizeHandleRects(geometry) {
   const { x, y, width, height } = geometry;
@@ -160,12 +159,24 @@ export function getResizeHandleRects(geometry) {
 
 // Drawn last in drawBlock/drawBoundary so the handles always sit on top —
 // they're an edit affordance, not part of the diagram, so nothing should
-// ever paint over them once they're showing.
+// ever paint over them once they're showing. Diamonds rather than squares
+// so they read as a "move/reshape" grip (the familiar four-pointed
+// rotated-square glyph) rather than a plain UI control; the hit area
+// underneath stays the square bounding box from getResizeHandleRects — a
+// generous rectangular target is exactly as effective as a diamond one for
+// hit-testing, so there's no reason to complicate that half of it.
 export function drawResizeHandles(ctx, geometry) {
   const rects = getResizeHandleRects(geometry);
   for (const rect of Object.values(rects)) {
+    const cx = rect.x + rect.width / 2;
+    const cy = rect.y + rect.height / 2;
+    const half = rect.width / 2;
     ctx.beginPath();
-    ctx.rect(rect.x, rect.y, rect.width, rect.height);
+    ctx.moveTo(cx, cy - half);
+    ctx.lineTo(cx + half, cy);
+    ctx.lineTo(cx, cy + half);
+    ctx.lineTo(cx - half, cy);
+    ctx.closePath();
     ctx.fillStyle = '#10151c';
     ctx.fill();
     ctx.strokeStyle = SELECTION_COLOR;
@@ -480,11 +491,12 @@ export function drawBoundary(ctx, block, geometry, { selected = false, portHighl
   ctx.fillText(block.name, x + 4, y - 6);
 
   drawPorts(ctx, { ...block, geometry }, { inverted: true, portHighlights });
-  // Not gated on `selected`, unlike an ordinary block's handles: the
-  // boundary has no reliable "selected" state to gate on (nothing in the
-  // app currently selects the container you're inside), and it was always
-  // resizable before regardless of selection anyway — this keeps that.
-  drawResizeHandles(ctx, geometry);
+  // Gated on `selected` exactly like an ordinary block: clicking the
+  // dashed line itself now selects the boundary (see HitTest's
+  // 'boundaryLine' hit and DragStateMachine's handling of it), so there's
+  // a real selected state to hang this on instead of showing handles
+  // unconditionally.
+  if (selected) drawResizeHandles(ctx, geometry);
 }
 
 export const BOUNDARY_LABEL_FONT = '11px -apple-system, Segoe UI, Roboto, sans-serif';
