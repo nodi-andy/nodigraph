@@ -211,8 +211,17 @@ export function getEdgeZoneOffset(geometry, ports, worldX, worldY) {
   if (best.dist > PORT_SLOT_SIZE) return null;
 
   const length = sideAxis(best.side) === 'x' ? height : width;
-  const occupied = (ports || []).filter((p) => p.side === best.side).map((p) => nearestPortSlot(length, p.offset));
-  return { side: best.side, offset: nearestPortSlot(length, best.offset, occupied) };
+  // The cursor's own nearest slot on this side — not redirected toward
+  // whatever's free. If that slot's already taken, the cursor is over an
+  // *existing* port, not empty edge, so no ghost belongs here: it used to
+  // snap sideways onto the nearest free slot instead, which drew the
+  // add-port affordance right on top of (or beside) the real port it was
+  // supposedly offering to avoid.
+  const slot = nearestPortSlot(length, best.offset);
+  const occupied = (ports || []).some((p) => p.side === best.side && nearestPortSlot(length, p.offset) === slot);
+  if (occupied) return null;
+
+  return { side: best.side, offset: slot };
 }
 
 // Grows away from wherever the connector handle points, so the two never
