@@ -11,6 +11,9 @@ import {
 import { getStateColor } from '../model/BlockDescription.js';
 import { DEFAULT_BLOCK_COLOR } from '../model/Block.js';
 import { isImageUrl, getCachedImage } from './imageCache.js';
+import { getCanvasPalette } from './canvasPalette.js';
+
+const DEFAULT_PALETTE = getCanvasPalette('light');
 
 const CORNER_RADIUS = 6;
 export const PORT_RADIUS = 5;
@@ -29,12 +32,8 @@ const CONNECTOR_ARROW_SIZE = 8;
 // border to straddle.
 export const PORT_WIDTH = CONNECTOR_ARROW_SIZE;
 export const PORT_LENGTH = PORT_WIDTH * 1.5;
-const EMPTY_SLOT_FILL = 'rgba(255, 255, 255, 0.04)';
-const EMPTY_SLOT_STROKE = 'rgba(255, 255, 255, 0.14)';
 const INPUT_PORT_COLOR = '#8b93a3';
 const DEFAULT_OUTPUT_PORT_COLOR = '#8b93a3';
-const CONNECTOR_HANDLE_COLOR = '#e6e9ef';
-const PORT_LABEL_COLOR = '#c3c9d4';
 const PORT_LABEL_GAP = 6;
 const PORT_RING_RADIUS = PORT_RADIUS + 4;
 const SLOT_RING_RADIUS = PORT_LENGTH / 2 + 4;
@@ -199,7 +198,7 @@ const RESIZE_HANDLE_ALPHA = 0.75;
 // second shape just for corners.
 const CORNER_ROTATION = { nw: Math.PI / 4, se: Math.PI / 4, ne: -Math.PI / 4, sw: -Math.PI / 4 };
 
-export function drawResizeHandles(ctx, geometry) {
+export function drawResizeHandles(ctx, geometry, palette = DEFAULT_PALETTE) {
   const rects = getResizeHandleRects(geometry);
   ctx.save();
   ctx.globalAlpha = RESIZE_HANDLE_ALPHA;
@@ -214,7 +213,7 @@ export function drawResizeHandles(ctx, geometry) {
     const rotation = CORNER_ROTATION[rect.side];
     if (rotation) ctx.rotate(rotation);
     roundRectPath(ctx, -w / 2, -h / 2, w, h, RESIZE_GRIP_THICKNESS / 2);
-    ctx.fillStyle = '#10151c';
+    ctx.fillStyle = palette.resizeHandleFill;
     ctx.fill();
     ctx.strokeStyle = SELECTION_COLOR;
     ctx.lineWidth = 1.5;
@@ -277,9 +276,9 @@ function drawContainImage(ctx, img, x, y, width, height) {
   ctx.drawImage(img, x + width / 2 - w / 2, y + height / 2 - h / 2, w, h);
 }
 
-function drawPortLabel(ctx, port, pos, inverted = false) {
+function drawPortLabel(ctx, port, pos, inverted = false, palette = DEFAULT_PALETTE) {
   if (!port.name) return;
-  ctx.fillStyle = PORT_LABEL_COLOR;
+  ctx.fillStyle = palette.portLabel;
   ctx.font = '10px -apple-system, Segoe UI, Roboto, sans-serif';
 
   const n = sideNormal(port.side);
@@ -307,7 +306,7 @@ function drawPortLabel(ctx, port, pos, inverted = false) {
 // data actually flows, not just "here's a handle." `side`/`inverted` give
 // the handle's own outward-facing axis; isOutput then decides whether the
 // arrow points along that axis or against it.
-function drawConnectorArrow(ctx, handlePos, side, inverted, isOutput) {
+function drawConnectorArrow(ctx, handlePos, side, inverted, isOutput, palette = DEFAULT_PALETTE) {
   const n = sideNormal(side);
   const outwardSign = inverted ? -1 : 1;
   const directionSign = isOutput ? 1 : -1;
@@ -327,7 +326,7 @@ function drawConnectorArrow(ctx, handlePos, side, inverted, isOutput) {
   ctx.lineTo(backX + perpX * half, backY + perpY * half);
   ctx.lineTo(backX - perpX * half, backY - perpY * half);
   ctx.closePath();
-  ctx.fillStyle = CONNECTOR_HANDLE_COLOR;
+  ctx.fillStyle = palette.connectorHandle;
   ctx.fill();
 }
 
@@ -337,10 +336,10 @@ function drawConnectorArrow(ctx, handlePos, side, inverted, isOutput) {
 // undecided port left the handle with no visible marker at all. This is
 // the same handle with no directional claim: a plain dot, same place, same
 // color, just no triangle pointing anywhere.
-function drawConnectorHandleDot(ctx, handlePos) {
+function drawConnectorHandleDot(ctx, handlePos, palette = DEFAULT_PALETTE) {
   ctx.beginPath();
   ctx.arc(handlePos.x, handlePos.y, CONNECTOR_ARROW_SIZE / 2, 0, Math.PI * 2);
-  ctx.fillStyle = CONNECTOR_HANDLE_COLOR;
+  ctx.fillStyle = palette.connectorHandle;
   ctx.fill();
 }
 
@@ -388,12 +387,12 @@ const GHOST_SLOT_STROKE = '#4f8cff';
 // a block's edge zone for a moment (see DragStateMachine's hover-ghost
 // handling) — visually distinct (blue, a "+") from the plain empty-slot
 // squares so it reads as an active affordance, not just background grid.
-export function drawPortGhost(ctx, geometry, side, offset) {
+export function drawPortGhost(ctx, geometry, side, offset, palette = DEFAULT_PALETTE) {
   const { x: px, y: py } = borderPointForOffset(geometry, side, offset);
   const rect = getSlotRectFromBorderPoint(px, py, side);
   drawSlotSquare(ctx, rect, GHOST_SLOT_FILL, GHOST_SLOT_STROKE);
 
-  ctx.strokeStyle = '#e6e9ef';
+  ctx.strokeStyle = palette.connectorHandle;
   ctx.lineWidth = 1.5;
   const cx = rect.x + rect.width / 2;
   const cy = rect.y + rect.height / 2;
@@ -414,7 +413,7 @@ export function drawPortGhost(ctx, geometry, side, offset) {
 // port saved before slots existed still correctly claims whichever slot
 // it now renders at, rather than leaving a stray empty square drawn right
 // on top of it.
-function drawEmptySlots(ctx, block, inverted = false) {
+function drawEmptySlots(ctx, block, inverted = false, palette = DEFAULT_PALETTE) {
   const { width, height } = block.geometry;
   for (const side of SIDES) {
     const sideLength = sideAxis(side) === 'x' ? height : width;
@@ -431,13 +430,13 @@ function drawEmptySlots(ctx, block, inverted = false) {
         // like it borrowed the wrong shape.
         ctx.beginPath();
         ctx.arc(px, py, PORT_RADIUS, 0, Math.PI * 2);
-        ctx.fillStyle = EMPTY_SLOT_FILL;
+        ctx.fillStyle = palette.emptySlotFill;
         ctx.fill();
-        ctx.strokeStyle = EMPTY_SLOT_STROKE;
+        ctx.strokeStyle = palette.emptySlotStroke;
         ctx.lineWidth = 1;
         ctx.stroke();
       } else {
-        drawSlotSquare(ctx, getSlotRectFromBorderPoint(px, py, side), EMPTY_SLOT_FILL, EMPTY_SLOT_STROKE);
+        drawSlotSquare(ctx, getSlotRectFromBorderPoint(px, py, side), palette.emptySlotFill, palette.emptySlotStroke);
       }
     }
   }
@@ -451,7 +450,11 @@ function drawEmptySlots(ctx, block, inverted = false) {
 // (optional) is a `Map` of `"blockId:portId" -> ringColor` covering
 // selection and in-progress-wire feedback, shared across every block/
 // boundary drawn this frame.
-function drawPorts(ctx, block, { inverted = false, portHighlights = null, showEmptySlots = false } = {}) {
+function drawPorts(
+  ctx,
+  block,
+  { inverted = false, portHighlights = null, showEmptySlots = false, palette = DEFAULT_PALETTE } = {},
+) {
   const outputColor = getStateColor(block) || DEFAULT_OUTPUT_PORT_COLOR;
 
   // Shown while selected (about to add or drag a port there) — showing
@@ -459,7 +462,7 @@ function drawPorts(ctx, block, { inverted = false, portHighlights = null, showEm
   // touching. The boundary frame gets the same treatment once it can be
   // selected too (see HitTest's 'boundaryLine' hit); drawEmptySlots just
   // draws its dot style instead of a square one when inverted.
-  if (showEmptySlots) drawEmptySlots(ctx, block, inverted);
+  if (showEmptySlots) drawEmptySlots(ctx, block, inverted, palette);
 
   for (const { port, x: px, y: py } of getAllPortPositions(block)) {
     // A port with no direction yet isn't "effectively an input" — it's
@@ -484,16 +487,16 @@ function drawPorts(ctx, block, { inverted = false, portHighlights = null, showEm
       ctx.arc(px, py, PORT_RADIUS, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
-      ctx.strokeStyle = '#12161d';
+      ctx.strokeStyle = palette.portStroke;
       ctx.lineWidth = 2;
       ctx.stroke();
     } else {
-      drawSlotSquare(ctx, getSlotRectFromBorderPoint(px, py, port.side), color, '#12161d');
+      drawSlotSquare(ctx, getSlotRectFromBorderPoint(px, py, port.side), color, palette.portStroke);
     }
 
-    if (isEffectivelyOutput !== null) drawConnectorArrow(ctx, handle, port.side, inverted, isEffectivelyOutput);
-    else drawConnectorHandleDot(ctx, handle);
-    drawPortLabel(ctx, port, { x: px, y: py }, inverted);
+    if (isEffectivelyOutput !== null) drawConnectorArrow(ctx, handle, port.side, inverted, isEffectivelyOutput, palette);
+    else drawConnectorHandleDot(ctx, handle, palette);
+    drawPortLabel(ctx, port, { x: px, y: py }, inverted, palette);
 
     const ringColor = portHighlights?.get(`${block.id}:${port.id}`);
     if (ringColor) drawPortRing(ctx, px, py, ringColor, inverted ? PORT_RING_RADIUS : SLOT_RING_RADIUS);
@@ -514,7 +517,11 @@ function roundRectPath(ctx, x, y, width, height, radius) {
 // Its Input/Output ports are handles on the border, on any of the four
 // sides. When you drill into a block, its own border becomes the frame
 // that shows those same ports (Milestone 3).
-export function drawBlock(ctx, block, { selected = false, portHighlights = null, requestRender = () => {} } = {}) {
+export function drawBlock(
+  ctx,
+  block,
+  { selected = false, portHighlights = null, requestRender = () => {}, palette = DEFAULT_PALETTE } = {},
+) {
   const { x, y, width, height } = block.geometry;
   const accentColor = block.style?.color || DEFAULT_BLOCK_COLOR;
 
@@ -525,7 +532,7 @@ export function drawBlock(ctx, block, { selected = false, portHighlights = null,
   // border stays exactly as it looks unselected, in the block's own
   // accent colour, whether or not it's the one picked right now.
   roundRectPath(ctx, x, y, width, height, CORNER_RADIUS);
-  ctx.fillStyle = '#1c2431';
+  ctx.fillStyle = palette.blockFill;
   ctx.fill();
   ctx.lineWidth = 1.5;
   ctx.strokeStyle = accentColor;
@@ -544,7 +551,7 @@ export function drawBlock(ctx, block, { selected = false, portHighlights = null,
   if (image) {
     drawContainImage(ctx, image, x, y, width, height);
   } else {
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = palette.blockText;
     ctx.font = '13px -apple-system, Segoe UI, Roboto, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -553,8 +560,8 @@ export function drawBlock(ctx, block, { selected = false, portHighlights = null,
 
   ctx.restore();
 
-  drawPorts(ctx, block, { portHighlights, showEmptySlots: selected });
-  if (selected) drawResizeHandles(ctx, block.geometry);
+  drawPorts(ctx, block, { portHighlights, showEmptySlots: selected, palette });
+  if (selected) drawResizeHandles(ctx, block.geometry, palette);
 }
 
 // The frame representing "the current system" — the block you're inside,
@@ -567,19 +574,19 @@ export function drawBlock(ctx, block, { selected = false, portHighlights = null,
 // has to cross back out over this outline. No resize handle, no enter
 // icon, no centered name-as-content — just a small label so it reads as a
 // frame.
-export function drawBoundary(ctx, block, geometry, { selected = false, portHighlights = null } = {}) {
+export function drawBoundary(ctx, block, geometry, { selected = false, portHighlights = null, palette = DEFAULT_PALETTE } = {}) {
   const { x, y, width, height } = geometry;
 
   // No selected-state recolor here either (see drawBlock's own note) — the
   // resize handles below already say this frame is the selected one.
   ctx.save();
   ctx.setLineDash([8, 6]);
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+  ctx.strokeStyle = palette.boundaryDash;
   ctx.lineWidth = 1.5;
   ctx.strokeRect(x, y, width, height);
   ctx.restore();
 
-  ctx.fillStyle = selected ? '#4f8cff' : '#8b93a3';
+  ctx.fillStyle = selected ? SELECTION_COLOR : palette.boundaryLabel;
   ctx.font = BOUNDARY_LABEL_FONT;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'bottom';
@@ -590,13 +597,13 @@ export function drawBoundary(ctx, block, geometry, { selected = false, portHighl
   // reads as a wall of faint circles rather than a helpful preview — the
   // hover ghost already shows exactly one, right where you're about to
   // click, which is the affordance that actually matters.
-  drawPorts(ctx, { ...block, geometry }, { inverted: true, portHighlights });
+  drawPorts(ctx, { ...block, geometry }, { inverted: true, portHighlights, palette });
   // Gated on `selected` exactly like an ordinary block: clicking the
   // dashed line itself now selects the boundary (see HitTest's
   // 'boundaryLine' hit and DragStateMachine's handling of it), so there's
   // a real selected state to hang this on instead of showing handles
   // unconditionally.
-  if (selected) drawResizeHandles(ctx, geometry);
+  if (selected) drawResizeHandles(ctx, geometry, palette);
 }
 
 export const BOUNDARY_LABEL_FONT = '11px -apple-system, Segoe UI, Roboto, sans-serif';

@@ -37,6 +37,11 @@ import { encodeProjectToParam, decodeProjectFromParam } from './model/shareLink.
 import { serializeSelection, pasteSelection, isClipboardPayload } from './model/clipboard.js';
 import { History } from './model/History.js';
 import { createPeerSession } from './model/peerSession.js';
+import { initTheme, getTheme, setTheme } from './theme.js';
+
+// Applied before bootstrap() (which awaits a network round-trip) so there's
+// no flash of the wrong theme while the rest of the app is still loading.
+initTheme();
 
 const canvas = document.getElementById('scene-canvas');
 const ctx = canvas.getContext('2d');
@@ -850,11 +855,16 @@ async function bootstrap() {
     onExportFile: handleExportFile,
     onExportGoogleDocs: handleExportGoogleDocs,
     onAnimate: toggleAnimation,
+    onToggleDarkMode: (on) => {
+      setTheme(on ? 'dark' : 'light');
+      renderLoop.requestRender();
+    },
   });
   headerActionsApi.refreshHistory();
   headerActionsApi.refreshSession(peerSession.getState());
   appMenuApi.refreshSaved(urlSnapshot === null ? null : true);
   appMenuApi.refreshAnimating(animating);
+  appMenuApi.refreshDarkMode(getTheme() === 'dark');
   document.title = project.name ? `${project.name} · noditron` : 'noditron';
 
   // A diagram opened from a link lives nowhere but this tab until it is
