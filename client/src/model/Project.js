@@ -14,7 +14,7 @@ import { createDefaultBoundaryGeometry } from './grid.js';
  * interface means selecting a block that isn't one of its own children.
  */
 export class Project {
-  constructor({ name = 'Untitled Product', blocks = [], connections = [], rootBlock } = {}) {
+  constructor({ name = 'Untitled', blocks = [], connections = [], rootBlock } = {}) {
     if (rootBlock) {
       this.rootBlock = hydrateBlockTree(rootBlock);
     } else {

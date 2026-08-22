@@ -91,9 +91,9 @@ async function bootstrap() {
     }
   }
   if (sharedLinkFailed) {
-    project = new Project({ name: 'Untitled Product' });
+    project = new Project({ name: 'Untitled' });
   } else if (!project) {
-    project = (await loadProject()) || new Project({ name: 'Untitled Product' });
+    project = (await loadProject()) || new Project({ name: 'Untitled' });
   }
   if (project.listBlocks().length === 0) {
     project.createDefaultBlock(80, 80);
@@ -584,7 +584,7 @@ async function bootstrap() {
       "Start a new diagram? This clears everything currently open — every block, wire, and nested level you've drilled into. (Nothing you draw here ever leaves your browser, so this only affects what's open in this tab.)",
     );
     if (!proceed) return;
-    const blank = new Project({ name: 'Untitled Product' });
+    const blank = new Project({ name: 'Untitled' });
     blank.createDefaultBlock(80, 80);
     project.applyRemoteRootBlock(blank.toJSON().rootBlock);
     selection.clear();
