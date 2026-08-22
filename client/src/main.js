@@ -553,8 +553,39 @@ async function bootstrap() {
     project.applyRemoteRootBlock(data.rootBlock);
     selection.clear();
     wireSelection.clear();
-    resetCameraForNewLevel();
+    frameCurrentLevel();
     updateNavigationUI();
+    persist();
+    renderLoop.requestRender();
+  }
+
+  // Blanks the whole tree the same way opening a file does, just with a
+  // freshly-created one instead of a loaded one — including every level
+  // drilled into, since that's all part of the same rootBlock being
+  // replaced. Confirmed up front, unlike opening a file, since picking a
+  // file to load is already a deliberate act but a stray click on a
+  // toolbar button isn't.
+  function handleNewDiagram() {
+    const proceed = window.confirm(
+      "Start a new diagram? This clears everything currently open — every block, wire, and nested level you've drilled into. (Nothing you draw here ever leaves your browser, so this only affects what's open in this tab.)",
+    );
+    if (!proceed) return;
+    const blank = new Project({ name: 'Untitled Product' });
+    blank.createDefaultBlock(80, 80);
+    project.applyRemoteRootBlock(blank.toJSON().rootBlock);
+    selection.clear();
+    wireSelection.clear();
+    frameCurrentLevel();
+    updateNavigationUI();
+    // A shared/opened link's URL still points at the diagram just cleared —
+    // strip it so a reload (or someone else's copy of the link) doesn't
+    // bring back what was just confirmed gone.
+    if (isSharedView || urlSnapshot !== null) {
+      isSharedView = false;
+      urlSnapshot = null;
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+    fileToolbarApi?.refreshSaved(null);
     persist();
     renderLoop.requestRender();
   }
@@ -788,6 +819,7 @@ async function bootstrap() {
     docSyncApi = mountDocSync(docSyncEl, { onUpdate: handleUpdateDoc, onConnect: handleConnectDoc });
   }
   fileToolbarApi = mountFileToolbar(fileToolbarEl, {
+    onNew: handleNewDiagram,
     onSaveUrl: handleSaveToUrl,
     onSave: handleSaveFile,
     onOpen: handleOpenFile,

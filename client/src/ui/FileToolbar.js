@@ -8,7 +8,20 @@
 // without extra permissions.
 export function mountFileToolbar(
   container,
-  { onSaveUrl, onSave, onOpen, onShare, onExportGoogleDocs, onSession, onAnimate, onUndo, onRedo, canUndo, canRedo },
+  {
+    onNew,
+    onSaveUrl,
+    onSave,
+    onOpen,
+    onShare,
+    onExportGoogleDocs,
+    onSession,
+    onAnimate,
+    onUndo,
+    onRedo,
+    canUndo,
+    canRedo,
+  },
 ) {
   container.innerHTML = '';
   container.className = 'file-toolbar';
@@ -62,6 +75,18 @@ export function mountFileToolbar(
   // button does the half that is possible and names the shortcut for the
   // half that isn't.
   const BOOKMARK_KEYS = /Mac|iPhone|iPad/.test(navigator.userAgent) ? '\u2318D' : 'Ctrl+D';
+
+  // Starts over with a blank diagram, wiping everything currently open —
+  // like any other edit it's still one Ctrl+Z away, but the confirmation
+  // itself lives in main.js's handler, where the warning text can say
+  // exactly what's about to go; this button only ever fires the
+  // already-confirmed action.
+  const newButton = document.createElement('button');
+  newButton.type = 'button';
+  newButton.className = 'file-toolbar-button';
+  newButton.textContent = 'New';
+  newButton.title = 'Start a blank diagram, clearing everything currently open';
+  newButton.addEventListener('click', () => onNew());
 
   const saveUrlButton = document.createElement('button');
   saveUrlButton.type = 'button';
@@ -150,6 +175,7 @@ export function mountFileToolbar(
     undoButton,
     redoButton,
     divider,
+    newButton,
     saveUrlButton,
     saveButton,
     openButton,
