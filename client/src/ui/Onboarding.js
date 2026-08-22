@@ -4,10 +4,10 @@ import { showToast } from './Toast.js';
 // the diagram itself — it's teaching the app, not the current drawing, so
 // it fires the same whether this tab just made a blank project or opened
 // someone else's shared link.
-const STORAGE_KEY = 'noditron-onboarded';
+const STORAGE_KEY = 'nodigraph-onboarded';
 
 const STEPS = [
-  "Welcome to noditron. Everything you draw here stays only in this browser — nothing is uploaded anywhere unless you explicitly create a Share link or download a file.",
+  "Welcome to nodigraph. Everything you draw here stays only in this browser — nothing is uploaded anywhere unless you explicitly create a Share link or download a file.",
   'Click the blue + button (bottom right) to add a block.',
   "Drag from a block's edge to add a port, then drag from one port's connector handle to another to wire them together.",
   'Select a block and use "Enter block →" in the Inspector to design what’s inside it — a diagram can nest as many levels deep as you like.',

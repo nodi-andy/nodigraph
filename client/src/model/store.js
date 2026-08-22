@@ -1,7 +1,7 @@
 import { Project } from './Project.js';
 
 const API_URL = '/api/project';
-const LOCAL_STORAGE_KEY = 'noditron:project';
+const LOCAL_STORAGE_KEY = 'nodigraph:project';
 
 // Two layers, in priority order: the small server in server/src/app.js
 // (reads/writes a real file on disk — see data/project.json), and this

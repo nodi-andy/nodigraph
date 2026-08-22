@@ -10,7 +10,7 @@
 import { generateId, hydrateBlockTree, serializeBlockTree } from './Block.js';
 import { GRID_SIZE } from './grid.js';
 
-const FORMAT = 'noditron/clipboard-v1';
+const FORMAT = 'nodigraph/clipboard-v1';
 
 // Offsets a pasted copy so it doesn't land exactly on top of the original.
 const PASTE_OFFSET = GRID_SIZE;

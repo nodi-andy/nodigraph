@@ -6,7 +6,7 @@
 // starting people in the palette that already matches that avoids a
 // "why does my export look wrong" surprise for anyone who never opens
 // Settings.
-const STORAGE_KEY = 'noditron-theme';
+const STORAGE_KEY = 'nodigraph-theme';
 const THEMES = ['light', 'dark'];
 
 let current = 'light';

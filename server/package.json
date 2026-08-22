@@ -1,5 +1,5 @@
 {
-  "name": "noditron-server",
+  "name": "nodigraph-server",
   "private": true,
   "type": "module",
   "dependencies": {

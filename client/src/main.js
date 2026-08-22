@@ -151,7 +151,7 @@ async function bootstrap() {
     if (!isSharedView) saveProject(project);
     // The tab title is what a bookmark gets named, so it has to be the
     // diagram's name rather than the app's.
-    document.title = project.name ? `${project.name} · noditron` : 'noditron';
+    document.title = project.name ? `${project.name} · nodigraph` : 'nodigraph';
     appMenuApi?.refreshSaved(urlSnapshot === null ? null : urlSnapshot === lastSyncedSnapshot);
     // Peers get the whole tree; applyRemoteProject on the far side drops
     // it if it matches what they already have, so this can't loop.
@@ -865,7 +865,7 @@ async function bootstrap() {
   appMenuApi.refreshSaved(urlSnapshot === null ? null : true);
   appMenuApi.refreshAnimating(animating);
   appMenuApi.refreshDarkMode(getTheme() === 'dark');
-  document.title = project.name ? `${project.name} · noditron` : 'noditron';
+  document.title = project.name ? `${project.name} · nodigraph` : 'nodigraph';
 
   // A diagram opened from a link lives nowhere but this tab until it is
   // saved back into the address bar, so closing with unsaved edits loses
