@@ -13,7 +13,7 @@ export function downloadProjectFile(project) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `${safeFileStem(project.name)}.noditron.json`;
+  link.download = `${safeFileStem(project.name)}.nodigraph.json`;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -21,7 +21,7 @@ export function downloadProjectFile(project) {
 }
 
 // Throws if the file isn't parseable JSON or doesn't have the shape a
-// noditron project needs (a rootBlock) — the caller is expected to
+// nodigraph project needs (a rootBlock) — the caller is expected to
 // surface that to the user rather than silently doing nothing.
 export async function readProjectFile(file) {
   const text = await file.text();
@@ -32,7 +32,7 @@ export async function readProjectFile(file) {
     throw new Error('Not valid JSON');
   }
   if (!data?.rootBlock) {
-    throw new Error('Not a noditron project file');
+    throw new Error('Not a nodigraph project file');
   }
   return data;
 }

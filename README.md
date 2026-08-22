@@ -2,7 +2,7 @@
   <img src="client/icon.svg" width="72" height="72" alt="">
 </p>
 
-<h1 align="center">noditron</h1>
+<h1 align="center">nodigraph</h1>
 
 <p align="center">
   <strong>Block diagrams that live in the URL.</strong><br>
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://noditron.com"><strong>Try it → noditron.com</strong></a>
+  <a href="https://nodigraph.com"><strong>Try it → nodigraph.com</strong></a>
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@ named ports, wire them together, and drill into any block to describe how
 a block with its own interface, the top-level product included.
 
 When you share a diagram, the entire thing is compressed into the URL
-(`noditron.com/?d=…`). Opening that link needs nothing but a browser: no
+(`nodigraph.com/?d=…`). Opening that link needs nothing but a browser: no
 sign-up, no server round-trip, nothing of yours retained anywhere. Roughly
 100 blocks fit comfortably in a link.
 
@@ -40,7 +40,7 @@ Architecture diagrams rot because the picture and its source drift apart.
 A PNG lands in a document and six months later nobody can find the file
 that made it, so the next person redraws it from scratch.
 
-noditron's answer is that there is no separate source file to lose. The
+nodigraph's answer is that there is no separate source file to lose. The
 picture's link contains the diagram. **Export to Google Docs** makes this
 concrete: one Copy button puts the figure and a linked caption on the
 clipboard together, so pasting into a Doc drops in both at once and the
@@ -101,14 +101,14 @@ schema is custom rather than SysML-shaped.
 ## Run it locally
 
 ```bash
-git clone https://github.com/nodi-andy/noditron
-cd noditron/server && npm install
+git clone https://github.com/nodi-andy/nodigraph
+cd nodigraph/server && npm install
 node src/app.js
 ```
 
 Then open `http://localhost:8080`. Project data is read from and written
 to `data/project.json` (created on first save). Override the folder with
-`NODITRON_DATA_DIR` and the port with `PORT`.
+`NODIGRAPH_DATA_DIR` and the port with `PORT`.
 
 ### Deploy
 
@@ -116,7 +116,7 @@ The `Dockerfile` at the repo root builds and serves the whole app, so any
 container host works. For Cloud Run:
 
 ```bash
-gcloud run deploy noditron --source . --region <region> --allow-unauthenticated
+gcloud run deploy nodigraph --source . --region <region> --allow-unauthenticated
 ```
 
 The server listens on `PORT`, which Cloud Run sets automatically. Project
@@ -148,8 +148,15 @@ fine for the shared-link workflow, not yet durable storage.
   firewalls. Point `peerSession.js` at your own PeerServer and TURN server
   if you need it to be dependable. Edits are last-write-wins, and the
   session ends when the host closes the tab.
-- Server-side storage is a single JSON file with no auth. Anyone who can
-  reach the server can edit it.
+- **The optional local server has no real storage, and nothing in the
+  product depends on it.** Running `server/src/app.js` yourself (see "Run
+  it locally" above) auto-saves whatever you're looking at to a single
+  JSON file with no auth, purely as a convenience for picking up where
+  you left off on your own machine — anyone who can reach that server
+  could read or overwrite it, so don't expose it beyond your own machine.
+  Sharing, collaboration and the hosted app at nodigraph.com don't touch
+  it at all: a diagram travels in the link itself or peer-to-peer over
+  WebRTC, never through this file.
 - Very large diagrams (several hundred blocks) can exceed URL length limits
   imposed by proxies, though not by browsers themselves.
 - **A block picture needs a CORS-friendly host.** The browser refuses to
