@@ -9,6 +9,9 @@
    themes, the same way a floating toolbar often does regardless of the
    page behind it. */
 :root {
+  /* Not a color token — kept alongside them so #app's grid row and the
+     drawer's own top offset (see .topbar-menu) can't drift apart. */
+  --topbar-height: 52px;
   --bg-canvas: #f7f8fa;
   --bg-surface: #ffffff;
   --bg-surface-2: #ffffff;
@@ -83,7 +86,7 @@ html, body {
      hidden (display: none) until a block is selected, and an auto column
      collapses to zero while it is — the canvas gets the full width back. */
   grid-template-columns: 1fr auto;
-  grid-template-rows: 52px 1fr;
+  grid-template-rows: var(--topbar-height) 1fr;
   grid-template-areas:
     "topbar topbar"
     "canvas inspector";
@@ -154,10 +157,12 @@ html, body {
 
 /* A drawer fixed to the left edge and off-screen until opened — the same
    panel and behavior on every screen size, rather than a desktop inline
-   row plus a separate mobile dropdown. */
+   row plus a separate mobile dropdown. Starts below the header rather
+   than at the very top of the viewport, so its own first row (New)
+   doesn't sit underneath the header's hamburger/brand/breadcrumb. */
 .topbar-menu {
   position: fixed;
-  top: 0;
+  top: var(--topbar-height);
   bottom: 0;
   left: 0;
   width: min(280px, 85vw);
