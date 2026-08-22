@@ -42,7 +42,6 @@ html, body {
   white-space: nowrap;
 }
 
-.file-toolbar,
 .doc-sync {
   display: flex;
   align-items: center;
@@ -50,96 +49,130 @@ html, body {
   flex-shrink: 0;
 }
 
-/* Hidden on desktop — see the max-width:768px rules below, the only place
-   either of these actually shows. */
+/* Opens the sliding app menu — visible on every screen size now, always
+   the leftmost thing in the header. */
 .menu-toggle {
-  display: none;
-}
-
-/* `contents` makes this wrapper invisible to the flex layout on desktop:
-   its children (.file-toolbar, .doc-sync) lay out as direct children of
-   #topbar exactly as if the wrapper weren't there. Only the mobile media
-   query turns it into a real, positioned dropdown panel. */
-.topbar-menu {
-  display: contents;
-}
-
-.topbar-menu-backdrop {
-  display: none;
-}
-
-/* Only the first of the two right-aligned topbar clusters needs to claim
-   the leftover space — the second just follows it via #topbar's own gap. */
-.file-toolbar {
-  margin-left: auto;
-}
-
-.file-toolbar-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  flex-shrink: 0;
   background: none;
   border: 1px solid #2c3644;
+  border-radius: 6px;
   color: #c3c9d4;
-  border-radius: 5px;
-  padding: 5px 12px;
-  font-size: 12px;
   cursor: pointer;
 }
 
-.file-toolbar-button:hover:not(:disabled) {
+.menu-toggle:hover {
   color: #e6e9ef;
   border-color: #3a4556;
 }
 
-.file-toolbar-button:disabled {
+.topbar-menu-backdrop:not([hidden]) {
+  display: block;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 29;
+}
+
+/* A drawer fixed to the left edge and off-screen until opened — the same
+   panel and behavior on every screen size, rather than a desktop inline
+   row plus a separate mobile dropdown. */
+.topbar-menu {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: min(280px, 85vw);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: #1e2530;
+  border-right: 1px solid #2c3644;
+  box-shadow: 12px 0 32px rgba(0, 0, 0, 0.5);
+  padding: 16px 12px;
+  overflow-y: auto;
+  transform: translateX(-100%);
+  transition: transform 0.22s ease;
+  z-index: 30;
+}
+
+.topbar-menu.open {
+  transform: translateX(0);
+}
+
+/* The doc-sync cluster is flag-gated (see config.js) and, unlike the
+   app-menu rows above it, was never designed as a vertical list — a
+   compact row still reads fine inside the drawer. */
+.topbar-menu .doc-sync {
+  padding: 10px;
+  flex-wrap: wrap;
+}
+
+/* Always-visible header actions: undo/redo, Share, Start Session. */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.header-icon-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: none;
+  border: 1px solid #2c3644;
+  border-radius: 6px;
+  color: #c3c9d4;
+  cursor: pointer;
+}
+
+.header-icon-button:hover:not(:disabled) {
+  color: #e6e9ef;
+  border-color: #3a4556;
+}
+
+.header-icon-button:disabled {
   opacity: 0.4;
   cursor: default;
 }
 
-/* Icon-only variant (undo/redo): square rather than padded for text. */
-.file-toolbar-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  padding: 4px;
+/* Live-session state — a mode the whole app is in, so the icon itself
+   changes color rather than relying on a label. */
+.session-button.active {
+  color: #3ecf5d;
+  border-color: #3ecf5d;
 }
 
-/* The dot marks edits not yet written into the page address. Placed after
-   the label rather than before it so the button's text doesn't shift left
-   and right as the state changes. */
-.save-url-button.unsaved::after {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  margin-left: 6px;
-  border-radius: 50%;
-  background: #ffb454;
-  vertical-align: middle;
+.session-button.connecting {
+  color: #ffb454;
+  border-color: #ffb454;
 }
 
-/* Hangs below the banner rather than displacing it — the banner is a
-   fixed-height row, and a message long enough to be useful would double
-   its height. Fixed rather than absolute because on a phone its parent
-   scrolls horizontally, which would clip and drag an absolute child
-   along with it. */
-.toolbar-toast {
-  position: fixed;
-  top: 60px;
-  right: 16px;
-  max-width: min(460px, calc(100vw - 32px));
-  padding: 10px 14px;
-  background: #1e2530;
-  border: 1px solid #2c3644;
+.session-peer-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
   border-radius: 8px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
-  color: #c3c9d4;
-  font-size: 12px;
-  line-height: 1.45;
-  z-index: 25;
-}
-
-.toolbar-toast[hidden] {
-  display: none;
+  background: #3ecf5d;
+  color: #0b1017;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
 }
 
 /* Bottom-right, stacked oldest-on-top, so a second toast while one is
@@ -188,38 +221,92 @@ html, body {
   background: #354154;
 }
 
-/* Toggled on while the wires are marching. Blue rather than the green the
-   session button uses: one says "this diagram is being edited with
-   someone", the other only changes what you're looking at. */
-.animate-button.active {
-  color: #e6e9ef;
-  border-color: #4f8cff;
-  background: rgba(79, 140, 255, 0.15);
+/* The app-menu drawer's own rows (New/Open/Save/Export/Settings). */
+.app-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-/* Live-session state, shown in the banner because it is a mode the whole
-   app is in rather than a one-off action. The dot is the at-a-glance part:
-   the label changes too, but a green pip reads without being read. */
-.session-button.active {
-  color: #e6e9ef;
-  border-color: #3ecf5d;
+.app-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: #c3c9d4;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
 }
 
-.session-button.active::before {
+.app-menu-item:hover:not(:disabled) {
+  background: #2c3644;
+  color: #e6e9ef;
+}
+
+.app-menu-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.app-menu-item svg {
+  flex-shrink: 0;
+}
+
+/* The dot marks edits not yet written into the page address — same idea
+   as before, just living on the Save row instead of a header button. */
+.app-menu-item.unsaved::after {
   content: '';
   display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-right: 6px;
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
   border-radius: 50%;
-  background: #3ecf5d;
-  vertical-align: baseline;
+  background: #ffb454;
+  flex-shrink: 0;
 }
 
-.file-toolbar-divider {
-  width: 1px;
-  height: 18px;
+.app-menu-divider {
+  height: 1px;
+  margin: 8px 6px;
   background: #2c3644;
+}
+
+.app-menu-chevron {
+  margin-left: auto;
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.app-menu-item[aria-expanded="true"] .app-menu-chevron {
+  transform: rotate(90deg);
+}
+
+/* Settings expands in place rather than opening a second panel — there's
+   only one option behind it so far (Animate). */
+.app-menu-settings-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.app-menu-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 34px;
+  color: #c3c9d4;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.app-menu-toggle-row input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  accent-color: #4f8cff;
 }
 
 .doc-sync-status {
@@ -788,12 +875,9 @@ body.inspector-open #inspector {
       "canvas";
   }
 
-  /* Six controls of labelled text don't fit a phone's width, and a button
-     pushed off the edge is a button that doesn't exist. Rather than
-     leaving the cluster to scroll sideways (nothing hinted there was more
-     to find past the edge), it's tucked behind an explicit menu button
-     instead — the brand goes too, since it's the one thing here that
-     isn't a control and menu-toggle needs the room. */
+  /* The brand name is the one thing here that isn't a control, so it's
+     the first to go on a narrow screen — the hamburger, breadcrumb, and
+     header-action icons all need the room more than it does. */
   #topbar {
     gap: 8px;
     padding: 0 10px;
@@ -802,72 +886,6 @@ body.inspector-open #inspector {
 
   #topbar .brand {
     display: none;
-  }
-
-  .menu-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 34px;
-    height: 34px;
-    margin-left: auto;
-    padding: 0;
-    background: none;
-    border: 1px solid #2c3644;
-    border-radius: 6px;
-    color: #c3c9d4;
-    cursor: pointer;
-  }
-
-  .menu-toggle:hover {
-    color: #e6e9ef;
-    border-color: #3a4556;
-  }
-
-  .topbar-menu-backdrop:not([hidden]) {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.35);
-    z-index: 19;
-  }
-
-  /* Overrides the desktop `display: contents` — here it's a real,
-     positioned dropdown panel instead of a transparent layout wrapper. */
-  .topbar-menu {
-    display: none;
-  }
-
-  .topbar-menu.open {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-    position: absolute;
-    top: calc(100% + 8px);
-    right: 10px;
-    left: 10px;
-    background: #1e2530;
-    border: 1px solid #2c3644;
-    border-radius: 12px;
-    padding: 14px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
-    z-index: 20;
-    max-height: calc(100vh - 76px);
-    overflow-y: auto;
-  }
-
-  /* Inside the dropdown there's no width pressure any more, so both
-     clusters wrap onto as many lines as they need instead of the
-     desktop's single scrollable row. */
-  .topbar-menu.open .file-toolbar,
-  .topbar-menu.open .doc-sync {
-    flex-wrap: wrap;
-    margin-left: 0;
-  }
-
-  .topbar-menu.open .file-toolbar-button {
-    flex: 1 1 auto;
   }
 
   /* Selected but sheet not open yet — offer the explicit opener. */

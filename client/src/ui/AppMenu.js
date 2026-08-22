@@ -1,0 +1,140 @@
+import { showToast } from './Toast.js';
+
+// Icons are raw inner-<svg> markup rather than a single fill path — several
+// of these (the folded-corner page, the settings sliders) need more than
+// one shape to read clearly at 18px.
+const ICONS = {
+  new: '<path d="M6 2h9l5 5v15H6V2z" fill="currentColor"/><path d="M15 2.5V8h5.5" fill="none" stroke="#1e2530" stroke-width="1.4"/>',
+  open: '<path d="M4 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6z" fill="currentColor"/>',
+  save: '<path d="M6 2h12v20l-6-4.5L6 22V2z" fill="currentColor"/>',
+  export: '<path d="M11 3h2v11.2l3.6-3.6L18 12l-6 6-6-6 1.4-1.4L11 14.2V3zM5 19h14v2H5z" fill="currentColor"/>',
+  docs: '<path d="M6 2h9l5 5v15H6V2z" fill="currentColor"/><path d="M15 2.5V8h5.5" fill="none" stroke="#1e2530" stroke-width="1.4"/><path d="M8.5 12.5h7M8.5 15.5h7M8.5 18.5h4" stroke="#1e2530" stroke-width="1.3" stroke-linecap="round"/>',
+  settings:
+    '<path d="M3 6h9M17 6h4M3 12h3M9 12h12M3 18h12M18 18h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="13" cy="6" r="2" fill="currentColor"/><circle cx="6" cy="12" r="2" fill="currentColor"/><circle cx="15" cy="18" r="2" fill="currentColor"/>',
+  chevron: '<path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+};
+
+function svg(name, size = 18) {
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true">${ICONS[name]}</svg>`;
+}
+
+// The sliding drawer's contents — file actions plus a Settings section.
+// Undo/redo and Share/Session stay in the header itself (see
+// ui/HeaderActions.js); everything less frequent lives here instead, one
+// tap behind the hamburger icon.
+export function mountAppMenu(container, { onNew, onOpen, onSaveUrl, onExportFile, onExportGoogleDocs, onAnimate }) {
+  container.innerHTML = '';
+  container.className = 'app-menu';
+
+  const BOOKMARK_KEYS = /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘D' : 'Ctrl+D';
+  // Reloading sends the whole address to the server, and a lot of servers
+  // and proxies cap the request line around 8 KB — so a diagram can be
+  // saved successfully and still fail to open later.
+  const LONG_URL_CHARS = 8000;
+
+  function item(iconName, label, onClick) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'app-menu-item';
+    button.innerHTML = `${svg(iconName)}<span>${label}</span>`;
+    button.addEventListener('click', onClick);
+    container.appendChild(button);
+    return button;
+  }
+
+  item('new', 'New', () => onNew());
+
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'application/json,.json';
+  fileInput.hidden = true;
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files?.[0];
+    fileInput.value = ''; // allow picking the same file again later
+    if (file) onOpen(file);
+  });
+  container.appendChild(fileInput);
+
+  item('open', 'Open', () => fileInput.click());
+
+  // "Save" writes the diagram into the address bar, because that is where
+  // this app's documents actually live — there is no server file to write
+  // and no account to write it under (see model/shareLink.js).
+  const saveButton = item('save', 'Save', async () => {
+    const result = await onSaveUrl();
+    if (!result.ok) {
+      showToast(`Couldn't save into the address: ${result.error}. Use Export instead.`);
+      return;
+    }
+    const bookmark = `press ${BOOKMARK_KEYS} to bookmark it, or copy the address bar`;
+    showToast(
+      result.length > LONG_URL_CHARS
+        ? `Saved — ${bookmark}. Note this address is ${Math.round(result.length / 1024)} KB; some servers and proxies reject links over about 8 KB, so keep an exported file as well.`
+        : `Saved into this page's address — ${bookmark}.`,
+    );
+  });
+
+  item('export', 'Export', () => onExportFile());
+  item('docs', 'Export to Google Docs', () => onExportGoogleDocs());
+
+  const divider = document.createElement('div');
+  divider.className = 'app-menu-divider';
+  container.appendChild(divider);
+
+  // Expands in place rather than opening a second panel — there's only one
+  // option behind it so far (Animate), not enough yet to justify its own
+  // screen. Marked data-keep-menu-open so expanding it doesn't also dismiss
+  // the whole drawer (see ui/TopbarMenu.js's click-to-close handling).
+  const settingsToggle = document.createElement('button');
+  settingsToggle.type = 'button';
+  settingsToggle.className = 'app-menu-item';
+  settingsToggle.setAttribute('aria-expanded', 'false');
+  settingsToggle.setAttribute('data-keep-menu-open', '');
+  settingsToggle.innerHTML = `${svg('settings')}<span>Settings</span>${svg('chevron', 14).replace('<svg', '<svg class="app-menu-chevron"')}`;
+
+  const settingsBody = document.createElement('div');
+  settingsBody.className = 'app-menu-settings-body';
+  settingsBody.hidden = true;
+
+  const animateLabel = document.createElement('label');
+  animateLabel.className = 'app-menu-toggle-row';
+  const animateCheckbox = document.createElement('input');
+  animateCheckbox.type = 'checkbox';
+  animateCheckbox.addEventListener('change', () => onAnimate());
+  const animateText = document.createElement('span');
+  animateText.textContent = 'Animate';
+  animateLabel.append(animateCheckbox, animateText);
+  settingsBody.appendChild(animateLabel);
+
+  settingsToggle.addEventListener('click', () => {
+    const expanded = settingsToggle.getAttribute('aria-expanded') === 'true';
+    settingsToggle.setAttribute('aria-expanded', String(!expanded));
+    settingsBody.hidden = expanded;
+  });
+
+  container.append(settingsToggle, settingsBody);
+
+  return {
+    // The dot marks edits made since the address bar was last written, so
+    // "Save" is never a row whose effect you have to guess at. It only
+    // appears once there is something to be out of date *with* — before
+    // the first save there is no stale URL to warn about.
+    refreshSaved(saved) {
+      saveButton.classList.toggle('unsaved', saved === false);
+      saveButton.title =
+        saved === false
+          ? 'Edits since this page’s address was last updated — click to save them into it'
+          : 'Save this diagram into the page address, so a bookmark or a reload keeps it';
+    },
+
+    refreshAnimating(on) {
+      animateCheckbox.checked = on;
+    },
+
+    // Ctrl/Cmd+S routes through the button rather than duplicating its
+    // logic, so the shortcut and the click can't drift apart.
+    triggerSave() {
+      saveButton.click();
+    },
+  };
+}
