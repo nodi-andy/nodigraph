@@ -159,7 +159,14 @@ fine for the shared-link workflow, not yet durable storage.
 
 ## License
 
-Not yet chosen — until one is added here, the default applies and all
-rights are reserved. AGPL-3.0 is the intended direction (free to use,
-modify and self-host; publish your changes if you run a modified version
-as a network service).
+AGPL-3.0 (see [LICENSE](LICENSE)) — free to use, modify and self-host. If
+you run a modified version as a network service, you must make that
+version's source available to its users; this is what keeps the project
+itself (and any improvements made to it) open, the same model Mermaid and
+similar community-run tools use.
+
+A separate commercial license is available for anyone who wants to run a
+modified or embedded version as a closed-source, proprietary service
+without that source-sharing obligation — the same dual-licensing model
+used by projects like MongoDB and Qt. There's no self-serve process for
+this yet; open an issue or otherwise get in touch to ask about one.
