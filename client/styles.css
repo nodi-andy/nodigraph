@@ -142,6 +142,52 @@ html, body {
   display: none;
 }
 
+/* Bottom-right, stacked oldest-on-top, so a second toast while one is
+   already showing doesn't cover it up. Kept clear of the FAB stack
+   (bottom-right too) by sitting above it with margin, not overlapping. */
+.app-toast-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: min(360px, calc(100vw - 32px));
+  z-index: 40;
+}
+
+.app-toast {
+  padding: 12px 14px;
+  background: #1e2530;
+  border: 1px solid #2c3644;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  color: #c3c9d4;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.app-toast-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.app-toast-button {
+  padding: 5px 12px;
+  background: #2c3644;
+  border: 1px solid #3a4556;
+  border-radius: 6px;
+  color: #e6e9ef;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.app-toast-button:hover {
+  background: #354154;
+}
+
 /* Toggled on while the wires are marching. Blue rather than the green the
    session button uses: one says "this diagram is being edited with
    someone", the other only changes what you're looking at. */
