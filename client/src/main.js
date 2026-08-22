@@ -260,6 +260,44 @@ async function bootstrap() {
     renderLoop.requestRender();
   }
 
+  // Blocks only — a wire has no fill of its own. Unlike the border color
+  // above, "back to default" here means dropping the key entirely rather
+  // than storing a literal fallback color: the theme itself supplies the
+  // fill (see canvasPalette.js), and a stored literal would get stuck on
+  // whichever theme was active when it was picked.
+  function fillSelection(color) {
+    for (const blockId of selection.list()) {
+      const block = project.getBlock(blockId);
+      if (!block) continue;
+      if (color) {
+        block.style = { ...block.style, fill: color };
+      } else {
+        const { fill, ...rest } = block.style || {};
+        block.style = rest;
+      }
+    }
+    persist();
+    renderLoop.requestRender();
+  }
+
+  // Blocks only — same reasoning as fillSelection: "Default" drops the
+  // key so the block's label falls back to the ordinary system font stack
+  // rather than a stored literal.
+  function fontSelection(key) {
+    for (const blockId of selection.list()) {
+      const block = project.getBlock(blockId);
+      if (!block) continue;
+      if (key) {
+        block.style = { ...block.style, font: key };
+      } else {
+        const { font, ...rest } = block.style || {};
+        block.style = rest;
+      }
+    }
+    persist();
+    renderLoop.requestRender();
+  }
+
   function deleteSelectedPort() {
     const block = project.getBlock(selection.selectedBlockId);
     const portId = selection.selectedPortId;
@@ -882,6 +920,8 @@ async function bootstrap() {
     getSelectionCount: selectionCount,
     onDelete: deleteSelection,
     onColor: colorSelection,
+    onFill: fillSelection,
+    onFont: fontSelection,
   });
   selectionFabsApi.refresh();
 

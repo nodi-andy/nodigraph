@@ -12,6 +12,7 @@ import { getStateColor } from '../model/BlockDescription.js';
 import { DEFAULT_BLOCK_COLOR } from '../model/Block.js';
 import { isImageUrl, getCachedImage } from './imageCache.js';
 import { getCanvasPalette } from './canvasPalette.js';
+import { getFontFamily, ensureFontLoaded } from './fonts.js';
 
 const DEFAULT_PALETTE = getCanvasPalette('light');
 
@@ -513,6 +514,23 @@ function roundRectPath(ctx, x, y, width, height, radius) {
   ctx.closePath();
 }
 
+// #rrggbb only — the one shape a custom fill is ever stored in (see
+// SelectionFabs' swatches and its native <input type=color> fallback).
+// Anything else (the theme palette's own fill, which can be any CSS
+// color) never reaches this, since it only runs when block.style.fill is
+// set by that same picker.
+function readableTextColor(hex) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  // Perceptual luminance (ITU-R BT.709) — picks whichever ink stays
+  // legible, since a custom background can land anywhere from near-black
+  // to near-white and the theme's own text color only ever assumed its
+  // own default fill.
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return luminance > 0.55 ? '#1c2431' : '#ffffff';
+}
+
 // A block is a plain titled box with its name centered — no header band.
 // Its Input/Output ports are handles on the border, on any of the four
 // sides. When you drill into a block, its own border becomes the frame
@@ -524,6 +542,8 @@ export function drawBlock(
 ) {
   const { x, y, width, height } = block.geometry;
   const accentColor = block.style?.color || DEFAULT_BLOCK_COLOR;
+  const fillColor = block.style?.fill || palette.blockFill;
+  const textColor = block.style?.fill ? readableTextColor(block.style.fill) : palette.blockText;
 
   // Selection used to also draw a second outline ring around the block,
   // and thicken this border a touch on top of that — the four resize
@@ -532,7 +552,7 @@ export function drawBlock(
   // border stays exactly as it looks unselected, in the block's own
   // accent colour, whether or not it's the one picked right now.
   roundRectPath(ctx, x, y, width, height, CORNER_RADIUS);
-  ctx.fillStyle = palette.blockFill;
+  ctx.fillStyle = fillColor;
   ctx.fill();
   ctx.lineWidth = 1.5;
   ctx.strokeStyle = accentColor;
@@ -551,8 +571,13 @@ export function drawBlock(
   if (image) {
     drawContainImage(ctx, image, x, y, width, height);
   } else {
-    ctx.fillStyle = palette.blockText;
-    ctx.font = '13px -apple-system, Segoe UI, Roboto, sans-serif';
+    const fontFamily = getFontFamily(block.style?.font);
+    // Canvas text can't await a web font mid-render — draws with the
+    // fallback stack immediately and asks for a redraw once the real one
+    // is ready, the same pattern the image case above uses.
+    if (block.style?.font) ensureFontLoaded(`13px ${fontFamily}`, requestRender);
+    ctx.fillStyle = textColor;
+    ctx.font = `13px ${fontFamily}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(block.name, x + width / 2, y + height / 2, width - 16);
