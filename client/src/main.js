@@ -19,7 +19,8 @@ import { mountInspector } from './ui/InspectorPanel.js';
 import { mountBreadcrumb } from './ui/Breadcrumb.js';
 import { mountDocSync } from './ui/DocSyncPanel.js';
 import { ENABLE_DOC_SYNC } from './config.js';
-import { mountFileToolbar } from './ui/FileToolbar.js';
+import { mountHeaderActions } from './ui/HeaderActions.js';
+import { mountAppMenu } from './ui/AppMenu.js';
 import { mountTopbarMenu } from './ui/TopbarMenu.js';
 import { createNameEditor } from './ui/NameEditor.js';
 import { createShareLinkDialog } from './ui/ShareLinkDialog.js';
@@ -46,7 +47,8 @@ const parentFabEl = document.getElementById('fab-parent');
 const parentUpIconEl = parentFabEl.querySelector('[data-icon="up"]');
 const parentAddIconEl = parentFabEl.querySelector('[data-icon="add-parent"]');
 const docSyncEl = document.getElementById('doc-sync');
-const fileToolbarEl = document.getElementById('file-toolbar');
+const appMenuEl = document.getElementById('app-menu');
+const headerActionsEl = document.getElementById('header-actions');
 const fabStackEl = document.getElementById('fab-stack');
 const menuToggleEl = document.getElementById('menu-toggle');
 const topbarMenuEl = document.getElementById('topbar-menu');
@@ -120,7 +122,8 @@ async function bootstrap() {
 
   let inspectorApi = null;
   let docSyncApi = null;
-  let fileToolbarApi = null;
+  let headerActionsApi = null;
+  let appMenuApi = null;
   let selectionFabsApi = null;
   // The diagram the address bar currently encodes, or null when it encodes
   // none — which is how "Save" knows whether there is anything to save.
@@ -139,12 +142,12 @@ async function bootstrap() {
     // pointer move. Identical snapshots (navigating a level, say) are
     // dropped by History itself.
     history.record({ json: lastSyncedSnapshot, path: [...project.path] });
-    fileToolbarApi?.refreshHistory();
+    headerActionsApi?.refreshHistory();
     if (!isSharedView) saveProject(project);
     // The tab title is what a bookmark gets named, so it has to be the
     // diagram's name rather than the app's.
     document.title = project.name ? `${project.name} · noditron` : 'noditron';
-    fileToolbarApi?.refreshSaved(urlSnapshot === null ? null : urlSnapshot === lastSyncedSnapshot);
+    appMenuApi?.refreshSaved(urlSnapshot === null ? null : urlSnapshot === lastSyncedSnapshot);
     // Peers get the whole tree; applyRemoteProject on the far side drops
     // it if it matches what they already have, so this can't loop.
     broadcastToPeers({ type: 'project', data: JSON.parse(lastSyncedSnapshot) });
@@ -461,11 +464,11 @@ async function bootstrap() {
     // The render loop is dirty-gated, and an animation has no edit to hang
     // a redraw off — so it asks the loop to keep running while it lasts.
     renderLoop.setContinuous(animating);
-    fileToolbarApi?.refreshAnimating(animating);
+    appMenuApi?.refreshAnimating(animating);
     renderLoop.requestRender();
   }
 
-  function handleSaveFile() {
+  function handleExportFile() {
     downloadProjectFile(project);
   }
 
@@ -483,7 +486,7 @@ async function bootstrap() {
     }
     window.history.replaceState(null, '', url);
     urlSnapshot = lastSyncedSnapshot;
-    fileToolbarApi?.refreshSaved(true);
+    appMenuApi?.refreshSaved(true);
     return { ok: true, length: url.length };
   }
 
@@ -523,7 +526,7 @@ async function bootstrap() {
     },
   });
 
-  // Starting a session is a banner action (see ui/FileToolbar.js); the
+  // Starting a session is a header action (see ui/HeaderActions.js); the
   // live-session dialog is where the invite link and the participant count
   // live once it is running, so starting opens it there.
   async function handleSession() {
@@ -537,7 +540,7 @@ async function bootstrap() {
       // guest still sees it if the peer connection can't be established.
       liveSessionDialog.setInviteUrl(`${await buildShareUrl()}&join=${encodeURIComponent(sessionId)}`);
     } catch (err) {
-      fileToolbarApi?.refreshSession(peerSession.getState());
+      headerActionsApi?.refreshSession(peerSession.getState());
       window.alert(`Couldn't start a live session: ${err.message}`);
       return;
     }
@@ -599,7 +602,7 @@ async function bootstrap() {
       urlSnapshot = null;
       window.history.replaceState(null, '', window.location.pathname);
     }
-    fileToolbarApi?.refreshSaved(null);
+    appMenuApi?.refreshSaved(null);
     persist();
     renderLoop.requestRender();
   }
@@ -731,7 +734,7 @@ async function bootstrap() {
         peerSession.sendTo(status.joined, { type: 'project', data: project.toJSON() });
       }
       liveSessionDialog.refresh();
-      fileToolbarApi?.refreshSession(status);
+      headerActionsApi?.refreshSession(status);
     },
   });
 
@@ -832,24 +835,26 @@ async function bootstrap() {
   if (ENABLE_DOC_SYNC) {
     docSyncApi = mountDocSync(docSyncEl, { onUpdate: handleUpdateDoc, onConnect: handleConnectDoc });
   }
-  fileToolbarApi = mountFileToolbar(fileToolbarEl, {
-    onNew: handleNewDiagram,
-    onSaveUrl: handleSaveToUrl,
-    onSave: handleSaveFile,
-    onOpen: handleOpenFile,
-    onShare: handleShare,
-    onExportGoogleDocs: handleExportGoogleDocs,
-    onSession: handleSession,
-    onAnimate: toggleAnimation,
+  headerActionsApi = mountHeaderActions(headerActionsEl, {
     onUndo: undo,
     onRedo: redo,
     canUndo: () => history.canUndo,
     canRedo: () => history.canRedo,
+    onShare: handleShare,
+    onSession: handleSession,
   });
-  fileToolbarApi.refreshHistory();
-  fileToolbarApi.refreshSession(peerSession.getState());
-  fileToolbarApi.refreshSaved(urlSnapshot === null ? null : true);
-  fileToolbarApi.refreshAnimating(animating);
+  appMenuApi = mountAppMenu(appMenuEl, {
+    onNew: handleNewDiagram,
+    onOpen: handleOpenFile,
+    onSaveUrl: handleSaveToUrl,
+    onExportFile: handleExportFile,
+    onExportGoogleDocs: handleExportGoogleDocs,
+    onAnimate: toggleAnimation,
+  });
+  headerActionsApi.refreshHistory();
+  headerActionsApi.refreshSession(peerSession.getState());
+  appMenuApi.refreshSaved(urlSnapshot === null ? null : true);
+  appMenuApi.refreshAnimating(animating);
   document.title = project.name ? `${project.name} · noditron` : 'noditron';
 
   // A diagram opened from a link lives nowhere but this tab until it is
@@ -892,7 +897,7 @@ async function bootstrap() {
     // dialog is never what someone wants here.
     if (key === 's') {
       event.preventDefault();
-      fileToolbarApi?.triggerSave();
+      appMenuApi?.triggerSave();
       return;
     }
 

@@ -1,5 +1,5 @@
 // "Live session" — status and the invite link for a session in progress.
-// Starting one is a banner action (see ui/FileToolbar.js: it puts the
+// Starting one is a header action (see ui/HeaderActions.js: it puts the
 // whole app into a mode, not a one-off share), but this is where its
 // details live once it's running — this dialog is what that button opens.
 

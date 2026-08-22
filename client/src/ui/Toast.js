@@ -1,9 +1,8 @@
 // A small stack of dismissible messages, independent of any single
-// feature's own UI — unlike FileToolbar's inline toast (which only makes
-// sense right next to the buttons it's reporting on), this one can be
-// shown before the rest of the app has mounted anything (e.g. a corrupted
-// share link, discovered while main.js is still loading the project) as
-// well as from fully-mounted features like the onboarding sequence.
+// feature's own UI, so it can be shown before the rest of the app has
+// mounted anything (e.g. a corrupted share link, discovered while main.js
+// is still loading the project) as well as from fully-mounted features
+// like the app menu's Save action or the onboarding sequence.
 let stackEl = null;
 
 function getStack() {

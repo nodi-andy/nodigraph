@@ -11,20 +11,24 @@
 <body>
   <div id="app">
     <header id="topbar">
-      <span class="brand">noditron</span>
-      <nav id="breadcrumb" class="breadcrumb"></nav>
-      <!-- Mobile-only: the file-toolbar/doc-sync cluster below is too wide
-           for a phone's width, so it's tucked behind this button instead
-           (see the max-width:768px rules in styles.css) — hidden entirely
-           on desktop, where that cluster shows inline as always. -->
+      <!-- Opens the sliding app menu (New/Open/Save/Export/Settings — see
+           ui/AppMenu.js) — always here, on every screen size, rather than
+           only appearing once a phone-width toolbar has nowhere else to
+           put its buttons. -->
       <button id="menu-toggle" class="menu-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="topbar-menu">
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
           <path d="M4 6h16v2H4zM4 11h16v2H4zM4 16h16v2H4z" fill="currentColor" />
         </svg>
       </button>
+      <span class="brand">noditron</span>
+      <nav id="breadcrumb" class="breadcrumb"></nav>
+      <!-- Undo/redo and Share/Start Session: reached often enough (or
+           needed fast enough) to stay one click away instead of behind
+           the app menu — see ui/HeaderActions.js. -->
+      <div id="header-actions"></div>
       <div id="topbar-menu-backdrop" class="topbar-menu-backdrop" hidden></div>
       <div id="topbar-menu" class="topbar-menu">
-        <div id="file-toolbar"></div>
+        <div id="app-menu"></div>
         <div id="doc-sync"></div>
       </div>
     </header>
