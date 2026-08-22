@@ -19,12 +19,16 @@ export const PORT_RADIUS = 5;
 export const CONNECTOR_HANDLE_RADIUS = 4;
 export const CONNECTOR_NUB_LENGTH = 14;
 const CONNECTOR_ARROW_SIZE = 8;
-// An ordinary block's ports render as sockets inset into its own face
-// (see drawEmptySlots/getSlotRectFromBorderPoint) rather than dots
-// straddling the border line — the boundary frame (drawBoundary) keeps the
-// older dot style since it's a dashed abstract container, not a solid face
-// with room to inset into.
-export const PORT_SLOT_SIZE = 13;
+// An ordinary block's ports straddle its own border rather than sitting
+// fully inside it — half juts out toward the connector handle it leads
+// to, half stays inset in the block's face — sized like a short length of
+// pipe: its cross-section (PORT_WIDTH) matches the connector handle it
+// feeds, and it runs 1.5x that long (PORT_LENGTH) in the direction the
+// wire travels. The boundary frame (drawBoundary) keeps the older dot
+// style since it's a dashed abstract container, not a solid face with a
+// border to straddle.
+export const PORT_WIDTH = CONNECTOR_ARROW_SIZE;
+export const PORT_LENGTH = PORT_WIDTH * 1.5;
 const EMPTY_SLOT_FILL = 'rgba(255, 255, 255, 0.04)';
 const EMPTY_SLOT_STROKE = 'rgba(255, 255, 255, 0.14)';
 const INPUT_PORT_COLOR = '#8b93a3';
@@ -33,7 +37,7 @@ const CONNECTOR_HANDLE_COLOR = '#e6e9ef';
 const PORT_LABEL_COLOR = '#c3c9d4';
 const PORT_LABEL_GAP = 6;
 const PORT_RING_RADIUS = PORT_RADIUS + 4;
-const SLOT_RING_RADIUS = PORT_SLOT_SIZE / 2 + 4;
+const SLOT_RING_RADIUS = PORT_LENGTH / 2 + 4;
 // Selected (clicked, ready to delete) uses the same blue as a selected
 // block; an in-progress wire's own source stays that same "active" blue;
 // a hovered drop target turns green once it's actually compatible, or red
@@ -220,18 +224,13 @@ export function drawResizeHandles(ctx, geometry) {
   ctx.restore();
 }
 
-// Detects the cursor sitting *inside* the block, just past the border's own
-// no deeper than a slot square's own depth — this is "inside the box, no
-// deeper than a socket reaches" — hovering there is what reveals an
-// add-port ghost (see DragStateMachine's hover-ghost handling). Matches
-// the ghost square's own drawn footprint exactly (see
-// getSlotRectFromBorderPoint, same PORT_SLOT_SIZE depth from the same
-// border point) — it used to stop 8 units short of the border, a leftover
-// from when this zone also had to leave room for the old border-drag-
-// resize gesture. That gesture is gone (resize is floating handles now,
-// nowhere near here), so the exclusion just meant the near half of the
-// visible ghost square didn't respond to the hover or the click that was
-// supposed to confirm it.
+// Detects the cursor sitting *inside* the block, no deeper than a port's
+// own inward-facing half — hovering there is what reveals an add-port
+// ghost (see DragStateMachine's hover-ghost handling). Matches the ghost's
+// own drawn footprint exactly (see getSlotRectFromBorderPoint, which
+// straddles the border the same PORT_LENGTH/2 in each direction), so the
+// hoverable zone lines up with what's actually visible rather than
+// stopping short of (or reaching past) it.
 export function getEdgeZoneOffset(geometry, ports, worldX, worldY) {
   const { x, y, width, height } = geometry;
   if (worldX < x || worldX > x + width || worldY < y || worldY > y + height) return null;
@@ -244,7 +243,7 @@ export function getEdgeZoneOffset(geometry, ports, worldX, worldY) {
   ];
   candidates.sort((a, b) => a.dist - b.dist);
   const best = candidates[0];
-  if (best.dist > PORT_SLOT_SIZE) return null;
+  if (best.dist > PORT_LENGTH / 2) return null;
 
   const length = sideAxis(best.side) === 'x' ? height : width;
   // The cursor's own nearest slot on this side — not redirected toward
@@ -287,9 +286,10 @@ function drawPortLabel(ctx, port, pos, inverted = false) {
   const sign = inverted ? 1 : -1;
   const dirX = n.x * sign;
   const dirY = n.y * sign;
-  // Clears the dot (boundary) or the bigger inset slot square (ordinary
-  // block) before the label text starts.
-  const gap = (inverted ? PORT_RADIUS : PORT_SLOT_SIZE) + PORT_LABEL_GAP;
+  // Clears the dot (boundary) or the inward-facing half of the pipe
+  // (ordinary block) before the label text starts — only that half is
+  // actually inside the block for the label to clash with.
+  const gap = (inverted ? PORT_RADIUS : PORT_LENGTH / 2) + PORT_LABEL_GAP;
 
   if (Math.abs(dirX) > Math.abs(dirY)) {
     ctx.textAlign = dirX > 0 ? 'left' : 'right';
@@ -352,27 +352,17 @@ function drawPortRing(ctx, x, y, color, radius = PORT_RING_RADIUS) {
   ctx.stroke();
 }
 
-// A slot's rect, inset from the border point into the block's own face —
-// flush with the border on the outward-facing edge, extending inward by
-// PORT_SLOT_SIZE, so it reads as a socket built into the block rather than
-// a shape straddling the outline. Exported so HitTest can hit-test the
-// exact area actually drawn, not an approximation of it.
+// A port's rect, centered *on* the border point rather than inset behind
+// it — PORT_LENGTH/2 juts out past the border toward the connector handle,
+// PORT_LENGTH/2 stays inset in the block's own face, so it reads as a
+// short pipe straddling the wall rather than a socket sunk entirely into
+// it. Exported so HitTest can hit-test the exact area actually drawn, not
+// an approximation of it.
 export function getSlotRectFromBorderPoint(px, py, side) {
-  const half = PORT_SLOT_SIZE / 2;
-  const base = (() => {
-    switch (side) {
-      case 'left':
-        return { x: px, y: py - half };
-      case 'right':
-        return { x: px - PORT_SLOT_SIZE, y: py - half };
-      case 'top':
-        return { x: px - half, y: py };
-      case 'bottom':
-      default:
-        return { x: px - half, y: py - PORT_SLOT_SIZE };
-    }
-  })();
-  return { ...base, width: PORT_SLOT_SIZE, height: PORT_SLOT_SIZE };
+  const horizontal = side === 'left' || side === 'right';
+  const w = horizontal ? PORT_LENGTH : PORT_WIDTH;
+  const h = horizontal ? PORT_WIDTH : PORT_LENGTH;
+  return { x: px - w / 2, y: py - h / 2, width: w, height: h };
 }
 
 // The exact rect an ordinary (non-inverted) block's port slot is drawn at.
@@ -383,7 +373,7 @@ export function getPortSlotRect(block, port) {
 
 function drawSlotSquare(ctx, rect, fill, stroke) {
   ctx.beginPath();
-  ctx.rect(rect.x, rect.y, PORT_SLOT_SIZE, PORT_SLOT_SIZE);
+  ctx.rect(rect.x, rect.y, rect.width, rect.height);
   ctx.fillStyle = fill;
   ctx.fill();
   ctx.strokeStyle = stroke;
@@ -405,9 +395,9 @@ export function drawPortGhost(ctx, geometry, side, offset) {
 
   ctx.strokeStyle = '#e6e9ef';
   ctx.lineWidth = 1.5;
-  const cx = rect.x + PORT_SLOT_SIZE / 2;
-  const cy = rect.y + PORT_SLOT_SIZE / 2;
-  const arm = 4;
+  const cx = rect.x + rect.width / 2;
+  const cy = rect.y + rect.height / 2;
+  const arm = PORT_WIDTH / 2 - 1;
   ctx.beginPath();
   ctx.moveTo(cx - arm, cy);
   ctx.lineTo(cx + arm, cy);
