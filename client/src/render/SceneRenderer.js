@@ -17,8 +17,9 @@ import {
   PREVIEW_DASH,
 } from './ConnectionRenderer.js';
 import { GRID_SIZE } from '../model/grid.js';
+import { getCanvasPalette } from './canvasPalette.js';
+import { getTheme } from '../theme.js';
 
-const GRID_COLOR = '#1a212b';
 const WIRE_COLOR = '#4f8cff';
 const WIRE_SELECTED_HALO = 'rgba(255, 180, 84, 0.55)';
 
@@ -86,13 +87,13 @@ function drawMarquee(ctx, rect, zoom) {
   ctx.restore();
 }
 
-function drawGrid(ctx, camera, canvasWidth, canvasHeight) {
+function drawGrid(ctx, camera, canvasWidth, canvasHeight, palette) {
   const topLeft = camera.screenToWorld(0, 0);
   const bottomRight = camera.screenToWorld(canvasWidth, canvasHeight);
   const startX = Math.floor(topLeft.x / GRID_SIZE) * GRID_SIZE;
   const startY = Math.floor(topLeft.y / GRID_SIZE) * GRID_SIZE;
 
-  ctx.strokeStyle = GRID_COLOR;
+  ctx.strokeStyle = palette.grid;
   ctx.lineWidth = 1 / camera.zoom;
   ctx.beginPath();
   for (let gx = startX; gx <= bottomRight.x; gx += GRID_SIZE) {
@@ -118,7 +119,7 @@ function sharesEndpoint(a, b) {
   );
 }
 
-function drawConnections(ctx, project, wireSelection, boundary, flowOffset) {
+function drawConnections(ctx, project, wireSelection, boundary, flowOffset, palette) {
   // Routed up front, because drawing any one wire needs to know where all
   // the others run in order to bow over the ones it merely crosses.
   const routed = [];
@@ -151,7 +152,7 @@ function drawConnections(ctx, project, wireSelection, boundary, flowOffset) {
       dash: flowOffset === null ? getDashPattern(entry.connection.dashStyle) : FLOW_DASH,
       dashOffset: flowOffset ?? 0,
     });
-    drawConnectionLabel(ctx, entry.geometry, entry.connection.label);
+    drawConnectionLabel(ctx, entry.geometry, entry.connection.label, palette);
   }
 }
 
@@ -208,13 +209,18 @@ export function renderScene(
     // default so one-shot renders (the diagram-image exporter) don't need
     // to supply one; they just draw with whatever's already cached.
     requestRender = () => {},
+    // Defaults to whatever the live app's theme currently is; the diagram-
+    // image exporter (model/diagramImage.js) always passes the light
+    // palette explicitly instead, since an exported figure lands on a
+    // white Doc page regardless of which theme its editor prefers.
+    palette = getCanvasPalette(getTheme()),
   },
 ) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
   camera.applyTransform(ctx, dpr);
-  if (showGrid) drawGrid(ctx, camera, canvasWidth, canvasHeight);
+  if (showGrid) drawGrid(ctx, camera, canvasWidth, canvasHeight, palette);
 
   const blocks = project.listBlocks();
   const containerBlock = project.getContainerBlock();
@@ -227,7 +233,7 @@ export function renderScene(
   // triangle (drawn as part of the block/boundary pass) always paints over
   // the wire's endpoint, not the other way around — a wire sits under the
   // handles it connects to, not through them.
-  drawConnections(ctx, project, wireSelection, boundary, flowOffset);
+  drawConnections(ctx, project, wireSelection, boundary, flowOffset, palette);
 
   // Drawn before the real blocks so they visually sit "inside" the frame
   // rather than the dashed outline cutting across them.
@@ -235,11 +241,12 @@ export function renderScene(
     drawBoundary(ctx, boundary.block, boundary.geometry, {
       selected: boundary.block.id === selectedBlockId,
       portHighlights,
+      palette,
     });
   }
 
   for (const block of blocks) {
-    drawBlock(ctx, block, { selected: selectedBlockIds.has(block.id), portHighlights, requestRender });
+    drawBlock(ctx, block, { selected: selectedBlockIds.has(block.id), portHighlights, requestRender, palette });
   }
 
   if (marqueeRect) drawMarquee(ctx, marqueeRect, camera.zoom);
@@ -252,7 +259,7 @@ export function renderScene(
   // belongs to, once the hover dwell has actually elapsed (see
   // DragStateMachine.getHoverGhost).
   if (hoverGhost) {
-    drawPortGhost(ctx, hoverGhost.geometry, hoverGhost.side, hoverGhost.offset);
+    drawPortGhost(ctx, hoverGhost.geometry, hoverGhost.side, hoverGhost.offset, palette);
   }
 
   // Drawn last so a remote cursor always reads on top of everything else.

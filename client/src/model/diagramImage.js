@@ -4,6 +4,7 @@
 // looking at.
 import { Camera } from '../render/Camera.js';
 import { renderScene } from '../render/SceneRenderer.js';
+import { getExportPalette } from '../render/canvasPalette.js';
 
 const EMPTY_BOUNDS = { x: 0, y: 0, width: 1, height: 1 };
 const PADDING = 40;
@@ -49,6 +50,7 @@ export function renderCurrentLevelCanvas(project) {
     connectionTarget: null,
     wireSelection: null,
     showGrid: false,
+    palette: getExportPalette(),
   });
   return canvas;
 }

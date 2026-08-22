@@ -1,5 +1,8 @@
 import { WIRE_STUB_LENGTH, sideNormal, sideAxis, snap } from '../model/grid.js';
 import { findConnectorPosition } from './BlockRenderer.js';
+import { getCanvasPalette } from './canvasPalette.js';
+
+const DEFAULT_PALETTE = getCanvasPalette('light');
 
 // Drops points that don't actually bend the path (collinear with their
 // neighbors) and collapses zero-length segments — this is what turns the
@@ -306,7 +309,7 @@ const LABEL_PAD_Y = 3;
 // wires constantly, and text with nothing behind it reads poorly over
 // either. Drawn centered on the label position, on top of the wire so
 // it's always legible regardless of what color the wire itself is.
-export function drawConnectionLabel(ctx, geometry, label) {
+export function drawConnectionLabel(ctx, geometry, label, palette = DEFAULT_PALETTE) {
   if (!label) return;
   const pos = getConnectionLabelPosition(geometry);
 
@@ -317,13 +320,13 @@ export function drawConnectionLabel(ctx, geometry, label) {
   const rectX = pos.x - w / 2;
   const rectY = pos.y - h / 2;
 
-  ctx.fillStyle = '#10151c';
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+  ctx.fillStyle = palette.wireLabelBg;
+  ctx.strokeStyle = palette.wireLabelBorder;
   ctx.lineWidth = 1;
   ctx.fillRect(rectX, rectY, w, h);
   ctx.strokeRect(rectX, rectY, w, h);
 
-  ctx.fillStyle = '#e6e9ef';
+  ctx.fillStyle = palette.wireLabelText;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(label, pos.x, pos.y);

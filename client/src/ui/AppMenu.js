@@ -22,7 +22,10 @@ function svg(name, size = 18) {
 // Undo/redo and Share/Session stay in the header itself (see
 // ui/HeaderActions.js); everything less frequent lives here instead, one
 // tap behind the hamburger icon.
-export function mountAppMenu(container, { onNew, onOpen, onSaveUrl, onExportFile, onExportGoogleDocs, onAnimate }) {
+export function mountAppMenu(
+  container,
+  { onNew, onOpen, onSaveUrl, onExportFile, onExportGoogleDocs, onAnimate, onToggleDarkMode },
+) {
   container.innerHTML = '';
   container.className = 'app-menu';
 
@@ -104,7 +107,17 @@ export function mountAppMenu(container, { onNew, onOpen, onSaveUrl, onExportFile
   const animateText = document.createElement('span');
   animateText.textContent = 'Animate';
   animateLabel.append(animateCheckbox, animateText);
-  settingsBody.appendChild(animateLabel);
+
+  const darkModeLabel = document.createElement('label');
+  darkModeLabel.className = 'app-menu-toggle-row';
+  const darkModeCheckbox = document.createElement('input');
+  darkModeCheckbox.type = 'checkbox';
+  darkModeCheckbox.addEventListener('change', () => onToggleDarkMode(darkModeCheckbox.checked));
+  const darkModeText = document.createElement('span');
+  darkModeText.textContent = 'Dark mode';
+  darkModeLabel.append(darkModeCheckbox, darkModeText);
+
+  settingsBody.append(animateLabel, darkModeLabel);
 
   settingsToggle.addEventListener('click', () => {
     const expanded = settingsToggle.getAttribute('aria-expanded') === 'true';
@@ -129,6 +142,10 @@ export function mountAppMenu(container, { onNew, onOpen, onSaveUrl, onExportFile
 
     refreshAnimating(on) {
       animateCheckbox.checked = on;
+    },
+
+    refreshDarkMode(on) {
+      darkModeCheckbox.checked = on;
     },
 
     // Ctrl/Cmd+S routes through the button rather than duplicating its
