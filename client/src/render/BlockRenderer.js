@@ -585,7 +585,12 @@ export function drawBoundary(ctx, block, geometry, { selected = false, portHighl
   ctx.textBaseline = 'bottom';
   ctx.fillText(block.name, x + 4, y - 6);
 
-  drawPorts(ctx, { ...block, geometry }, { inverted: true, portHighlights, showEmptySlots: selected });
+  // No empty-slot markers here, unlike an ordinary block: the boundary is
+  // usually many grid cells per side, so "every unused slot, all at once"
+  // reads as a wall of faint circles rather than a helpful preview — the
+  // hover ghost already shows exactly one, right where you're about to
+  // click, which is the affordance that actually matters.
+  drawPorts(ctx, { ...block, geometry }, { inverted: true, portHighlights });
   // Gated on `selected` exactly like an ordinary block: clicking the
   // dashed line itself now selects the boundary (see HitTest's
   // 'boundaryLine' hit and DragStateMachine's handling of it), so there's
