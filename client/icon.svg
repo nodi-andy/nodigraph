@@ -2,8 +2,8 @@
   <!-- The app's own vocabulary as a mark: a block with connector sockets
        wired out to either side. Deliberately few, heavy shapes — this has
        to stay readable as a 16px favicon, where anything finer turns to
-       mush. -->
-  <rect width="64" height="64" rx="14" fill="#12161d"/>
+       mush. No background tile — transparent, so it sits on whatever
+       chrome (browser tab, OS dock) surrounds it. -->
 
   <!-- wires, under the sockets so the sockets read as sitting on them -->
   <g stroke="#2f6fed" stroke-width="4" stroke-linecap="butt">
