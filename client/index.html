@@ -6,6 +6,16 @@
   <title>nodigraph</title>
   <link rel="icon" type="image/svg+xml" href="icon.svg" />
   <link rel="apple-touch-icon" href="icon.svg" />
+  <!-- The small curated font choices a block's label can use (see
+       render/fonts.js) — loaded here rather than only referenced in CSS so
+       the browser has actually fetched them once canvas text (which can't
+       trigger a font fetch on its own) asks for one. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400&family=JetBrains+Mono:wght@400&family=Merriweather:wght@400&display=swap"
+  />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>

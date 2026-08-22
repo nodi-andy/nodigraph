@@ -569,6 +569,15 @@ html, body {
   transform: translateY(0) scale(0.94);
 }
 
+/* Once something is selected, the mini-FABs above take over that corner
+   (recolor/fill/font/delete) — the add button has nothing to do with a
+   selection, and showing both just makes the corner busier than it needs
+   to be. body.block-selected is set for a selected wire too, not just a
+   block (see InspectorPanel.syncOpenState). */
+body.block-selected #fab-add-block {
+  display: none;
+}
+
 /* Selection controls, stacked directly above the add FAB in the same
    corner. Anchored to the same edge and shifted by the same amount when
    the inspector opens (see the desktop media rule below), so the column
@@ -588,9 +597,12 @@ html, body {
 }
 
 /* Smaller and muted: these act on an existing selection, so they must not
-   compete with "add a block" for the eye. */
+   compete with "add a block" for the eye. Positioned (not static) so each
+   one's own popover (see .fab-palette) anchors to *that* button rather
+   than to the stack as a whole — with four mini-FABs now sharing the
+   column, "the stack's own corner" is no longer any one button's corner. */
 .fab.fab-mini {
-  position: static;
+  position: relative;
   width: 44px;
   height: 44px;
   background: #2c3644;
@@ -604,13 +616,14 @@ html, body {
   background: #a52a2f;
 }
 
-/* Opens to the left of the stack rather than above it: above is where the
-   canvas content usually is, and the stack already sits near the bottom
-   edge on a phone. */
+/* Opens to the left of its own button, vertically centered on it, rather
+   than above: above is where the canvas content usually is, and the
+   stack already sits near the bottom edge on a phone. */
 .fab-palette {
   position: absolute;
   right: calc(100% + 12px);
-  bottom: 0;
+  top: 50%;
+  transform: translateY(-50%);
   display: grid;
   grid-template-columns: repeat(3, 28px);
   gap: 8px;
@@ -668,6 +681,32 @@ html, body {
 .fab-swatch-custom::-webkit-color-swatch {
   border: none;
   border-radius: 4px;
+}
+
+/* The font picker's own popover: a short vertical list of names (each
+   rendered in its own font as its preview) rather than the color grid
+   above — a swatch can't stand in for a typeface the way it can for a
+   color. */
+.fab-palette-list {
+  display: flex;
+  flex-direction: column;
+  width: 150px;
+  padding: 6px;
+}
+
+.fab-font-option {
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: #e6e9ef;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fab-font-option:hover {
+  background: #2c3644;
 }
 
 /* Hidden until a block is actually selected (body.inspector-open, set by
