@@ -27,6 +27,7 @@ import { createGoogleDocsExportDialog } from './ui/GoogleDocsExportDialog.js';
 import { createLiveSessionDialog } from './ui/LiveSessionDialog.js';
 import { mountSelectionFabs } from './ui/SelectionFabs.js';
 import { showToast } from './ui/Toast.js';
+import { maybeShowOnboarding } from './ui/Onboarding.js';
 import { renderCurrentLevelDataUrl, renderCurrentLevelBlob } from './model/diagramImage.js';
 import { getBoundaryLabelRect } from './render/BlockRenderer.js';
 import { getConnectionGeometry, getConnectionLabelPosition } from './render/ConnectionRenderer.js';
@@ -954,6 +955,7 @@ async function bootstrap() {
   frameCurrentLevel();
   updateNavigationUI();
   renderLoop.start();
+  maybeShowOnboarding();
 
   // An invite link (?join=) carries the diagram too, so the guest already
   // has something on screen; joining then upgrades it to a live session.
