@@ -26,6 +26,7 @@ import { createShareLinkDialog } from './ui/ShareLinkDialog.js';
 import { createGoogleDocsExportDialog } from './ui/GoogleDocsExportDialog.js';
 import { createLiveSessionDialog } from './ui/LiveSessionDialog.js';
 import { mountSelectionFabs } from './ui/SelectionFabs.js';
+import { showToast } from './ui/Toast.js';
 import { renderCurrentLevelDataUrl, renderCurrentLevelBlob } from './model/diagramImage.js';
 import { getBoundaryLabelRect } from './render/BlockRenderer.js';
 import { getConnectionGeometry, getConnectionLabelPosition } from './render/ConnectionRenderer.js';
@@ -72,15 +73,27 @@ async function bootstrap() {
   const sharedParam = new URLSearchParams(window.location.search).get('d');
   let project;
   let isSharedView = false;
+  let sharedLinkFailed = false;
   if (sharedParam) {
     try {
       project = Project.fromJSON(await decodeProjectFromParam(sharedParam));
       isSharedView = true;
-    } catch (err) {
-      window.alert(`Couldn't load the diagram from this link: ${err.message}`);
+    } catch {
+      // A truncated or otherwise mangled ?d= — there's nothing in it worth
+      // salvaging, so fall through to a blank diagram rather than the
+      // blocking alert() this used to be: an empty canvas is still
+      // something to work with, and a toast says what happened without
+      // stopping the page from finishing loading.
+      sharedLinkFailed = true;
+      window.history.replaceState(null, '', window.location.pathname);
+      showToast("This link's diagram couldn't be read — it may be corrupted or incomplete. Starting a blank diagram instead.");
     }
   }
-  if (!project) project = (await loadProject()) || new Project({ name: 'Untitled Product' });
+  if (sharedLinkFailed) {
+    project = new Project({ name: 'Untitled Product' });
+  } else if (!project) {
+    project = (await loadProject()) || new Project({ name: 'Untitled Product' });
+  }
   if (project.listBlocks().length === 0) {
     project.createDefaultBlock(80, 80);
   }
