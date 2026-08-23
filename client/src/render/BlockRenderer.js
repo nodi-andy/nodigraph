@@ -224,26 +224,28 @@ export function drawResizeHandles(ctx, geometry, palette = DEFAULT_PALETTE) {
   ctx.restore();
 }
 
-// Detects the cursor sitting *inside* the block, no deeper than a port's
-// own inward-facing half — hovering there is what reveals an add-port
-// ghost (see DragStateMachine's hover-ghost handling). Matches the ghost's
-// own drawn footprint exactly (see getSlotRectFromBorderPoint, which
-// straddles the border the same PORT_LENGTH/2 in each direction), so the
-// hoverable zone lines up with what's actually visible rather than
-// stopping short of (or reaching past) it.
+// Detects the cursor within a port's own hit distance of the border, on
+// either side of it — hovering there is what reveals an add-port ghost
+// (see DragStateMachine's hover-ghost handling), and it's also what a real
+// port's own hover/highlight rides on. Matches the port's own drawn
+// footprint exactly (see getSlotRectFromBorderPoint, which straddles the
+// border by PORT_LENGTH/2 in *each* direction — inward and outward alike),
+// so the hoverable zone lines up with what's actually visible rather than
+// only ever covering the inward half of it.
 export function getEdgeZoneOffset(geometry, ports, worldX, worldY) {
   const { x, y, width, height } = geometry;
-  if (worldX < x || worldX > x + width || worldY < y || worldY > y + height) return null;
+  const margin = PORT_LENGTH / 2;
+  if (worldX < x - margin || worldX > x + width + margin || worldY < y - margin || worldY > y + height + margin) return null;
 
   const candidates = [
-    { side: 'left', dist: worldX - x, offset: worldY - y },
-    { side: 'right', dist: x + width - worldX, offset: worldY - y },
-    { side: 'top', dist: worldY - y, offset: worldX - x },
-    { side: 'bottom', dist: y + height - worldY, offset: worldX - x },
+    { side: 'left', dist: Math.abs(worldX - x), offset: worldY - y },
+    { side: 'right', dist: Math.abs(x + width - worldX), offset: worldY - y },
+    { side: 'top', dist: Math.abs(worldY - y), offset: worldX - x },
+    { side: 'bottom', dist: Math.abs(y + height - worldY), offset: worldX - x },
   ];
   candidates.sort((a, b) => a.dist - b.dist);
   const best = candidates[0];
-  if (best.dist > PORT_LENGTH / 2) return null;
+  if (best.dist > margin) return null;
 
   const length = sideAxis(best.side) === 'x' ? height : width;
   // The cursor's own nearest slot on this side — not redirected toward

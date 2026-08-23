@@ -713,6 +713,13 @@ export class DragStateMachine {
       sourcePortId: port.id,
       sourceInverted: Boolean(boundary) && zone.blockId === boundary.block.id,
       currentWorld: world,
+      // Tracked so resolveConnectionTarget can tell "this whole connection
+      // is being quick-created from scratch" (both ends bare edges) apart
+      // from "one end already existed" — only the former gets its ports'
+      // direction decided outright (see resolveConnectionTarget), since an
+      // existing port's direction is the user's own prior, deliberate
+      // choice to leave undecided or not.
+      sourcePortIsNew: true,
     };
     this.requestRender();
   }
@@ -862,6 +869,21 @@ export class DragStateMachine {
     const blockId = zone.blockId;
     const portId = newPort.id;
     const outRole = this.resolveRoles(sourceEffective, targetEffective);
+
+    // Quick-creating a whole connection from two bare edges (as opposed to
+    // landing on — or dragging from — a port that already existed) leaves
+    // nothing undecided: with both ends new, the wire itself is the only
+    // fact either one has, so it's applied outright (source out, target
+    // in) rather than leaving two fresh ports sitting there undecided. An
+    // existing port's direction is never touched here — undecided is a
+    // choice that port's own history already made (or didn't), not
+    // something this drag gets to override.
+    if (this.context.sourcePortIsNew) {
+      const targetRole = outRole === 'out' ? 'in' : 'out';
+      sourcePort.direction = sourceInverted ? invertDirection(outRole) : outRole;
+      newPort.direction = targetInverted ? invertDirection(targetRole) : targetRole;
+    }
+
     const outSide = outRole === 'out' ? { blockId: sourceBlockId, portId: sourcePortId } : { blockId, portId };
     const inSide = outRole === 'out' ? { blockId, portId } : { blockId: sourceBlockId, portId: sourcePortId };
     return { valid: true, blockId, portId, outSide, inSide };
