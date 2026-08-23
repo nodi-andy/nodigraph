@@ -36,6 +36,13 @@
            needed fast enough) to stay one click away instead of behind
            the app menu — see ui/HeaderActions.js. -->
       <div id="header-actions"></div>
+      <!-- Who else is here right now, in a live session — see
+           ui/OnlineUsers.js. Empty and hidden until someone actually
+           joins; placed after #header-actions (not before) so it rides
+           along in the same right-pushed group that div's own
+           margin-left:auto creates, rather than getting left behind on
+           the wrong side of the gap. -->
+      <div id="online-users" class="online-users" hidden></div>
       <!-- Mirrors #menu-toggle on the opposite edge — opens the Inspector
            drawer (ui/InspectorPanel.js) on an explicit tap rather than
            having it pop open the moment something is selected, the same

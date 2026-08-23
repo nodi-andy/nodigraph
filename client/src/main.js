@@ -27,6 +27,7 @@ import { createShareLinkDialog } from './ui/ShareLinkDialog.js';
 import { createGoogleDocsExportDialog } from './ui/GoogleDocsExportDialog.js';
 import { createLiveSessionDialog } from './ui/LiveSessionDialog.js';
 import { mountSelectionFabs } from './ui/SelectionFabs.js';
+import { mountOnlineUsers } from './ui/OnlineUsers.js';
 import { showToast } from './ui/Toast.js';
 import { maybeShowOnboarding } from './ui/Onboarding.js';
 import { renderCurrentLevelDataUrl, renderCurrentLevelBlob } from './model/diagramImage.js';
@@ -54,6 +55,7 @@ const parentAddIconEl = parentFabEl.querySelector('[data-icon="add-parent"]');
 const docSyncEl = document.getElementById('doc-sync');
 const appMenuEl = document.getElementById('app-menu');
 const headerActionsEl = document.getElementById('header-actions');
+const onlineUsersEl = document.getElementById('online-users');
 const fabStackEl = document.getElementById('fab-stack');
 const menuToggleEl = document.getElementById('menu-toggle');
 const inspectorToggleEl = document.getElementById('inspector-toggle');
@@ -751,14 +753,23 @@ async function bootstrap() {
     return selection.count + wireSelection.list().length;
   }
 
-  function visibleRemoteCursors() {
+  // Drops anyone not heard from recently — shared by the canvas's own
+  // cursor glyphs and the header's online-users list (see draw() below),
+  // so "who's considered online" never disagrees between the two.
+  function pruneStaleCursors() {
     const now = Date.now();
+    for (const [id, cursor] of remoteCursors) {
+      if (now - cursor.lastSeen > CURSOR_STALE_MS) remoteCursors.delete(id);
+    }
+  }
+
+  // Only the cursors on the *level currently being viewed* — someone
+  // editing three levels away is still online (see the header list, which
+  // isn't filtered this way), just not something to draw a cursor for on
+  // a canvas that isn't showing their block at all.
+  function currentLevelCursors() {
     const visible = new Map();
     for (const [id, cursor] of remoteCursors) {
-      if (now - cursor.lastSeen > CURSOR_STALE_MS) {
-        remoteCursors.delete(id);
-        continue;
-      }
       if (pathsEqual(cursor.path, project.path)) visible.set(id, cursor);
     }
     return visible;
@@ -773,6 +784,8 @@ async function bootstrap() {
     // selected — same "present but inert" treatment as the mini-FABs it
     // sits below, driven from the same count they use.
     fabEl.disabled = selectionCount() > 0;
+    pruneStaleCursors();
+    onlineUsersApi.refresh(clientId, [...remoteCursors.keys()]);
     const dpr = window.devicePixelRatio || 1;
     const dragHighlights = stateMachine.getConnectionDragHighlights();
     renderScene(ctx, camera, project, {
@@ -786,7 +799,7 @@ async function bootstrap() {
       connectionTarget: dragHighlights.target,
       selectedBlockIds: selection.selectedBlockIds,
       wireSelection,
-      remoteCursors: visibleRemoteCursors(),
+      remoteCursors: currentLevelCursors(),
       hoverGhost: stateMachine.getHoverGhost(),
       marqueeRect: stateMachine.getMarqueeRect(),
       // Derived from the clock rather than counted in frames, so the
@@ -935,6 +948,7 @@ async function bootstrap() {
   if (ENABLE_DOC_SYNC) {
     docSyncApi = mountDocSync(docSyncEl, { onUpdate: handleUpdateDoc, onConnect: handleConnectDoc });
   }
+  const onlineUsersApi = mountOnlineUsers(onlineUsersEl);
   headerActionsApi = mountHeaderActions(headerActionsEl, {
     onUndo: undo,
     onRedo: redo,
