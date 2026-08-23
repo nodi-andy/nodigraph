@@ -31,14 +31,27 @@ export class Project {
 
   static fromJSON(data) {
     if (!data) return new Project();
-    if (data.rootBlock) return new Project({ rootBlock: data.rootBlock });
+    if (data.rootBlock) {
+      const project = new Project({ rootBlock: data.rootBlock });
+      // Whichever block was open when this was saved/shared — trimmed to
+      // whatever prefix still resolves, same as a live peer's tree
+      // changing out from under you (see applyRemoteRootBlock), in case
+      // the block a link points at has since been deleted or the JSON was
+      // hand-edited.
+      if (Array.isArray(data.path)) project.path = project.validPathPrefix(data.path);
+      return project;
+    }
     // Older saved shape (no rootBlock yet) — still loads, just starts with
     // a blank product interface.
     return new Project({ name: data.name, blocks: data.blocks || [], connections: data.connections || [] });
   }
 
   toJSON() {
-    return { rootBlock: serializeBlockTree(this.rootBlock) };
+    // `path` travels with the tree everywhere this gets serialized — a
+    // `?d=` share link, "Save to URL", and the local/server autosave alike
+    // — so opening any of them lands back on the block you were actually
+    // looking at instead of always resetting to the top level.
+    return { rootBlock: serializeBlockTree(this.rootBlock), path: this.path };
   }
 
   get name() {
@@ -205,23 +218,29 @@ export class Project {
     this.path = this.path.slice(0, Math.max(0, depth));
   }
 
-  // Re-hydrates the tree in place from a freshly-fetched snapshot (see
-  // store.js's polling) rather than replacing this Project instance —
-  // every module that holds a reference to it (state machine, inspector,
-  // toolbar, ...) expects that reference to stay stable for the session.
-  // `path` is trimmed to whatever longest prefix still resolves, in case
-  // another client deleted a block you were currently inside.
-  applyRemoteRootBlock(rootBlockData) {
-    this.rootBlock = hydrateBlockTree(rootBlockData);
+  // Trims a candidate path down to whatever longest prefix still resolves
+  // against the *current* tree — shared by applyRemoteRootBlock (another
+  // client deleted a block you were currently inside) and fromJSON (a
+  // saved/shared path pointing at a block that no longer exists).
+  validPathPrefix(candidatePath) {
     const validPath = [];
     let level = this.rootBlock.children;
-    for (const blockId of this.path) {
+    for (const blockId of candidatePath) {
       const block = level?.blocks.get(blockId);
       if (!block) break;
       validPath.push(blockId);
       level = block.children;
     }
-    this.path = validPath;
+    return validPath;
+  }
+
+  // Re-hydrates the tree in place from a freshly-fetched snapshot (see
+  // store.js's polling) rather than replacing this Project instance —
+  // every module that holds a reference to it (state machine, inspector,
+  // toolbar, ...) expects that reference to stay stable for the session.
+  applyRemoteRootBlock(rootBlockData) {
+    this.rootBlock = hydrateBlockTree(rootBlockData);
+    this.path = this.validPathPrefix(this.path);
   }
 
   // One entry per level from the product root down to the current view,
