@@ -127,14 +127,31 @@ async function bootstrap() {
   const wireSelection = new WireSelection();
   const renderLoop = new RenderLoop(draw);
 
-  // clientId -> { x, y, path, lastSeen } — path is the hierarchy level the
-  // cursor was reported from, so a cursor from a level you're not currently
-  // looking at doesn't show up superimposed on unrelated blocks. Pruned by
-  // age rather than an explicit "they disconnected" message, since the
-  // server doesn't track which socket belongs to which clientId.
+  // clientId -> { x, y, path, hidden, lastSeen } — path is the hierarchy
+  // level the cursor was reported from, so a cursor from a level you're
+  // not currently looking at doesn't show up superimposed on unrelated
+  // blocks; `hidden` is true while that person's own mouse is off their
+  // canvas (see the pointerleave handler below) — no glyph to draw, but
+  // still very much online. Pruned by age rather than an explicit
+  // "they disconnected" message, since the server doesn't track which
+  // socket belongs to which clientId. This also doubles as the header's
+  // online-users presence list (see draw() below): it reads every entry
+  // here regardless of `hidden`, which — combined with the heartbeat (see
+  // CURSOR_HEARTBEAT_MS further down) — is what keeps someone listed as
+  // online while they're using the rest of the app (a toolbar, the
+  // Inspector) rather than actively hovering the diagram, or just
+  // sitting still reading it. A presence list that vanishes the moment a
+  // real person's mouse leaves the canvas, or simply stops moving, isn't
+  // telling you who's online — just who happened to be mid-gesture over
+  // the diagram a few seconds ago.
   const remoteCursors = new Map();
   const CURSOR_STALE_MS = 5000;
   let lastCursorSentAt = 0;
+  // The world position a heartbeat re-announces between real cursor
+  // moves — null until the mouse actually enters the canvas at least
+  // once, so a peer who's never moved their cursor here doesn't get an
+  // announced position of nowhere in particular.
+  let lastCursorWorld = null;
 
   // Tracks what the server should already contain, so a pushed update (see
   // liveSync below) can tell "someone else changed it" apart from "that's
@@ -742,8 +759,18 @@ async function bootstrap() {
       const block = project.getBlock(message.blockId);
       if (block?.boundaryGeometry) Object.assign(block.boundaryGeometry, message.boundaryGeometry);
     } else if (message.kind === 'cursor') {
-      remoteCursors.set(message.clientId, { x: message.x, y: message.y, path: message.path, lastSeen: Date.now() });
+      remoteCursors.set(message.clientId, {
+        x: message.x,
+        y: message.y,
+        path: message.path,
+        hidden: Boolean(message.hidden),
+        lastSeen: Date.now(),
+      });
     } else if (message.kind === 'cursor-leave') {
+      // No longer sent (see the pointerleave handler below, which sends a
+      // hidden cursor instead so the person stays in the online-users
+      // list) — kept so an older cached client's stray message still does
+      // something sane rather than silently piling up as an unknown kind.
       remoteCursors.delete(message.clientId);
     }
     renderLoop.requestRender();
@@ -763,14 +790,17 @@ async function bootstrap() {
     }
   }
 
-  // Only the cursors on the *level currently being viewed* — someone
-  // editing three levels away is still online (see the header list, which
-  // isn't filtered this way), just not something to draw a cursor for on
-  // a canvas that isn't showing their block at all.
+  // Only the cursors actually worth drawing a glyph for: on the level
+  // currently being viewed (someone editing three levels away is still
+  // online — see the header list, which isn't filtered either way — just
+  // not something to draw a cursor for on a canvas that isn't showing
+  // their block at all), and not currently hidden (their own mouse is off
+  // their canvas — see the pointerleave handler — so there's no real
+  // cursor position of theirs to point at right now).
   function currentLevelCursors() {
     const visible = new Map();
     for (const [id, cursor] of remoteCursors) {
-      if (pathsEqual(cursor.path, project.path)) visible.set(id, cursor);
+      if (!cursor.hidden && pathsEqual(cursor.path, project.path)) visible.set(id, cursor);
     }
     return visible;
   }
@@ -883,20 +913,54 @@ async function bootstrap() {
   // a raw mousemove firing every few milliseconds is far more than needed
   // for another person to read where your cursor is.
   const CURSOR_SEND_INTERVAL_MS = 40;
+  // Whether OUR OWN mouse is currently over the canvas — false the moment
+  // it leaves (pointerleave below), true again on the next move. Tracked
+  // outside sendCursor so the heartbeat can keep re-announcing whichever
+  // state is current without needing its own copy of the logic.
+  let cursorHidden = false;
+  // `hidden` travels with every cursor message this sends: false while
+  // actually hovering the canvas, true once the mouse has left it, but a
+  // message keeps going out either way via the heartbeat. A receiver
+  // skips drawing a glyph for a hidden cursor (see currentLevelCursors)
+  // without dropping that person from remoteCursors entirely, which is
+  // what the online-users list reads.
+  function sendCursor() {
+    if (!lastCursorWorld) return;
+    const cursor = { kind: 'cursor', clientId, x: lastCursorWorld.x, y: lastCursorWorld.y, path: project.path, hidden: cursorHidden };
+    liveSync.sendLive(cursor);
+    broadcastToPeers({ type: 'live', ...cursor });
+  }
+
   canvas.addEventListener('pointermove', (event) => {
     const now = Date.now();
     if (now - lastCursorSentAt < CURSOR_SEND_INTERVAL_MS) return;
     lastCursorSentAt = now;
     const rect = canvas.getBoundingClientRect();
-    const world = camera.screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
-    const cursor = { kind: 'cursor', clientId, x: world.x, y: world.y, path: project.path };
-    liveSync.sendLive(cursor);
-    broadcastToPeers({ type: 'live', ...cursor });
+    lastCursorWorld = camera.screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
+    cursorHidden = false;
+    sendCursor();
   });
   canvas.addEventListener('pointerleave', () => {
-    liveSync.sendLive({ kind: 'cursor-leave', clientId });
-    broadcastToPeers({ type: 'live', kind: 'cursor-leave', clientId });
+    // The position itself is kept (not cleared) — a person who moved
+    // their mouse from the canvas onto, say, the Inspector is still
+    // right where they were on the diagram as far as anyone else's screen
+    // should show, just without a glyph actively tracking a cursor that
+    // isn't over the canvas anymore.
+    cursorHidden = true;
+    sendCursor();
   });
+
+  // Re-announces the last known position (and hidden state) on a steady
+  // clock, independent of whether the mouse has actually moved — a real,
+  // still-connected person who has simply stopped moving their cursor
+  // (reading, or working in a panel outside the canvas) would otherwise
+  // age out of every other peer's remoteCursors (see CURSOR_STALE_MS) and
+  // quietly disappear from the online-users list despite still being
+  // right here. Comfortably under CURSOR_STALE_MS so a single missed beat
+  // (a dropped packet, a throttled background tab) doesn't cost a false
+  // "they left".
+  const CURSOR_HEARTBEAT_MS = 2000;
+  setInterval(sendCursor, CURSOR_HEARTBEAT_MS);
 
   // Pure hygiene: without some activity to trigger a redraw, a cursor that
   // goes stale (its owner closed the tab) would just sit there forever

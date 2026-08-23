@@ -165,7 +165,7 @@ export class DragStateMachine {
       // existing port, a resize handle, ...) skips the dwell entirely and
       // acts on it immediately: grab a block's middle to move it, grab
       // its edge to wire it, the same split most touch diagram tools use.
-      const zone = this.resolveGhostZone(world);
+      const zone = this.resolveGhostZone(world, { requireSelected: true });
       if (zone) {
         this.startConnectionFromNewPort(zone, world);
         return;
@@ -516,13 +516,24 @@ export class DragStateMachine {
   // Finds whichever block's (or the current boundary's) edge zone the
   // cursor is in, topmost/nearest first — the same priority order other
   // hit-testing uses. Returns null outside every zone.
-  resolveGhostZone(world) {
+  //
+  // `requireSelected`, when true, skips any block (current-block boundary
+  // included) that isn't already selected — for *starting* a brand new
+  // port/wire from a bare edge, the same "select it first" rule now
+  // covers repositioning an existing port (see hitTest's own
+  // selectedBlockIds). Left off (the default) for resolveConnectionTarget's
+  // own call: *landing* a wire that's already being dragged from
+  // elsewhere onto some other block's bare edge is completing a
+  // connection, not picking a port, and was never gated by selection.
+  resolveGhostZone(world, { requireSelected = false } = {}) {
+    const eligible = (id) => !requireSelected || this.selection.selectedBlockIds.has(id);
     for (const block of this.project.listBlocks()) {
+      if (!eligible(block.id)) continue;
       const zone = getEdgeZoneOffset(block.geometry, block.ports, world.x, world.y);
       if (zone) return { blockId: block.id, geometry: block.geometry, ports: block.ports, ...zone };
     }
     const boundary = this.getBoundaryInfo();
-    if (boundary) {
+    if (boundary && eligible(boundary.block.id)) {
       const zone = getEdgeZoneOffset(boundary.geometry, boundary.block.ports, world.x, world.y);
       if (zone) return { blockId: boundary.block.id, geometry: boundary.geometry, ports: boundary.block.ports, ...zone };
     }
@@ -534,7 +545,7 @@ export class DragStateMachine {
   // dwell has actually elapsed (the ghost appears and starts accepting a
   // click) — see HOVER_GHOST_DELAY_MS.
   updateHoverGhost(world) {
-    const target = this.resolveGhostZone(world);
+    const target = this.resolveGhostZone(world, { requireSelected: true });
     const current = this.hoverGhost;
     const same = target && current && current.blockId === target.blockId
       && current.side === target.side && current.offset === target.offset;
