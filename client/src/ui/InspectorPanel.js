@@ -27,7 +27,9 @@ output.5V: This is the output
 prop.weight: 2kg
 prop.state: ON, OFF, Disabled, Error = ON`;
 
-const TABS = ['Inspector', 'Description'];
+// 'Description' hidden for now (not removed — renderDescriptionTab below
+// still works, and is one entry away from coming back).
+const TABS = ['Inspector'];
 
 function field(labelText, inputEl) {
   const wrapper = document.createElement('div');
@@ -83,9 +85,9 @@ export function mountInspector(container, { project, selection, wireSelection, r
   // size — selecting something only makes that button clickable.
   let sheetOpen = false;
   // Selection happens on pointerdown (so a drag has the right block from
-  // the start), but opening the panel resizes the canvas — doing that
-  // mid-press would shift world coordinates under an in-progress drag, so
-  // the open state only updates once the press ends.
+  // the start) — the open state only updates once the press ends, so a
+  // selection made mid-drag doesn't touch anything else until the drag
+  // itself is done.
   let pointerDown = false;
 
   function renderEmpty() {
@@ -425,12 +427,16 @@ export function mountInspector(container, { project, selection, wireSelection, r
   function renderBlock(block) {
     container.innerHTML = '';
     container.appendChild(sheetHeader());
-    container.appendChild(
-      tabBar(activeTab, (tab) => {
-        activeTab = tab;
-        refresh();
-      }),
-    );
+    // A bar with only one tab in it has nothing to switch between — skip
+    // it rather than show a button that's always already selected.
+    if (TABS.length > 1) {
+      container.appendChild(
+        tabBar(activeTab, (tab) => {
+          activeTab = tab;
+          refresh();
+        }),
+      );
+    }
 
     if (activeTab === 'Inspector') renderInspectorTab(container, block);
     else renderDescriptionTab(container, block);
