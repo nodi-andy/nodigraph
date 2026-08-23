@@ -597,14 +597,18 @@ async function bootstrap() {
     },
   });
 
-  // Starting a session is a header action (see ui/HeaderActions.js); the
-  // live-session dialog is where the invite link and the participant count
-  // live once it is running, so starting opens it there.
+  // Starting a session is a header action (see ui/HeaderActions.js). The
+  // first click just starts it and hands over the invite link — a dialog
+  // whose only content would be "here's a link, click Copy" is a detour
+  // from what starting a session is actually for. Once it's live, the same
+  // button instead opens that dialog, which is where the participant count
+  // and "End session" live for the rest of the session's life.
   async function handleSession() {
     if (peerSession.getState().state === 'live') {
       liveSessionDialog.open();
       return;
     }
+    let inviteUrl;
     try {
       const sessionId = await peerSession.host();
       // Just the session id — no need to also pack the whole diagram in
@@ -612,13 +616,23 @@ async function bootstrap() {
       // data channel the moment the guest's connection opens (see
       // peerSession.js's onStatus 'joined' handling below), so nothing
       // else needs to travel through the link itself.
-      liveSessionDialog.setInviteUrl(`${window.location.origin}${window.location.pathname}?join=${encodeURIComponent(sessionId)}`);
+      inviteUrl = `${window.location.origin}${window.location.pathname}?join=${encodeURIComponent(sessionId)}`;
+      liveSessionDialog.setInviteUrl(inviteUrl);
     } catch (err) {
       headerActionsApi?.refreshSession(peerSession.getState());
       window.alert(`Couldn't start a live session: ${err.message}`);
       return;
     }
-    liveSessionDialog.open();
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      showToast('Live session started — invite link copied to clipboard.');
+    } catch {
+      // Clipboard access can legitimately be refused (permissions,
+      // insecure context) — the link is short now that it's just a
+      // session id (see setInviteUrl above), so showing it plainly is a
+      // real fallback rather than an unreadable wall of text.
+      showToast(`Live session started. Invite link: ${inviteUrl}`, { autoDismissMs: 0 });
+    }
   }
 
   function handleShare() {

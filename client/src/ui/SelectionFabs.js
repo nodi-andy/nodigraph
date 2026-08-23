@@ -5,8 +5,9 @@ import { FONTS } from '../render/fonts.js';
 // to a selection — delete it, recolor it — don't require opening the
 // Inspector, which on a small screen covers the diagram it is describing.
 //
-// The stack is empty-handed when nothing is selected: showing a delete
-// button with nothing to delete just invites a click that does nothing.
+// The stack stays visible even with nothing selected — disabled rather
+// than hidden, so it's a fixed landmark in that corner rather than
+// something that pops in and out as the selection comes and goes.
 
 // Chosen to stay legible on the dark canvas and to be tellable apart from
 // each other at wire thickness — the point of coloring a pipe is grouping
@@ -246,17 +247,23 @@ export function mountSelectionFabs(
   });
 
   // Called from the render loop, so it compares before touching the DOM —
-  // setting `hidden` to the value it already has on every frame would be
+  // setting `disabled` to the value it already has on every frame would be
   // needless layout churn.
   let lastCount = null;
+  const buttons = [colorButton, fillButton, fontButton, deleteButton];
 
   return {
     refresh() {
       const count = getSelectionCount();
       if (count === lastCount) return;
       lastCount = count;
-      container.hidden = count === 0;
-      if (count === 0) closeAllPopovers();
+      // The stack stays put and full-strength either way — disabled
+      // rather than hidden, so the corner it lives in doesn't reflow (or
+      // silently swallow a click aimed at where a button *was*) the
+      // instant a selection is made or cleared.
+      const disabled = count === 0;
+      for (const button of buttons) button.disabled = disabled;
+      if (disabled) closeAllPopovers();
     },
   };
 }

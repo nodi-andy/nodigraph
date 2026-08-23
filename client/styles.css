@@ -597,10 +597,6 @@ body.block-selected #fab-add-block {
   z-index: 20;
 }
 
-.fab-stack[hidden] {
-  display: none;
-}
-
 /* Wraps a mini-FAB and its own popover as siblings (see SelectionFabs.js's
    miniFabWithPopover) — positioned so the popover (see .fab-palette)
    anchors to this pair rather than to the stack as a whole, with four
@@ -629,11 +625,19 @@ body.block-selected #fab-add-block {
   background: #2c3644;
 }
 
-.fab.fab-mini:hover {
+.fab.fab-mini:hover:not(:disabled) {
   background: #3a4556;
 }
 
-.fab.fab-danger:hover {
+/* Nothing selected: present but inert, rather than gone — a fixed
+   landmark in the corner instead of controls that pop in and out as the
+   selection comes and goes. */
+.fab.fab-mini:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.fab.fab-danger:hover:not(:disabled) {
   background: #a52a2f;
 }
 
