@@ -80,6 +80,14 @@ async function bootstrap() {
   // persist()) or get overwritten by (via liveSync) whatever the server's
   // own project currently is. See model/shareLink.js.
   const sharedParam = new URLSearchParams(window.location.search).get('d');
+  // An invite link (?join=) carries only the session id, not the diagram —
+  // the host pushes that over the data channel the moment this browser's
+  // connection opens (see peerSession.join() near the end of this
+  // function). Old-style links from before that carried both still work
+  // unchanged: `project` is already set from `?d=` by the time the branch
+  // below would otherwise apply.
+  const joinId = new URLSearchParams(window.location.search).get('join');
+  const isLiveGuest = Boolean(joinId);
   let project;
   let isSharedView = false;
   let sharedLinkFailed = false;
@@ -101,7 +109,12 @@ async function bootstrap() {
   if (sharedLinkFailed) {
     project = new Project({ name: 'Untitled' });
   } else if (!project) {
-    project = (await loadProject()) || new Project({ name: 'Untitled' });
+    // A live-session guest starts from a blank placeholder rather than
+    // this browser's own local/server document — it's about to be
+    // replaced by the host's diagram anyway, so loading (and briefly
+    // showing) this browser's own unrelated one first would just be
+    // wasted work, or worse, a confusing flash of the wrong diagram.
+    project = isLiveGuest ? new Project({ name: 'Untitled' }) : (await loadProject()) || new Project({ name: 'Untitled' });
   }
   if (project.listBlocks().length === 0) {
     project.createDefaultBlock(80, 80);
@@ -149,7 +162,10 @@ async function bootstrap() {
     // dropped by History itself.
     history.record({ json: lastSyncedSnapshot, path: [...project.path] });
     headerActionsApi?.refreshHistory();
-    if (!isSharedView) saveProject(project);
+    // A live-session guest's project is the host's, streamed in over the
+    // data channel — persisting it here would overwrite this browser's own
+    // unrelated local/server document with someone else's diagram.
+    if (!isSharedView && !isLiveGuest) saveProject(project);
     // The tab title is what a bookmark gets named, so it has to be the
     // diagram's name rather than the app's.
     document.title = project.name ? `${project.name} · nodigraph` : 'nodigraph';
@@ -591,9 +607,12 @@ async function bootstrap() {
     }
     try {
       const sessionId = await peerSession.host();
-      // The invite carries the diagram as well as the session id, so a
-      // guest still sees it if the peer connection can't be established.
-      liveSessionDialog.setInviteUrl(`${await buildShareUrl()}&join=${encodeURIComponent(sessionId)}`);
+      // Just the session id — no need to also pack the whole diagram in
+      // here the way a plain share link does: the host pushes it over the
+      // data channel the moment the guest's connection opens (see
+      // peerSession.js's onStatus 'joined' handling below), so nothing
+      // else needs to travel through the link itself.
+      liveSessionDialog.setInviteUrl(`${window.location.origin}${window.location.pathname}?join=${encodeURIComponent(sessionId)}`);
     } catch (err) {
       headerActionsApi?.refreshSession(peerSession.getState());
       window.alert(`Couldn't start a live session: ${err.message}`);
@@ -797,7 +816,11 @@ async function bootstrap() {
     if (peerSession?.isActive()) peerSession.send(message);
   }
 
-  const liveSync = isSharedView
+  // A live-session guest's own local/server document is unrelated to
+  // whatever the host is sharing — connecting to it here would just
+  // overwrite this browser's screen with someone else's diagram the
+  // moment it next changed.
+  const liveSync = isSharedView || isLiveGuest
     ? { sendLive: () => {} }
     : connectLiveSync({ onProject: applyRemoteProject, onLive: applyLiveUpdate });
 
@@ -1029,14 +1052,13 @@ async function bootstrap() {
   renderLoop.start();
   maybeShowOnboarding();
 
-  // An invite link (?join=) carries the diagram too, so the guest already
-  // has something on screen; joining then upgrades it to a live session.
-  // A failure here is worth surfacing — a corporate firewall blocking
-  // WebRTC is exactly the case where silence would be baffling.
-  const joinId = new URLSearchParams(window.location.search).get('join');
-  if (joinId) {
+  // joinId/isLiveGuest were resolved back at the top of bootstrap(), before
+  // `project` was chosen. There's nothing on screen yet worth keeping if
+  // this fails — a corporate firewall blocking WebRTC is exactly the case
+  // where silence would be baffling.
+  if (isLiveGuest) {
     peerSession.join(joinId).catch((err) => {
-      window.alert(`Couldn't join the live session: ${err.message}\nYou can still edit this copy of the diagram.`);
+      window.alert(`Couldn't join the live session: ${err.message}\nAsk whoever invited you to send a regular Share link instead.`);
     });
   }
 }
