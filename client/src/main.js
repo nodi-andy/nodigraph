@@ -56,6 +56,7 @@ const appMenuEl = document.getElementById('app-menu');
 const headerActionsEl = document.getElementById('header-actions');
 const fabStackEl = document.getElementById('fab-stack');
 const menuToggleEl = document.getElementById('menu-toggle');
+const inspectorToggleEl = document.getElementById('inspector-toggle');
 const topbarMenuEl = document.getElementById('topbar-menu');
 const topbarMenuBackdropEl = document.getElementById('topbar-menu-backdrop');
 
@@ -260,19 +261,21 @@ async function bootstrap() {
     renderLoop.requestRender();
   }
 
-  // Blocks only — a wire has no fill of its own. Unlike the border color
-  // above, "back to default" here means dropping the key entirely rather
-  // than storing a literal fallback color: the theme itself supplies the
-  // fill (see canvasPalette.js), and a stored literal would get stuck on
-  // whichever theme was active when it was picked.
-  function fillSelection(color) {
+  // Shared by every block-only style toggle below (fill, font family,
+  // size, bold, italic): "no value" means dropping the key entirely rather
+  // than storing a falsy/default literal, so an untouched block carries no
+  // style data — for `fill` specifically, the theme itself supplies the
+  // default (see canvasPalette.js), and a stored literal would get stuck
+  // on whichever theme was active when it was picked.
+  function applyBlockStyle(key, value) {
     for (const blockId of selection.list()) {
       const block = project.getBlock(blockId);
       if (!block) continue;
-      if (color) {
-        block.style = { ...block.style, fill: color };
+      if (value) {
+        block.style = { ...block.style, [key]: value };
       } else {
-        const { fill, ...rest } = block.style || {};
+        const rest = { ...block.style };
+        delete rest[key];
         block.style = rest;
       }
     }
@@ -280,22 +283,31 @@ async function bootstrap() {
     renderLoop.requestRender();
   }
 
-  // Blocks only — same reasoning as fillSelection: "Default" drops the
-  // key so the block's label falls back to the ordinary system font stack
-  // rather than a stored literal.
+  function fillSelection(color) {
+    applyBlockStyle('fill', color);
+  }
+
   function fontSelection(key) {
-    for (const blockId of selection.list()) {
-      const block = project.getBlock(blockId);
-      if (!block) continue;
-      if (key) {
-        block.style = { ...block.style, font: key };
-      } else {
-        const { font, ...rest } = block.style || {};
-        block.style = rest;
-      }
-    }
-    persist();
-    renderLoop.requestRender();
+    applyBlockStyle('font', key);
+  }
+
+  function fontSizeSelection(size) {
+    applyBlockStyle('fontSize', size);
+  }
+
+  function fontWeightSelection(bold) {
+    applyBlockStyle('bold', bold || null);
+  }
+
+  function fontStyleSelection(italic) {
+    applyBlockStyle('italic', italic || null);
+  }
+
+  // The representative block the font popover pre-fills its controls
+  // from — same "last one picked" block the Inspector itself shows.
+  function selectionStyle() {
+    const block = project.getBlock(selection.selectedBlockId);
+    return block?.style || null;
   }
 
   function deleteSelectedPort() {
@@ -852,6 +864,7 @@ async function bootstrap() {
     deleteBlock,
     enterBlock,
     deleteConnection,
+    toggleButton: inspectorToggleEl,
   });
 
   breadcrumbApi = mountBreadcrumb(breadcrumbEl, {
@@ -918,10 +931,14 @@ async function bootstrap() {
 
   selectionFabsApi = mountSelectionFabs(fabStackEl, {
     getSelectionCount: selectionCount,
+    getSelectionStyle: selectionStyle,
     onDelete: deleteSelection,
     onColor: colorSelection,
     onFill: fillSelection,
     onFont: fontSelection,
+    onFontSize: fontSizeSelection,
+    onBold: fontWeightSelection,
+    onItalic: fontStyleSelection,
   });
   selectionFabsApi.refresh();
 

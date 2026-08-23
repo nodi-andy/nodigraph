@@ -82,14 +82,20 @@ function buildColorPalette(onPick) {
 
 /**
  * `getSelectionCount()` reports how many things (blocks + wires) are
- * selected. `onDelete()` removes them. `onColor(hex | null)` recolors
- * them (border for a block, the line itself for a wire); `onFill(hex |
- * null)` and `onFont(key | null)` only ever touch blocks, since a wire has
- * no fill and no label font of its own. Every "back to the default" case
- * passes null rather than the default's own literal value, so an
- * unmodified diagram carries no style data at all.
+ * selected. `getSelectionStyle()` returns the representative block's
+ * current `style` (or null), used only to pre-fill the font popover's
+ * controls when it opens. `onDelete()` removes the selection. `onColor(hex
+ * | null)` recolors it (border for a block, the line itself for a wire);
+ * `onFill(hex | null)`, `onFont(key | null)`, `onFontSize(px | null)`,
+ * `onBold(bool)` and `onItalic(bool)` only ever touch blocks, since a wire
+ * has no fill and no label font of its own. Every "back to the default"
+ * case passes null (or false) rather than the default's own literal
+ * value, so an unmodified diagram carries no style data at all.
  */
-export function mountSelectionFabs(container, { getSelectionCount, onDelete, onColor, onFill, onFont }) {
+export function mountSelectionFabs(
+  container,
+  { getSelectionCount, getSelectionStyle, onDelete, onColor, onFill, onFont, onFontSize, onBold, onItalic },
+) {
   container.innerHTML = '';
   container.className = 'fab-stack';
 
@@ -112,23 +118,70 @@ export function mountSelectionFabs(container, { getSelectionCount, onDelete, onC
     if (commit) closeAllPopovers();
   });
 
-  const fontPalette = document.createElement('div');
-  fontPalette.className = 'fab-palette fab-palette-list';
-  fontPalette.hidden = true;
-  for (const { key, label, family } of FONTS) {
-    const option = document.createElement('button');
-    option.type = 'button';
-    option.className = 'fab-font-option';
-    option.style.fontFamily = family;
-    option.textContent = label;
-    option.addEventListener('click', () => {
-      onFont(key);
-      closeAllPopovers();
-    });
-    fontPalette.appendChild(option);
-  }
+  // The font popover reads like a small version of a word processor's font
+  // dialog — family, size, bold, italic — rather than the earlier plain
+  // list of family names, since a block label needed the same handful of
+  // controls any other piece of styled text does. It stays open across
+  // edits (togglePopover isn't called by any control inside it) so several
+  // of those can be changed in one sitting, unlike the single-pick color
+  // swatches.
+  const fontPanel = document.createElement('div');
+  fontPanel.className = 'fab-palette fab-font-panel';
+  fontPanel.hidden = true;
 
-  openPopovers.push(colorPalette, fillPalette, fontPalette);
+  const familySelect = document.createElement('select');
+  familySelect.className = 'fab-font-family';
+  for (const { key, label } of FONTS) {
+    const option = document.createElement('option');
+    option.value = key || '';
+    option.textContent = label;
+    familySelect.appendChild(option);
+  }
+  familySelect.addEventListener('change', () => onFont(familySelect.value || null));
+
+  const sizeRow = document.createElement('div');
+  sizeRow.className = 'fab-font-row';
+  const sizeLabel = document.createElement('label');
+  sizeLabel.textContent = 'Size';
+  const sizeInput = document.createElement('input');
+  sizeInput.type = 'number';
+  sizeInput.className = 'fab-font-size';
+  sizeInput.min = '8';
+  sizeInput.max = '72';
+  sizeInput.step = '1';
+  sizeInput.addEventListener('change', () => {
+    const value = Number(sizeInput.value);
+    onFontSize(Number.isFinite(value) && value > 0 ? value : null);
+  });
+  sizeRow.append(sizeLabel, sizeInput);
+
+  const styleRow = document.createElement('div');
+  styleRow.className = 'fab-font-row fab-font-style-row';
+  const boldButton = document.createElement('button');
+  boldButton.type = 'button';
+  boldButton.className = 'fab-font-style-btn fab-font-bold';
+  boldButton.title = 'Bold';
+  boldButton.innerHTML = '<b>B</b>';
+  boldButton.addEventListener('click', () => {
+    const active = !boldButton.classList.contains('active');
+    boldButton.classList.toggle('active', active);
+    onBold(active);
+  });
+  const italicButton = document.createElement('button');
+  italicButton.type = 'button';
+  italicButton.className = 'fab-font-style-btn fab-font-italic';
+  italicButton.title = 'Italic';
+  italicButton.innerHTML = '<i>I</i>';
+  italicButton.addEventListener('click', () => {
+    const active = !italicButton.classList.contains('active');
+    italicButton.classList.toggle('active', active);
+    onItalic(active);
+  });
+  styleRow.append(boldButton, italicButton);
+
+  fontPanel.append(familySelect, sizeRow, styleRow);
+
+  openPopovers.push(colorPalette, fillPalette, fontPanel);
 
   const colorButton = miniFab('fab-color', 'Border colour', `<path d="${COLOR_ICON}" fill="currentColor"/>`, (event) => {
     event.stopPropagation();
@@ -140,22 +193,48 @@ export function mountSelectionFabs(container, { getSelectionCount, onDelete, onC
   });
   const fontButton = miniFab('fab-font', 'Font', FONT_ICON, (event) => {
     event.stopPropagation();
-    togglePopover(fontPalette);
+    // Reflects whichever block the Inspector would show, the same
+    // "last one picked" rule a multi-select uses everywhere else — read
+    // fresh on every open rather than kept in sync continuously, since
+    // nothing else here needs to react to a selection change moment to
+    // moment.
+    if (fontPanel.hidden) {
+      const style = getSelectionStyle?.() || {};
+      familySelect.value = style.font || '';
+      sizeInput.value = style.fontSize || 13;
+      boldButton.classList.toggle('active', Boolean(style.bold));
+      italicButton.classList.toggle('active', Boolean(style.italic));
+    }
+    togglePopover(fontPanel);
   });
   const deleteButton = miniFab('fab-danger', 'Delete the selection', `<path d="${DELETE_ICON}" fill="currentColor"/>`, () => {
     closeAllPopovers();
     onDelete();
   });
 
-  // Each button carries its own popover right next to it (see the
-  // .fab-palette CSS, positioned relative to its own parent) rather than
-  // one shared popover reparented on open — simpler, and the three never
-  // show at once anyway (togglePopover closes the others first).
-  colorButton.appendChild(colorPalette);
-  fillButton.appendChild(fillPalette);
-  fontButton.appendChild(fontPalette);
+  // Each popover sits next to its own button (see the .fab-palette CSS,
+  // positioned relative to this wrapper) rather than one shared popover
+  // reparented on open — simpler, and the three never show at once anyway
+  // (togglePopover closes the others first). The popover is a *sibling* of
+  // its button, not a child of it: a <button> can't validly contain other
+  // interactive content (the font popover's own <select>/<input>/<button>
+  // controls), and nesting them meant a click on, say, the bold toggle
+  // bubbled up through the button it sat inside and re-triggered that
+  // button's own click handler — closing the popover it was still trying
+  // to use.
+  function miniFabWithPopover(button, popover) {
+    const wrap = document.createElement('div');
+    wrap.className = 'fab-mini-wrap';
+    wrap.append(button, popover);
+    return wrap;
+  }
 
-  container.append(colorButton, fillButton, fontButton, deleteButton);
+  container.append(
+    miniFabWithPopover(colorButton, colorPalette),
+    miniFabWithPopover(fillButton, fillPalette),
+    miniFabWithPopover(fontButton, fontPanel),
+    deleteButton,
+  );
 
   // Any click that isn't in an open popover dismisses it — including
   // clicks on the canvas, which is where someone goes to select something

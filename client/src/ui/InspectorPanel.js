@@ -70,17 +70,18 @@ function tabBar(activeTab, onSelect) {
   return bar;
 }
 
-export function mountInspector(container, { project, selection, wireSelection, requestRender, persist, deleteBlock, enterBlock, deleteConnection }) {
+export function mountInspector(container, { project, selection, wireSelection, requestRender, persist, deleteBlock, enterBlock, deleteConnection, toggleButton }) {
   // Shows either the structured Inspector or the raw Description editor at
   // once, not both stacked — persists across refresh() calls (e.g. after
   // every prop edit) since it lives outside the rebuild functions below.
   let activeTab = 'Inspector';
-  // Matches the CSS breakpoint where the inspector becomes a bottom sheet.
-  // On desktop the panel opens by itself whenever a block is selected; on
-  // mobile the sheet would cover most of the screen the moment you tap a
-  // block, so it only opens through the explicit toggle button below.
-  const mobileLayout = window.matchMedia('(max-width: 768px)');
-  let mobileSheetOpen = false;
+  // The panel never opens itself just because something got selected — on
+  // a small screen it used to cover most of the diagram the moment you
+  // tapped a block, and on a large one it kept shoving the selection FABs
+  // away from the edge they're meant to be docked to. Opening is always an
+  // explicit tap on the header toggle button now, the same on every screen
+  // size — selecting something only makes that button clickable.
+  let sheetOpen = false;
   // Selection happens on pointerdown (so a drag has the right block from
   // the start), but opening the panel resizes the canvas — doing that
   // mid-press would shift world coordinates under an in-progress drag, so
@@ -436,30 +437,31 @@ export function mountInspector(container, { project, selection, wireSelection, r
   }
 
   // body.inspector-open drives the layout (desktop column / mobile sheet
-  // slide, FAB shift/hide); body.block-selected drives the mobile toggle
-  // button's visibility — named for the block case since that's the
+  // slide, FAB shift/hide); body.block-selected drives the header toggle
+  // button's enabled state — named for the block case since that's the
   // common one, but it opens for a selected wire exactly the same way.
   function syncOpenState() {
     const hasSelection = Boolean(selection.selectedBlockId) || wireSelection.list().length > 0;
-    if (!hasSelection) mobileSheetOpen = false;
-    const isOpen = hasSelection && (!mobileLayout.matches || mobileSheetOpen);
+    if (!hasSelection) sheetOpen = false;
+    const isOpen = hasSelection && sheetOpen;
     container.classList.toggle('open', isOpen);
     document.body.classList.toggle('inspector-open', isOpen);
     document.body.classList.toggle('block-selected', hasSelection);
-    toggleButton.textContent = selection.selectedBlockId ? 'Edit block' : 'Edit wire';
+    toggleButton.disabled = !hasSelection;
+    toggleButton.setAttribute('aria-expanded', String(isOpen));
+    toggleButton.title = hasSelection
+      ? `${isOpen ? 'Close' : 'Open'} the ${selection.selectedBlockId ? 'block' : 'wire'} inspector`
+      : 'Select a block or wire to inspect';
   }
 
-  // The mobile sheet's explicit opener — CSS shows it only below the
-  // breakpoint, and only while something is selected with the sheet closed.
-  const toggleButton = document.createElement('button');
-  toggleButton.type = 'button';
-  toggleButton.className = 'inspector-toggle';
-  toggleButton.textContent = 'Edit block';
+  // The drawer's only opener, on every screen size — a header icon button
+  // mirroring #menu-toggle on the opposite edge (see index.html), rather
+  // than the panel popping open on its own the instant something is
+  // selected.
   toggleButton.addEventListener('click', () => {
-    mobileSheetOpen = true;
+    sheetOpen = !sheetOpen;
     syncOpenState();
   });
-  document.body.appendChild(toggleButton);
 
   function refresh() {
     const block = selection.selectedBlockId ? project.getBlock(selection.selectedBlockId) : null;

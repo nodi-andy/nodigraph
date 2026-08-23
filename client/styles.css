@@ -142,9 +142,14 @@ html, body {
   z-index: 31;
 }
 
-.menu-toggle:hover {
+.menu-toggle:hover:not(:disabled) {
   color: var(--text-primary);
   border-color: var(--border-strong);
+}
+
+.menu-toggle:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .topbar-menu-backdrop:not([hidden]) {
@@ -596,11 +601,18 @@ body.block-selected #fab-add-block {
   display: none;
 }
 
+/* Wraps a mini-FAB and its own popover as siblings (see SelectionFabs.js's
+   miniFabWithPopover) — positioned so the popover (see .fab-palette)
+   anchors to this pair rather than to the stack as a whole, with four
+   mini-FABs now sharing the column. */
+.fab-mini-wrap {
+  position: relative;
+}
+
 /* Smaller and muted: these act on an existing selection, so they must not
-   compete with "add a block" for the eye. Positioned (not static) so each
-   one's own popover (see .fab-palette) anchors to *that* button rather
-   than to the stack as a whole — with four mini-FABs now sharing the
-   column, "the stack's own corner" is no longer any one button's corner. */
+   compete with "add a block" for the eye. Positioned (not the base .fab
+   rule's fixed) so it participates in the .fab-stack column layout rather
+   than jumping to a fixed corner of the viewport. */
 .fab.fab-mini {
   position: relative;
   width: 44px;
@@ -683,30 +695,70 @@ body.block-selected #fab-add-block {
   border-radius: 4px;
 }
 
-/* The font picker's own popover: a short vertical list of names (each
-   rendered in its own font as its preview) rather than the color grid
-   above — a swatch can't stand in for a typeface the way it can for a
-   color. */
-.fab-palette-list {
+/* The font picker's own popover: a small font dialog (family, size, bold,
+   italic) rather than a single-pick swatch grid — a block label needed the
+   same handful of controls any other piece of styled text does. */
+.fab-font-panel {
   display: flex;
   flex-direction: column;
-  width: 150px;
-  padding: 6px;
+  gap: 10px;
+  width: 190px;
+  padding: 12px;
 }
 
-.fab-font-option {
-  padding: 8px 10px;
-  background: none;
-  border: none;
+.fab-font-panel select,
+.fab-font-panel input[type='number'] {
+  background: #12161d;
+  border: 1px solid #2c3644;
+  color: #e6e9ef;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.fab-font-family {
+  width: 100%;
+}
+
+.fab-font-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fab-font-row label {
+  color: #8b93a3;
+  font-size: 12px;
+}
+
+.fab-font-size {
+  width: 64px;
+}
+
+.fab-font-style-row {
+  justify-content: flex-start;
+}
+
+.fab-font-style-btn {
+  width: 34px;
+  height: 30px;
+  background: #12161d;
+  border: 1px solid #2c3644;
   border-radius: 6px;
   color: #e6e9ef;
   font-size: 14px;
-  text-align: left;
   cursor: pointer;
 }
 
-.fab-font-option:hover {
-  background: #2c3644;
+.fab-font-style-btn:hover {
+  border-color: #3a4556;
+}
+
+.fab-font-style-btn.active {
+  background: #2f6fed;
+  border-color: #2f6fed;
+  color: #fff;
 }
 
 /* Hidden until a block is actually selected (body.inspector-open, set by
@@ -739,29 +791,6 @@ body.inspector-open #inspector {
   body.inspector-open .fab-stack {
     right: calc(300px + 20px);
   }
-}
-
-/* Mobile-only "open the inspector" affordance: the bottom sheet no longer
-   auto-opens on selection (it covered most of the small screen the moment
-   you tapped a block) — this button appears once a block is selected and
-   opening is an explicit tap. Hidden entirely on desktop and while the
-   sheet is already open. */
-.inspector-toggle {
-  display: none;
-  position: fixed;
-  /* Centred so it clears both FABs, which sit in the bottom corners. */
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-  padding: 12px 18px;
-  border-radius: 24px;
-  border: 1px solid var(--border-strong);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  font-size: 14px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
-  cursor: pointer;
-  z-index: 20;
 }
 
 #inspector h3 {
@@ -1003,11 +1032,6 @@ body.inspector-open #inspector {
 
   #topbar .brand {
     display: none;
-  }
-
-  /* Selected but sheet not open yet — offer the explicit opener. */
-  body.block-selected:not(.inspector-open) .inspector-toggle {
-    display: block;
   }
 
   #inspector {
