@@ -572,12 +572,16 @@ export function drawBlock(
     drawContainImage(ctx, image, x, y, width, height);
   } else {
     const fontFamily = getFontFamily(block.style?.font);
+    const fontSize = block.style?.fontSize || 13;
+    const fontWeight = block.style?.bold ? 'bold ' : '';
+    const fontStyle = block.style?.italic ? 'italic ' : '';
+    const cssFont = `${fontStyle}${fontWeight}${fontSize}px ${fontFamily}`;
     // Canvas text can't await a web font mid-render — draws with the
     // fallback stack immediately and asks for a redraw once the real one
     // is ready, the same pattern the image case above uses.
-    if (block.style?.font) ensureFontLoaded(`13px ${fontFamily}`, requestRender);
+    if (block.style?.font) ensureFontLoaded(cssFont, requestRender);
     ctx.fillStyle = textColor;
-    ctx.font = `13px ${fontFamily}`;
+    ctx.font = cssFont;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(block.name, x + width / 2, y + height / 2, width - 16);
