@@ -615,6 +615,15 @@ body.block-selected #fab-add-block {
    than jumping to a fixed corner of the viewport. */
 .fab.fab-mini {
   position: relative;
+  /* The base .fab rule's right/bottom are meant for its own `position:
+     fixed` (an offset from the viewport edge) — for `position: relative`
+     they don't just get dropped, they apply *on top of* this button's
+     normal flex position in the stack, silently shoving every mini-FAB an
+     extra 20px+ away from the edge the stack is already docked to. This
+     button's placement comes entirely from the flex column, so it needs
+     none of that. */
+  right: auto;
+  bottom: auto;
   width: 44px;
   height: 44px;
   background: #2c3644;
