@@ -58,7 +58,18 @@ function hitBoundaryLine(geometry, worldX, worldY, threshold = BORDER_HIT_THRESH
   return nearVerticalEdge || nearHorizontalEdge;
 }
 
-function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false) {
+// `selectedBlockIds`, when given, restricts the *second* loop below (an
+// existing port, grabbed to reposition it) to blocks already in it — a
+// port sits ahead of the block's own body in priority (see hitTest), so
+// an unselected block's port would otherwise swallow the very click meant
+// to select the block in the first place. Connector handles (the first
+// loop — starting or completing a wire) are deliberately exempt: wiring
+// two arbitrary blocks together is the core workflow, not a "pick this
+// port" action, and has never required selecting either end first. Pass
+// nothing (the default) where that gate doesn't apply at all — e.g.
+// resolveConnectionTarget hit-testing a drop target while a wire is
+// already being dragged.
+function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, selectedBlockIds = null) {
   // Connector handles first — they're the outermost/smallest target, and
   // sit close enough to their port that ambiguity should favor "start a wire"
   // when the cursor is right at the tip.
@@ -74,6 +85,7 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false) {
 
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const block = blocks[i];
+    if (selectedBlockIds && !selectedBlockIds.has(block.id)) continue;
     for (const { port, x, y } of getAllPortPositions(block)) {
       // An ordinary block's port is drawn as a slot inset into the face
       // (see BlockRenderer's getSlotRectFromBorderPoint), not a dot on the
@@ -102,22 +114,28 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false) {
  * to show a handle at all) — then block body, then the boundary's own
  * dashed line dead last, which selects it the way a block's body selects
  * that block. `boundary`, when the current level has one, is `{ block,
- * geometry }` for the container you're inside. Returns null if nothing
+ * geometry }` for the container you're inside. `selectedBlockIds`
+ * (optional) restricts an existing *port* hit (not a connector handle —
+ * see hitPortsAcrossBlocks) to blocks already selected, current-block
+ * boundary included: pass it from onPointerDown, where "select the port"
+ * is exactly what a hit here leads to, and leave it out from a call like
+ * resolveConnectionTarget's, where hitting an unselected block's port is
+ * the entire point (completing a wire onto it). Returns null if nothing
  * was hit (caller should try a wire trunk, then fall back to pan/marquee).
  */
-export function hitTest(project, worldX, worldY, boundary, resizableBlockId) {
+export function hitTest(project, worldX, worldY, boundary, resizableBlockId, selectedBlockIds) {
   const blocks = project.listBlocks();
 
   // Ports outrank a resize handle exactly like they outranked the old
   // border-drag zone: a port is the more specific target, so on the rare
   // occasion a handle and a port's connector reach do overlap, the port
   // still wins.
-  const portHit = hitPortsAcrossBlocks(blocks, worldX, worldY);
+  const portHit = hitPortsAcrossBlocks(blocks, worldX, worldY, false, selectedBlockIds);
   if (portHit) return portHit;
 
   if (boundary) {
     const boundaryView = { ...boundary.block, geometry: boundary.geometry };
-    const boundaryPortHit = hitPortsAcrossBlocks([boundaryView], worldX, worldY, true);
+    const boundaryPortHit = hitPortsAcrossBlocks([boundaryView], worldX, worldY, true, selectedBlockIds);
     if (boundaryPortHit) return boundaryPortHit;
 
     // The frame's title, sitting just above its top-left corner — a click

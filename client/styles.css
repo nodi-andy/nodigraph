@@ -205,6 +205,41 @@ html, body {
   flex-shrink: 0;
 }
 
+/* Who else is here right now — a small avatar stack, top-right, present
+   only once someone actually has joined (see ui/OnlineUsers.js). Overlaps
+   each avatar slightly, the same "stack of coins" layout most
+   presence-avatar rows use, rather than a wide row that grows without
+   bound as more people join. */
+.online-users {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+.online-users[hidden] {
+  display: none;
+}
+
+.online-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-left: -8px;
+  border-radius: 50%;
+  border: 2px solid var(--bg-surface);
+  color: #0b0e13;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.online-avatar:first-child {
+  margin-left: 0;
+}
+
 .header-icon-button {
   position: relative;
   display: flex;

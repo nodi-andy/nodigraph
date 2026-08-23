@@ -176,7 +176,11 @@ export class DragStateMachine {
     }
 
     const boundary = this.getBoundaryInfo();
-    const hit = hitTest(this.project, world.x, world.y, boundary, this.getResizableBlockId());
+    // Grabbing an existing port to reposition it (hit.type === 'port'
+    // below) requires its block — the current-block boundary included —
+    // to already be selected; starting a wire from one (hit.type ===
+    // 'connector') never has this restriction (see hitPortsAcrossBlocks).
+    const hit = hitTest(this.project, world.x, world.y, boundary, this.getResizableBlockId(), this.selection.selectedBlockIds);
     if (hit) this.wireSelection.clear();
 
     if (hit?.type === 'resizeHandle') {

@@ -28,7 +28,11 @@ const WIRE_SELECTED_HALO = 'rgba(255, 180, 84, 0.55)';
 // identity/accounts system to draw real names from.
 const CURSOR_COLORS = ['#ff6b6b', '#4f8cff', '#3ecf5d', '#ffb454', '#c77dff', '#5eead4', '#f472b6'];
 
-function colorForClientId(id) {
+// Exported so the header's own "who's online" list (see ui/OnlineUsers.js)
+// colors each person's avatar to match the cursor they'd see moving on
+// the canvas — the only "identity" either place has to go on, absent any
+// accounts system.
+export function colorForClientId(id) {
   let hash = 0;
   for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
   return CURSOR_COLORS[hash % CURSOR_COLORS.length];
