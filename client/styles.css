@@ -82,14 +82,14 @@ html, body {
 
 #app {
   display: grid;
-  /* The inspector column is `auto`, not a fixed 300px: the inspector is
-     hidden (display: none) until a block is selected, and an auto column
-     collapses to zero while it is — the canvas gets the full width back. */
-  grid-template-columns: 1fr auto;
+  /* A single column always — the inspector is a fixed-position panel that
+     slides in over the canvas (see #inspector below) rather than a grid
+     column that pushes it aside, so it doesn't need one of its own here. */
+  grid-template-columns: 1fr;
   grid-template-rows: var(--topbar-height) 1fr;
   grid-template-areas:
-    "topbar topbar"
-    "canvas inspector";
+    "topbar"
+    "canvas";
   height: 100%;
   height: 100dvh;
 }
@@ -565,22 +565,25 @@ html, body {
   transition: transform 0.15s ease, background 0.15s ease, opacity 0.15s ease;
 }
 
-.fab:hover {
+.fab:hover:not(:disabled) {
   background: var(--accent-strong-hover);
   transform: translateY(-1px);
 }
 
-.fab:active {
+.fab:active:not(:disabled) {
   transform: translateY(0) scale(0.94);
 }
 
 /* Once something is selected, the mini-FABs above take over that corner
    (recolor/fill/font/delete) — the add button has nothing to do with a
-   selection, and showing both just makes the corner busier than it needs
-   to be. body.block-selected is set for a selected wire too, not just a
-   block (see InspectorPanel.syncOpenState). */
-body.block-selected #fab-add-block {
-  display: none;
+   selection. Disabled rather than hidden (main.js's draw loop sets the
+   actual `disabled` attribute, matching selection count) — the same
+   "present but inert" treatment as the mini-FABs it sits below (see
+   .fab.fab-mini:disabled), so neither stack pops in and out as the
+   selection comes and goes. */
+.fab:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 /* Selection controls, stacked directly above the add FAB in the same
@@ -774,36 +777,54 @@ body.block-selected #fab-add-block {
   color: #fff;
 }
 
-/* Hidden until a block is actually selected (body.inspector-open, set by
-   InspectorPanel.syncOpenState) — an always-there empty panel just ate a
-   300px column to say "select a block". */
+/* A fixed panel over the canvas — on desktop it slides in from the right
+   (see the min-width media query below), the same overlay treatment the
+   left-hand app menu already uses (see .topbar-menu), rather than a grid
+   column that pushed the canvas aside and resized it on every open/close.
+   Mobile overrides this into a bottom sheet instead (see the max-width
+   media query further down). */
 #inspector {
-  grid-area: inspector;
-  display: none;
+  position: fixed;
+  top: var(--topbar-height);
+  right: 0;
+  bottom: 0;
   width: 300px;
   background: var(--bg-surface-2);
   color: var(--text-primary);
   border-left: 1px solid var(--border);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.3);
   padding: 14px;
   overflow-y: auto;
   font-size: 13px;
+  z-index: 25;
 }
 
-body.inspector-open #inspector {
-  display: block;
-}
-
-/* Desktop only: with the inspector column open, the viewport-anchored FAB
-   would land inside the panel — shift it left of the column. (On mobile
-   the inspector is a bottom sheet and the FAB is hidden behind it via the
-   opacity rule in the mobile media query instead.) */
+/* Scoped to desktop rather than living in the base rule above: the mobile
+   bottom sheet (see the max-width media query) sets its own transform/
+   transition for a translateY slide, and `body.inspector-open #inspector`
+   would out-specificity `#inspector.open` (an extra type selector beats an
+   extra class) and win regardless of source order, sliding sideways
+   there too if this weren't kept out of its way entirely. */
 @media (min-width: 769px) {
-  /* Only the right-hand FAB needs to dodge the inspector column; the
-     left one is anchored to the opposite edge and never overlaps it. */
-  body.inspector-open .fab:not(.fab-left),
-  body.inspector-open .fab-stack {
-    right: calc(300px + 20px);
+  #inspector {
+    transform: translateX(100%);
+    transition: transform 0.22s ease;
   }
+
+  body.inspector-open #inspector {
+    transform: translateX(0);
+  }
+}
+
+/* The inspector now overlays the same corner the FABs are docked in
+   (rather than pushing the canvas, which used to leave them plainly
+   visible beside it) — faded out and inert while it's open, the same
+   treatment the mobile bottom sheet already used before this was also
+   true on desktop. */
+body.inspector-open .fab,
+body.inspector-open .fab-stack {
+  opacity: 0;
+  pointer-events: none;
 }
 
 #inspector h3 {
@@ -1027,13 +1048,6 @@ body.inspector-open #inspector {
    bottom sheet that slides up over the full-bleed canvas instead of eating
    permanent screen width. */
 @media (max-width: 768px) {
-  #app {
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      "topbar"
-      "canvas";
-  }
-
   /* The brand name is the one thing here that isn't a control, so it's
      the first to go on a narrow screen — the hamburger, breadcrumb, and
      header-action icons all need the room more than it does. */
@@ -1049,6 +1063,10 @@ body.inspector-open #inspector {
 
   #inspector {
     position: fixed;
+    /* Reset against the desktop base rule above, which pins `top` to
+       anchor its own right-edge slide-in — this sheet anchors to `bottom`
+       instead, with `max-height` (not `top`) capping how tall it grows. */
+    top: auto;
     width: auto;
     left: 0;
     right: 0;
@@ -1084,12 +1102,6 @@ body.inspector-open #inspector {
 
   #inspector h3 {
     display: none;
-  }
-
-  body.inspector-open .fab,
-  body.inspector-open .fab-stack {
-    opacity: 0;
-    pointer-events: none;
   }
 }
 

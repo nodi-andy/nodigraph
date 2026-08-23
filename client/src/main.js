@@ -630,8 +630,11 @@ async function bootstrap() {
       // Clipboard access can legitimately be refused (permissions,
       // insecure context) — the link is short now that it's just a
       // session id (see setInviteUrl above), so showing it plainly is a
-      // real fallback rather than an unreadable wall of text.
-      showToast(`Live session started. Invite link: ${inviteUrl}`, { autoDismissMs: 0 });
+      // real fallback rather than an unreadable wall of text. Longer than
+      // the default so there's real time to select and copy it by hand,
+      // but still a toast — one that never went away on its own would be
+      // one more thing to remember to dismiss.
+      showToast(`Live session started. Invite link: ${inviteUrl}`, { autoDismissMs: 20000 });
     }
   }
 
@@ -766,6 +769,10 @@ async function bootstrap() {
     // either already ends in a render — refreshing here covers both,
     // and refresh() itself no-ops unless the count actually moved.
     selectionFabsApi?.refresh();
+    // The add-block FAB is disabled rather than hidden while something is
+    // selected — same "present but inert" treatment as the mini-FABs it
+    // sits below, driven from the same count they use.
+    fabEl.disabled = selectionCount() > 0;
     const dpr = window.devicePixelRatio || 1;
     const dragHighlights = stateMachine.getConnectionDragHighlights();
     renderScene(ctx, camera, project, {
