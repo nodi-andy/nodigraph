@@ -6,7 +6,7 @@ import {
   getPortOffsetBounds,
   getPortSlotOffsets,
   nearestPortSlot,
-  WIRE_LANE_GAP,
+  GRID_SIZE,
   SIDES,
 } from '../model/grid.js';
 import { getStateColor } from '../model/BlockDescription.js';
@@ -350,14 +350,20 @@ function drawConnectorHandleDot(ctx, handlePos, palette = DEFAULT_PALETTE) {
 // The same handle a port always has, just widened into a slider-style
 // rounded bar — the resize grip's own look (see drawResizeHandles) —
 // instead of drawing a second, separate marker somewhere else on the
-// wires themselves. Its length is tied to WIRE_LANE_GAP, the exact
-// spacing the connections attached here split apart by (see
-// ConnectionRenderer's buildStub), so the bar's own ends line up with
-// where the outermost of them actually lands.
+// wires themselves. The routing itself is untouched: every connection
+// attached here still runs its own ordinary, unlaned stub (an earlier
+// version tried splitting them into visibly separate lanes too, but the
+// extra bend geometry that took had degenerate cases that could crash the
+// router — not worth it for what's fundamentally a cosmetic distinction).
+// This widened handle is the entire signal that several wires join here,
+// so it grows generously with how many do — past a single grid cell once
+// enough of them share the port, rather than staying a fixed size that
+// stops reading as "more wires" past 3 or 4.
 const WIDE_HANDLE_THICKNESS = 7;
+const WIDE_HANDLE_STEP = GRID_SIZE / 4;
 
 function drawConnectorHandleWide(ctx, handlePos, side, count, palette = DEFAULT_PALETTE) {
-  const length = CONNECTOR_ARROW_SIZE + WIRE_LANE_GAP * (count - 1);
+  const length = CONNECTOR_ARROW_SIZE + WIDE_HANDLE_STEP * (count - 1);
   const horizontalEdge = side === 'top' || side === 'bottom';
   const w = horizontalEdge ? length : WIDE_HANDLE_THICKNESS;
   const h = horizontalEdge ? WIDE_HANDLE_THICKNESS : length;

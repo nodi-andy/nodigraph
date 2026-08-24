@@ -1,44 +1,8 @@
-import { WIRE_STUB_LENGTH, WIRE_LANE_GAP, sideNormal, sideAxis, snapToCellCenter } from '../model/grid.js';
+import { WIRE_STUB_LENGTH, sideNormal, sideAxis, snapToCellCenter } from '../model/grid.js';
 import { findConnectorPosition } from './BlockRenderer.js';
 import { getCanvasPalette } from './canvasPalette.js';
 
 const DEFAULT_PALETTE = getCanvasPalette('light');
-
-// How far in from the port a laned stub runs before it jogs sideways (see
-// buildStub) — short enough that every wire still visibly leaves from the
-// same point at the port itself, matching the widened handle drawn there
-// (BlockRenderer's drawConnectorHandleWide) rather than from N separate
-// points along the border.
-const LANE_NEAR_LENGTH = 14;
-
-// The single point 90° from a side's own normal — the axis a lane offset
-// moves along. Both are always axis-aligned (see sideNormal), so this is
-// too, keeping every segment below Manhattan.
-function perpOf(normal) {
-  return { x: -normal.y, y: normal.x };
-}
-
-// A port's stub, split into a lane when 2+ connections share it. Unlaned
-// (the default — `lane` omitted or its group size is 1) this is exactly
-// the single point it always was: `portPos` straight out by the stub
-// length. Laned, it's three points instead of one — a short unlaned run
-// out from the port, a sideways jog to this connection's own lane column,
-// then the rest of the stub length continuing on parallel to the first
-// run — so wires that share a port visibly split apart before they bridge
-// to wherever they're each actually headed, instead of overlapping for
-// the entire run.
-function buildStub(portPos, normal, sign, lane) {
-  const full = { x: portPos.x + normal.x * sign * WIRE_STUB_LENGTH, y: portPos.y + normal.y * sign * WIRE_STUB_LENGTH };
-  if (!lane || lane.count <= 1) return { stub: full, jog: [full] };
-
-  const perp = perpOf(normal);
-  const offset = (lane.index - (lane.count - 1) / 2) * WIRE_LANE_GAP;
-  const near = { x: portPos.x + normal.x * sign * LANE_NEAR_LENGTH, y: portPos.y + normal.y * sign * LANE_NEAR_LENGTH };
-  const jogged = { x: near.x + perp.x * offset, y: near.y + perp.y * offset };
-  const remaining = WIRE_STUB_LENGTH - LANE_NEAR_LENGTH;
-  const stub = { x: jogged.x + normal.x * sign * remaining, y: jogged.y + normal.y * sign * remaining };
-  return { stub, jog: [near, jogged, stub] };
-}
 
 // Drops points that don't actually bend the path (collinear with their
 // neighbors) and collapses zero-length segments — this is what turns the
@@ -83,12 +47,6 @@ export function computeConnectionPath(
   manualBend,
   sourceInverted = false,
   targetInverted = false,
-  // `{ index, count }` within the group of connections that share this
-  // same port as their source/target (see SceneRenderer's buildLaneGroups)
-  // — the default single-member group is a no-op, so an ordinary
-  // connection's route is completely unaffected (see buildStub).
-  sourceLane = null,
-  targetLane = null,
 ) {
   const sNorm = sideNormal(sourceSide);
   const tNorm = sideNormal(targetSide);
@@ -96,8 +54,8 @@ export function computeConnectionPath(
   // BlockRenderer.getConnectorHandlePosition for the same flip on the nub).
   const sSign = sourceInverted ? -1 : 1;
   const tSign = targetInverted ? -1 : 1;
-  const { stub: stubA, jog: aJog } = buildStub(sourcePos, sNorm, sSign, sourceLane);
-  const { stub: stubB, jog: bJog } = buildStub(targetPos, tNorm, tSign, targetLane);
+  const stubA = { x: sourcePos.x + sNorm.x * sSign * WIRE_STUB_LENGTH, y: sourcePos.y + sNorm.y * sSign * WIRE_STUB_LENGTH };
+  const stubB = { x: targetPos.x + tNorm.x * tSign * WIRE_STUB_LENGTH, y: targetPos.y + tNorm.y * tSign * WIRE_STUB_LENGTH };
   const sourceAxis = sideAxis(sourceSide);
   const targetAxis = sideAxis(targetSide);
 
@@ -105,8 +63,6 @@ export function computeConnectionPath(
   // position is built from (see grid.snapToCellCenter) — plain grid-line
   // snapping would land the trunk a half-cell off from the ports it's
   // supposed to connect, most visible on a vertical trunk (this branch).
-  // Reads stubA/stubB, so a laned stub's own offset carries straight
-  // through into where the bridge lands too.
   let bridge;
   if (sourceAxis === 'x' && targetAxis === 'x') {
     const midX = manualBend != null ? manualBend : snapToCellCenter((stubA.x + stubB.x) / 2);
@@ -120,20 +76,12 @@ export function computeConnectionPath(
     bridge = [{ x: stubA.x, y: stubB.y }];
   }
 
-  const points = simplifyPath([sourcePos, ...aJog, ...bridge, ...[...bJog].reverse(), targetPos]);
-  // Only the two aligned-axis branches above build a real, two-corner
-  // trunk (a mixed-axis route is a single corner with nothing to grab) —
-  // structural, so it stays correct regardless of how many lane-jog
-  // points a laned stub adds in front of it. Located by value rather than
-  // assumed to sit at a fixed index for the same reason: a laned source
-  // stub leaves genuine extra bend points before it (see buildStub), which
-  // a hardcoded index 1 would have quietly pointed at instead.
-  const hasTrunk = bridge.length === 2;
-  const trunkIndex = hasTrunk ? points.findIndex((p) => p.x === bridge[0].x && p.y === bridge[0].y) : -1;
+  const points = simplifyPath([sourcePos, stubA, ...bridge, stubB, targetPos]);
+  const hasTrunk = points.length >= 4;
   return {
     points,
-    trunkIndex,
-    trunkAxis: hasTrunk ? (points[trunkIndex].x === points[trunkIndex + 1].x ? 'x' : 'y') : null,
+    trunkIndex: hasTrunk ? 1 : -1,
+    trunkAxis: hasTrunk ? (points[1].x === points[2].x ? 'x' : 'y') : null,
   };
 }
 
@@ -147,39 +95,6 @@ export function previewPathToCursor(sourcePos, sourceSide, cursorPos, inverted =
   const axis = sideAxis(sourceSide);
   const corner = axis === 'x' ? { x: cursorPos.x, y: stubA.y } : { x: stubA.x, y: cursorPos.y };
   return simplifyPath([sourcePos, stubA, corner, cursorPos]);
-}
-
-// Every connection's lane assignment, keyed by connection id — one pass
-// over the whole connection list, shared by anything that needs geometry
-// matching what's actually drawn: SceneRenderer for rendering itself, and
-// DragStateMachine's hit-testing, so a click lands where a laned wire is
-// really drawn rather than where its unlaned center line would have been.
-// Two connections are lane-mates when they attach to the same port in the
-// same role (both as a source — a fan-out — or both as a target — a
-// fan-in); order within a group just needs to be stable, not meaningful,
-// so sorting by connection id is enough.
-export function buildConnectionLanes(connections) {
-  const bySourcePort = new Map();
-  const byTargetPort = new Map();
-  for (const connection of connections) {
-    if (!bySourcePort.has(connection.sourcePortId)) bySourcePort.set(connection.sourcePortId, []);
-    bySourcePort.get(connection.sourcePortId).push(connection.id);
-    if (!byTargetPort.has(connection.targetPortId)) byTargetPort.set(connection.targetPortId, []);
-    byTargetPort.get(connection.targetPortId).push(connection.id);
-  }
-  for (const list of bySourcePort.values()) list.sort();
-  for (const list of byTargetPort.values()) list.sort();
-
-  const lanes = new Map();
-  for (const connection of connections) {
-    const sourceGroup = bySourcePort.get(connection.sourcePortId);
-    const targetGroup = byTargetPort.get(connection.targetPortId);
-    lanes.set(connection.id, {
-      sourceLane: { index: sourceGroup.indexOf(connection.id), count: sourceGroup.length },
-      targetLane: { index: targetGroup.indexOf(connection.id), count: targetGroup.length },
-    });
-  }
-  return lanes;
 }
 
 // How many connections touch each port, source or target role combined —
@@ -202,7 +117,7 @@ export function countConnectionsPerPort(connections) {
 // currently inside — if either endpoint is that block, its boundary
 // geometry and inverted stub direction are used instead of its own
 // (irrelevant, outside-facing) stored geometry.
-export function getConnectionGeometry(project, connection, boundary, lanes = null) {
+export function getConnectionGeometry(project, connection, boundary) {
   const resolve = (blockId) => {
     const block = project.getBlock(blockId);
     if (!block) return null;
@@ -230,8 +145,6 @@ export function getConnectionGeometry(project, connection, boundary, lanes = nul
     connection.manualBend,
     source.isBoundary,
     target.isBoundary,
-    lanes?.sourceLane,
-    lanes?.targetLane,
   );
   return { ...routed, sourcePos, targetPos };
 }
