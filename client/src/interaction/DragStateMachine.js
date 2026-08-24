@@ -1,6 +1,6 @@
 import { hitTest } from './HitTest.js';
 import { MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT } from '../model/Block.js';
-import { snap, GRID_SIZE, sideAxis, nearestPortSlot } from '../model/grid.js';
+import { snap, snapToCellCenter, GRID_SIZE, sideAxis, nearestPortSlot } from '../model/grid.js';
 import { findConnectorPosition, projectPointToPerimeter, getEdgeZoneOffset } from '../render/BlockRenderer.js';
 import {
   getConnectionGeometry,
@@ -492,7 +492,11 @@ export class DragStateMachine {
           // over a mixed horizontal/vertical selection still moves each one
           // correctly instead of fighting over a single shared axis.
           const delta = item.axis === 'x' ? dx : dy;
-          connection.manualBend = snap(item.startBend + delta);
+          // Cell-center family, matching the trunk's own auto-midpoint
+          // (see ConnectionRenderer.computeConnectionPath) — plain grid-line
+          // snap() would let a manual drag land the trunk a half-cell off
+          // from where the ports it connects actually are.
+          connection.manualBend = snapToCellCenter(item.startBend + delta);
           this.onLiveUpdate?.({ kind: 'connection', connectionId: connection.id, manualBend: connection.manualBend });
         }
         this.requestRender();

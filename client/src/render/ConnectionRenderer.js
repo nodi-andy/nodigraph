@@ -1,4 +1,4 @@
-import { WIRE_STUB_LENGTH, sideNormal, sideAxis, snap } from '../model/grid.js';
+import { WIRE_STUB_LENGTH, sideNormal, sideAxis, snapToCellCenter } from '../model/grid.js';
 import { findConnectorPosition } from './BlockRenderer.js';
 import { getCanvasPalette } from './canvasPalette.js';
 
@@ -59,12 +59,16 @@ export function computeConnectionPath(
   const sourceAxis = sideAxis(sourceSide);
   const targetAxis = sideAxis(targetSide);
 
+  // The auto midpoint snaps to the same cell-center family a port's own
+  // position is built from (see grid.snapToCellCenter) — plain grid-line
+  // snapping would land the trunk a half-cell off from the ports it's
+  // supposed to connect, most visible on a vertical trunk (this branch).
   let bridge;
   if (sourceAxis === 'x' && targetAxis === 'x') {
-    const midX = manualBend != null ? manualBend : snap((stubA.x + stubB.x) / 2);
+    const midX = manualBend != null ? manualBend : snapToCellCenter((stubA.x + stubB.x) / 2);
     bridge = [{ x: midX, y: stubA.y }, { x: midX, y: stubB.y }];
   } else if (sourceAxis === 'y' && targetAxis === 'y') {
-    const midY = manualBend != null ? manualBend : snap((stubA.y + stubB.y) / 2);
+    const midY = manualBend != null ? manualBend : snapToCellCenter((stubA.y + stubB.y) / 2);
     bridge = [{ x: stubA.x, y: midY }, { x: stubB.x, y: midY }];
   } else if (sourceAxis === 'x') {
     bridge = [{ x: stubB.x, y: stubA.y }];
