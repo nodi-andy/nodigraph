@@ -545,7 +545,11 @@ export function drawBlock(
   const { x, y, width, height } = block.geometry;
   const accentColor = block.style?.color || DEFAULT_BLOCK_COLOR;
   const fillColor = block.style?.fill || palette.blockFill;
-  const textColor = block.style?.fill ? readableTextColor(block.style.fill) : palette.blockText;
+  // 'transparent' is a real fill value (see SelectionFabs' transparent
+  // swatch), not a custom color readableTextColor can parse as hex — text
+  // over it falls back to the theme's own ink instead of NaN-ing out.
+  const textColor =
+    block.style?.fill && block.style.fill !== 'transparent' ? readableTextColor(block.style.fill) : palette.blockText;
 
   // Selection used to also draw a second outline ring around the block,
   // and thicken this border a touch on top of that — the four resize

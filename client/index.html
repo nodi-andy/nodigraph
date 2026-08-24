@@ -78,9 +78,19 @@
         <path d="M11 9.5h2v2.5h2.5v2H13V16.5h-2V14H8.5v-2H11z" fill="currentColor" />
       </svg>
     </button>
-    <!-- Delete / colour for the current selection, stacked above the add
-         button (main.js hides the whole stack when nothing is selected). -->
+    <!-- Delete / colour for the current selection (main.js hides the whole
+         stack when nothing is selected). -->
     <div id="fab-stack" class="fab-stack"></div>
+    <!-- A second thing to add, stacked directly above the primary add
+         button in its own corner — same "always-present, own edge" pattern
+         as fab-stack, just for creation instead of selection. -->
+    <div class="fab-stack fab-stack-right">
+      <button id="fab-add-text" class="fab fab-mini" type="button" aria-label="Add text">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <text x="12" y="17" text-anchor="middle" font-size="15" font-weight="700" fill="currentColor" font-family="Georgia, serif">Aa</text>
+        </svg>
+      </button>
+    </div>
     <button id="fab-add-block" class="fab" type="button" aria-label="Add block">
       <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
         <path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z" fill="currentColor" />

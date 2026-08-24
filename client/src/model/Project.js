@@ -114,8 +114,8 @@ export class Project {
     return Array.from(this.current.blocks.values());
   }
 
-  createDefaultBlock(x, y) {
-    const block = createBlock({ x, y });
+  createDefaultBlock(x, y, kind = 'block') {
+    const block = createBlock({ x, y, kind });
     this.addBlock(block);
     return block;
   }

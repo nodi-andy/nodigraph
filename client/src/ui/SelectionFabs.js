@@ -17,6 +17,10 @@ import { FONTS } from '../render/fonts.js';
 // picks a legible ink color against whichever one lands there.
 const SWATCHES = [
   { color: null, label: 'Default' },
+  // A literal CSS keyword, not "no color" — canvas draws it as paint-nothing
+  // (see BlockRenderer.drawBlock), which is what makes a block with both
+  // this fill and this border read as plain floating text.
+  { color: 'transparent', label: 'Transparent' },
   { color: '#4f8cff', label: 'Blue' },
   { color: '#3ecf5d', label: 'Green' },
   { color: '#ffb454', label: 'Amber' },
@@ -58,10 +62,15 @@ function buildColorPalette(onPick) {
   for (const { color, label } of SWATCHES) {
     const swatch = document.createElement('button');
     swatch.type = 'button';
-    swatch.className = 'fab-swatch' + (color ? '' : ' fab-swatch-default');
+    const isTransparent = color === 'transparent';
+    swatch.className =
+      'fab-swatch' + (color ? '' : ' fab-swatch-default') + (isTransparent ? ' fab-swatch-transparent' : '');
     swatch.title = label;
     swatch.setAttribute('aria-label', label);
-    if (color) swatch.style.background = color;
+    // Setting background to the literal string 'transparent' would just
+    // show the popover's own background through — the checkerboard that
+    // actually reads as "transparent" comes from the CSS class instead.
+    if (color && !isTransparent) swatch.style.background = color;
     swatch.addEventListener('click', () => onPick(color, true));
     palette.appendChild(swatch);
   }
