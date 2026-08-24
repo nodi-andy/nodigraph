@@ -13,7 +13,6 @@ import {
   getConnectionGeometry,
   getDashPattern,
   verticalSegmentsOf,
-  countConnectionsPerPort,
   FLOW_DASH,
   PREVIEW_DASH,
 } from './ConnectionRenderer.js';
@@ -233,12 +232,6 @@ export function renderScene(
     ? { block: containerBlock, geometry: containerBlock.boundaryGeometry }
     : null;
   const portHighlights = buildPortHighlights(selectedBlockId, selectedPortId, connectionSource, connectionTarget);
-  // A port 2+ connections attach to gets a widened handle instead of the
-  // ordinary single-wire arrow/dot (see BlockRenderer's
-  // drawConnectorHandleWide) — computed once here rather than per block,
-  // since it needs the whole connection list regardless of which block is
-  // being drawn.
-  const connectionCounts = countConnectionsPerPort(project.listConnections());
 
   // Drawn before every block/boundary so a wire's own connector-handle
   // triangle (drawn as part of the block/boundary pass) always paints over
@@ -252,19 +245,12 @@ export function renderScene(
     drawBoundary(ctx, boundary.block, boundary.geometry, {
       selected: boundary.block.id === selectedBlockId,
       portHighlights,
-      connectionCounts,
       palette,
     });
   }
 
   for (const block of blocks) {
-    drawBlock(ctx, block, {
-      selected: selectedBlockIds.has(block.id),
-      portHighlights,
-      connectionCounts,
-      requestRender,
-      palette,
-    });
+    drawBlock(ctx, block, { selected: selectedBlockIds.has(block.id), portHighlights, requestRender, palette });
   }
 
   if (marqueeRect) drawMarquee(ctx, marqueeRect, camera.zoom);

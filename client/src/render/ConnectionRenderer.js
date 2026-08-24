@@ -97,19 +97,6 @@ export function previewPathToCursor(sourcePos, sourceSide, cursorPos, inverted =
   return simplifyPath([sourcePos, stubA, corner, cursorPos]);
 }
 
-// How many connections touch each port, source or target role combined —
-// what BlockRenderer's drawPorts checks to decide whether a port gets the
-// ordinary single-wire arrow/dot or the widened handle a laned group of
-// wires attaches to instead (see drawConnectorHandleWide).
-export function countConnectionsPerPort(connections) {
-  const counts = new Map();
-  for (const connection of connections) {
-    counts.set(connection.sourcePortId, (counts.get(connection.sourcePortId) || 0) + 1);
-    counts.set(connection.targetPortId, (counts.get(connection.targetPortId) || 0) + 1);
-  }
-  return counts;
-}
-
 // Resolves a stored Connection into live geometry against the *current*
 // block/port positions every time — nothing about the route is cached, so
 // moving a block just re-attaches the stubs without extra bookkeeping.
