@@ -94,8 +94,11 @@ function buildColorPalette(onPick) {
  * `getSelectionCount()` reports how many things (blocks + wires) are
  * selected. `getSelectionStyle()` returns the representative block's
  * current `style` (or null), used only to pre-fill the font popover's
- * controls when it opens. `onDelete()` removes the selection. `onColor(hex
- * | null)` recolors it (border for a block, the line itself for a wire);
+ * controls when it opens. `onDelete()` removes the selection, or (unlike
+ * every other control here) arms delete mode when there isn't one — see
+ * main.js's toggleDeleteMode — which `isDeleteMode()` reports so the button
+ * can show it's armed. `onColor(hex | null)` recolors it (border for a
+ * block, the line itself for a wire);
  * `onFill(hex | null)`, `onFont(key | null)`, `onFontSize(px | null)`,
  * `onBold(bool)` and `onItalic(bool)` only ever touch blocks, since a wire
  * has no fill and no label font of its own. Every "back to the default"
@@ -104,7 +107,7 @@ function buildColorPalette(onPick) {
  */
 export function mountSelectionFabs(
   container,
-  { getSelectionCount, getSelectionStyle, onDelete, onColor, onFill, onFont, onFontSize, onBold, onItalic },
+  { getSelectionCount, getSelectionStyle, onDelete, isDeleteMode = () => false, onColor, onFill, onFont, onFontSize, onBold, onItalic },
 ) {
   container.innerHTML = '';
   container.className = 'fab-stack';
@@ -259,20 +262,30 @@ export function mountSelectionFabs(
   // setting `disabled` to the value it already has on every frame would be
   // needless layout churn.
   let lastCount = null;
-  const buttons = [colorButton, fillButton, fontButton, deleteButton];
+  let lastDeleteMode = null;
+  // The delete button is deliberately not in this list — see onDelete's
+  // doc comment above, it stays clickable with nothing selected so it can
+  // arm delete mode instead.
+  const buttons = [colorButton, fillButton, fontButton];
 
   return {
     refresh() {
       const count = getSelectionCount();
-      if (count === lastCount) return;
-      lastCount = count;
-      // The stack stays put and full-strength either way — disabled
-      // rather than hidden, so the corner it lives in doesn't reflow (or
-      // silently swallow a click aimed at where a button *was*) the
-      // instant a selection is made or cleared.
-      const disabled = count === 0;
-      for (const button of buttons) button.disabled = disabled;
-      if (disabled) closeAllPopovers();
+      if (count !== lastCount) {
+        lastCount = count;
+        // The stack stays put and full-strength either way — disabled
+        // rather than hidden, so the corner it lives in doesn't reflow (or
+        // silently swallow a click aimed at where a button *was*) the
+        // instant a selection is made or cleared.
+        const disabled = count === 0;
+        for (const button of buttons) button.disabled = disabled;
+        if (disabled) closeAllPopovers();
+      }
+      const armed = isDeleteMode();
+      if (armed !== lastDeleteMode) {
+        lastDeleteMode = armed;
+        deleteButton.classList.toggle('fab-danger-armed', armed);
+      }
     },
   };
 }

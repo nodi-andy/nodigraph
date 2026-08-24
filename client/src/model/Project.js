@@ -201,6 +201,10 @@ export class Project {
     if (blockId === this.getContainerBlock()?.id) return false;
     const block = this.getBlock(blockId);
     if (!block) return false;
+    // A text block is a plain floating label (see Block.createBlock) — it
+    // has no sub-architecture to drill into, from any UI path that might
+    // ask (double-click, the Inspector's "Enter block" button, ...).
+    if (block.kind === 'text') return false;
     if (!block.children) {
       block.children = { blocks: new Map(), connections: new Map() };
       block.hasChildren = true;

@@ -176,6 +176,10 @@ export function mountInspector(container, { project, selection, wireSelection, r
 
   function renderInspectorTab(container_, block) {
     const isContainer = block.id === project.getContainerBlock()?.id;
+    // A text block is a plain floating label (see Block.createBlock) — no
+    // sub-architecture to drill into and no sockets to wire, so neither
+    // control applies to it.
+    const isText = block.kind === 'text';
 
     if (isContainer) {
       const hint = document.createElement('p');
@@ -244,7 +248,7 @@ export function mountInspector(container, { project, selection, wireSelection, r
     colorInput.addEventListener('change', persist);
     container_.appendChild(field('Accent color', colorInput));
 
-    if (!isContainer) {
+    if (!isContainer && !isText) {
       const architectureRow = document.createElement('div');
       architectureRow.className = 'apply-row';
       const enterButton = document.createElement('button');
@@ -293,6 +297,7 @@ export function mountInspector(container, { project, selection, wireSelection, r
       }
     }
 
+    if (!isText) {
     container_.appendChild(sectionHeading('Ports'));
     for (const port of block.ports) {
       const row = document.createElement('div');
@@ -372,6 +377,7 @@ export function mountInspector(container, { project, selection, wireSelection, r
       hint.className = 'hint-text';
       hint.textContent = 'Drag a port dot on the canvas to reposition it, or from the small handle beside it to wire a connection. Click a block\'s border to add a port right there.';
       container_.appendChild(hint);
+    }
     }
 
     if (!isContainer) {

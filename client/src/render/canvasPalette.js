@@ -5,7 +5,10 @@
 // would otherwise vanish against the new background are themed here.
 const PALETTES = {
   light: {
-    grid: '#e3e8f0',
+    // Halfway between the old grid color and --bg-canvas (#f7f8fa) — half
+    // the contrast against the background, so the lattice reads as a faint
+    // editing aid instead of competing with the blocks drawn over it.
+    grid: '#edf0f5',
     blockFill: '#ffffff',
     blockText: '#1c2431',
     portLabel: '#6b7686',
@@ -21,7 +24,9 @@ const PALETTES = {
     resizeHandleFill: '#ffffff',
   },
   dark: {
-    grid: '#1a212b',
+    // Halfway between the old grid color and --bg-canvas (#12161d) — see
+    // the light palette's grid comment.
+    grid: '#161c24',
     blockFill: '#1c2431',
     blockText: '#ffffff',
     portLabel: '#c3c9d4',
