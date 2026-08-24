@@ -488,10 +488,15 @@ html, body {
    action on the canvas. */
 /* Two-class selector on purpose: the base .fab rules are defined further
    down the file, so a single .fab-left would lose the background on
-   source order alone. */
+   source order alone. Top-left rather than bottom — a navigation action
+   ("go up a level") reads as its own zone up by the breadcrumb it
+   mirrors, separate from the selection controls now anchored at the
+   bottom of this same edge (see .fab-stack). */
 .fab.fab-left {
   right: auto;
   left: 20px;
+  top: calc(var(--topbar-height) + 20px);
+  bottom: auto;
   background: #2c3644;
 }
 
@@ -627,8 +632,9 @@ html, body {
    stays a column. */
 .fab-stack {
   position: fixed;
-  right: 20px;
-  bottom: calc(20px + 56px + 12px + env(safe-area-inset-bottom, 0px));
+  left: 20px;
+  right: auto;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -684,7 +690,7 @@ html, body {
    stack already sits near the bottom edge on a phone. */
 .fab-palette {
   position: absolute;
-  right: calc(100% + 12px);
+  left: calc(100% + 12px);
   top: 50%;
   transform: translateY(-50%);
   display: grid;

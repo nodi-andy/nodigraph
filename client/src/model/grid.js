@@ -34,6 +34,18 @@ export function snap(value) {
   return Math.round(value / GRID_SIZE) * GRID_SIZE;
 }
 
+// Snaps to the *cell-center* family a port actually lives on (see
+// getPortSlotOffsets: GRID_SIZE/2, GRID_SIZE*1.5, ...) rather than the
+// grid-line family plain snap() uses. A block's own position is always
+// grid-line-snapped, so every port ends up sitting exactly half a cell off
+// that line — a wire's trunk needs the same offset, or a straight run
+// between two ports on facing sides lands a half-cell short of where they
+// actually are instead of running true.
+export function snapToCellCenter(value) {
+  const half = GRID_SIZE / 2;
+  return Math.round((value - half) / GRID_SIZE) * GRID_SIZE + half;
+}
+
 export function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
