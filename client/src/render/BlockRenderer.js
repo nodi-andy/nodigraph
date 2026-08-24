@@ -595,7 +595,10 @@ export function drawBlock(
 
   ctx.restore();
 
-  drawPorts(ctx, block, { portHighlights, showEmptySlots: selected, palette });
+  // A text block has no ports and can't gain one (see addPort's kind
+  // guard) — showing the discoverable empty-slot squares on it would
+  // advertise an affordance that doesn't work.
+  drawPorts(ctx, block, { portHighlights, showEmptySlots: selected && block.kind !== 'text', palette });
   if (selected) drawResizeHandles(ctx, block.geometry, palette);
 }
 

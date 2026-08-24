@@ -693,6 +693,19 @@ html, body {
   background: #a52a2f;
 }
 
+/* Delete mode armed (see main.js's toggleDeleteMode): the one mini-FAB
+   that's clickable with nothing selected, so it needs its own "this is
+   live" signal — solid red plus a glow, rather than just the ordinary
+   idle background it shares with the other three the rest of the time. */
+.fab.fab-danger.fab-danger-armed {
+  background: #c0392b;
+  box-shadow: 0 0 0 3px rgba(192, 57, 43, 0.35);
+}
+
+.fab.fab-danger.fab-danger-armed:hover {
+  background: #a52a2f;
+}
+
 /* Opens to the left of its own button, vertically centered on it, rather
    than above: above is where the canvas content usually is, and the
    stack already sits near the bottom edge on a phone. */

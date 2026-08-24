@@ -258,7 +258,11 @@ async function bootstrap() {
   // selected. Wires go without a prompt (a wire is one fact, and undo is a
   // click away); blocks ask first, since deleting one takes its whole
   // sub-architecture and every wire touching it with it.
-  function deleteSelection() {
+  // `skipConfirm` is for delete mode (see toggleDeleteMode below): entering
+  // that mode by clicking the delete FAB with nothing selected is itself
+  // the confirmation, so the per-block/multi-block prompts below would
+  // just be a dialog spamming every click of an otherwise fast erase tool.
+  function deleteSelection({ skipConfirm = false } = {}) {
     if (wireSelection.list().length > 0) {
       deleteSelectedWires();
       return;
@@ -271,11 +275,25 @@ async function bootstrap() {
       return;
     }
     if (selection.count > 1) {
-      if (window.confirm(`Delete ${selection.count} blocks and their connections?`)) deleteSelectedBlocks();
+      if (skipConfirm || window.confirm(`Delete ${selection.count} blocks and their connections?`)) deleteSelectedBlocks();
       return;
     }
     const block = project.getBlock(selection.selectedBlockId);
-    if (block && window.confirm(`Delete "${block.name}" and its connections?`)) deleteBlock(block.id);
+    if (block && (skipConfirm || window.confirm(`Delete "${block.name}" and its connections?`))) deleteBlock(block.id);
+  }
+
+  // The delete FAB is always active (unlike the other mini-FABs, which are
+  // inert with nothing selected — see SelectionFabs.js): clicking it with
+  // an empty selection instead arms this mode, in which the *next*
+  // selection made any of the usual ways (a plain click, a shift-click, or
+  // a shift-drag marquee) is deleted the instant it lands rather than
+  // sitting there — see the check in draw() below. Clicking the FAB again
+  // with still nothing selected (the only way to reach it while armed,
+  // since a delete clears the selection right back to empty) disarms it.
+  let deleteMode = false;
+  function toggleDeleteMode() {
+    deleteMode = !deleteMode;
+    renderLoop.requestRender();
   }
 
   // `color` of null means "back to the default", which is stored as the
@@ -807,6 +825,9 @@ async function bootstrap() {
   }
 
   function draw() {
+    // Delete mode: whatever just got selected (see toggleDeleteMode above)
+    // is deleted right away instead of waiting for another FAB click.
+    if (deleteMode && selectionCount() > 0) deleteSelection({ skipConfirm: true });
     // Both block and wire selection have observers, and every change to
     // either already ends in a render — refreshing here covers both,
     // and refresh() itself no-ops unless the count actually moved.
@@ -1057,7 +1078,9 @@ async function bootstrap() {
   selectionFabsApi = mountSelectionFabs(fabStackEl, {
     getSelectionCount: selectionCount,
     getSelectionStyle: selectionStyle,
-    onDelete: deleteSelection,
+    // Nothing selected: this click arms delete mode instead of deleting.
+    onDelete: () => (selectionCount() > 0 ? deleteSelection() : toggleDeleteMode()),
+    isDeleteMode: () => deleteMode,
     onColor: colorSelection,
     onFill: fillSelection,
     onFont: fontSelection,

@@ -229,6 +229,9 @@ export function assignDefaultPortOffsets(block) {
 // name and direction blank means there's nothing to contradict once the
 // user does pick one, in the Inspector, whenever — or never — they want to.
 export function addPort(block, { direction = null, side, offset } = {}) {
+  // A text block is a plain floating label (see Block.createBlock) — it
+  // has no sockets to wire, regardless of which UI gesture asked for one.
+  if (block.kind === 'text') return null;
   const resolvedSide = side || (direction === 'out' ? 'right' : 'left');
   const countSameDirection = direction ? block.ports.filter((p) => p.direction === direction).length : 0;
   const port = {
