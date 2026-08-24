@@ -6,6 +6,7 @@ import {
   getPortOffsetBounds,
   getPortSlotOffsets,
   nearestPortSlot,
+  WIRE_LANE_GAP,
   SIDES,
 } from '../model/grid.js';
 import { getStateColor } from '../model/BlockDescription.js';
@@ -346,6 +347,28 @@ function drawConnectorHandleDot(ctx, handlePos, palette = DEFAULT_PALETTE) {
   ctx.fill();
 }
 
+// The same handle a port always has, just widened into a slider-style
+// rounded bar — the resize grip's own look (see drawResizeHandles) —
+// instead of drawing a second, separate marker somewhere else on the
+// wires themselves. Its length is tied to WIRE_LANE_GAP, the exact
+// spacing the connections attached here split apart by (see
+// ConnectionRenderer's buildStub), so the bar's own ends line up with
+// where the outermost of them actually lands.
+const WIDE_HANDLE_THICKNESS = 7;
+
+function drawConnectorHandleWide(ctx, handlePos, side, count, palette = DEFAULT_PALETTE) {
+  const length = CONNECTOR_ARROW_SIZE + WIRE_LANE_GAP * (count - 1);
+  const horizontalEdge = side === 'top' || side === 'bottom';
+  const w = horizontalEdge ? length : WIDE_HANDLE_THICKNESS;
+  const h = horizontalEdge ? WIDE_HANDLE_THICKNESS : length;
+  ctx.save();
+  ctx.translate(handlePos.x, handlePos.y);
+  roundRectPath(ctx, -w / 2, -h / 2, w, h, WIDE_HANDLE_THICKNESS / 2);
+  ctx.fillStyle = palette.connectorHandle;
+  ctx.fill();
+  ctx.restore();
+}
+
 function drawPortRing(ctx, x, y, color, radius = PORT_RING_RADIUS) {
   ctx.beginPath();
   ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -456,7 +479,13 @@ function drawEmptySlots(ctx, block, inverted = false, palette = DEFAULT_PALETTE)
 function drawPorts(
   ctx,
   block,
-  { inverted = false, portHighlights = null, showEmptySlots = false, palette = DEFAULT_PALETTE } = {},
+  {
+    inverted = false,
+    portHighlights = null,
+    showEmptySlots = false,
+    connectionCounts = null,
+    palette = DEFAULT_PALETTE,
+  } = {},
 ) {
   const outputColor = getStateColor(block) || DEFAULT_OUTPUT_PORT_COLOR;
 
@@ -497,7 +526,9 @@ function drawPorts(
       drawSlotSquare(ctx, getSlotRectFromBorderPoint(px, py, port.side), color, palette.portStroke);
     }
 
-    if (isEffectivelyOutput !== null) drawConnectorArrow(ctx, handle, port.side, inverted, isEffectivelyOutput, palette);
+    const wireCount = connectionCounts?.get(port.id) ?? 0;
+    if (wireCount >= 2) drawConnectorHandleWide(ctx, handle, port.side, wireCount, palette);
+    else if (isEffectivelyOutput !== null) drawConnectorArrow(ctx, handle, port.side, inverted, isEffectivelyOutput, palette);
     else drawConnectorHandleDot(ctx, handle, palette);
     drawPortLabel(ctx, port, { x: px, y: py }, inverted, palette);
 
@@ -540,7 +571,13 @@ function readableTextColor(hex) {
 export function drawBlock(
   ctx,
   block,
-  { selected = false, portHighlights = null, requestRender = () => {}, palette = DEFAULT_PALETTE } = {},
+  {
+    selected = false,
+    portHighlights = null,
+    connectionCounts = null,
+    requestRender = () => {},
+    palette = DEFAULT_PALETTE,
+  } = {},
 ) {
   const { x, y, width, height } = block.geometry;
   const accentColor = block.style?.color || DEFAULT_BLOCK_COLOR;
@@ -598,7 +635,12 @@ export function drawBlock(
   // A text block has no ports and can't gain one (see addPort's kind
   // guard) — showing the discoverable empty-slot squares on it would
   // advertise an affordance that doesn't work.
-  drawPorts(ctx, block, { portHighlights, showEmptySlots: selected && block.kind !== 'text', palette });
+  drawPorts(ctx, block, {
+    portHighlights,
+    showEmptySlots: selected && block.kind !== 'text',
+    connectionCounts,
+    palette,
+  });
   if (selected) drawResizeHandles(ctx, block.geometry, palette);
 }
 
@@ -612,7 +654,12 @@ export function drawBlock(
 // has to cross back out over this outline. No resize handle, no enter
 // icon, no centered name-as-content — just a small label so it reads as a
 // frame.
-export function drawBoundary(ctx, block, geometry, { selected = false, portHighlights = null, palette = DEFAULT_PALETTE } = {}) {
+export function drawBoundary(
+  ctx,
+  block,
+  geometry,
+  { selected = false, portHighlights = null, connectionCounts = null, palette = DEFAULT_PALETTE } = {},
+) {
   const { x, y, width, height } = geometry;
 
   // No selected-state recolor here either (see drawBlock's own note) — the
@@ -635,7 +682,7 @@ export function drawBoundary(ctx, block, geometry, { selected = false, portHighl
   // reads as a wall of faint circles rather than a helpful preview — the
   // hover ghost already shows exactly one, right where you're about to
   // click, which is the affordance that actually matters.
-  drawPorts(ctx, { ...block, geometry }, { inverted: true, portHighlights, palette });
+  drawPorts(ctx, { ...block, geometry }, { inverted: true, portHighlights, connectionCounts, palette });
   // Gated on `selected` exactly like an ordinary block: clicking the
   // dashed line itself now selects the boundary (see HitTest's
   // 'boundaryLine' hit and DragStateMachine's handling of it), so there's

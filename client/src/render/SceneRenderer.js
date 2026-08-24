@@ -10,10 +10,11 @@ import {
 import {
   drawPath,
   drawConnectionLabel,
-  drawJunctionDot,
   getConnectionGeometry,
   getDashPattern,
   verticalSegmentsOf,
+  buildConnectionLanes,
+  countConnectionsPerPort,
   FLOW_DASH,
   PREVIEW_DASH,
 } from './ConnectionRenderer.js';
@@ -124,37 +125,18 @@ function sharesEndpoint(a, b) {
   );
 }
 
-// A port two or more connections attach to as their *same* role (both as
-// a source, or both as a target — a fan-out or a fan-in) has one point
-// every one of them is guaranteed to pass through: its own stub (see
-// computeConnectionPath's stubA/stubB, returned untouched on each
-// connection's geometry). Marking that point is what tells apart "these
-// wires are really joined here" from "these wires just happen to overlap
-// for a stretch because they're headed to the same place" — the ambiguity
-// a shared destination's converging bus otherwise leaves purely implicit.
-function collectJunctionPoints(routed) {
-  const bySourcePort = new Map();
-  const byTargetPort = new Map();
-  for (const { connection, geometry } of routed) {
-    const source = bySourcePort.get(connection.sourcePortId) || { count: 0, point: geometry.stubA };
-    source.count += 1;
-    bySourcePort.set(connection.sourcePortId, source);
-    const target = byTargetPort.get(connection.targetPortId) || { count: 0, point: geometry.stubB };
-    target.count += 1;
-    byTargetPort.set(connection.targetPortId, target);
-  }
-  const points = [];
-  for (const { count, point } of bySourcePort.values()) if (count > 1) points.push(point);
-  for (const { count, point } of byTargetPort.values()) if (count > 1) points.push(point);
-  return points;
-}
-
 function drawConnections(ctx, project, wireSelection, boundary, flowOffset, palette) {
   // Routed up front, because drawing any one wire needs to know where all
   // the others run in order to bow over the ones it merely crosses.
+  // Lanes are computed once for the whole batch (see buildConnectionLanes)
+  // and threaded into each one's geometry so a wire sharing a port with
+  // others actually splits apart along its approach instead of overlapping
+  // them for the whole run — see ConnectionRenderer.computeConnectionPath's
+  // lane-jog construction.
+  const lanes = buildConnectionLanes(project.listConnections());
   const routed = [];
   for (const connection of project.listConnections()) {
-    const geometry = getConnectionGeometry(project, connection, boundary);
+    const geometry = getConnectionGeometry(project, connection, boundary, lanes.get(connection.id));
     if (geometry) routed.push({ connection, geometry, verticals: verticalSegmentsOf(geometry.points) });
   }
 
@@ -184,11 +166,6 @@ function drawConnections(ctx, project, wireSelection, boundary, flowOffset, pale
     });
     drawConnectionLabel(ctx, entry.geometry, entry.connection.label, palette);
   }
-
-  // On top of every wire, not interleaved with them — a junction at a
-  // point two of the drawn wires cross close to should still read as
-  // sitting on top of both, not sandwiched under whichever was drawn last.
-  for (const point of collectJunctionPoints(routed)) drawJunctionDot(ctx, point, palette);
 }
 
 // One combined lookup so drawBlock/drawBoundary don't each need to know
@@ -263,6 +240,12 @@ export function renderScene(
     ? { block: containerBlock, geometry: containerBlock.boundaryGeometry }
     : null;
   const portHighlights = buildPortHighlights(selectedBlockId, selectedPortId, connectionSource, connectionTarget);
+  // A port 2+ connections attach to gets a widened handle instead of the
+  // ordinary single-wire arrow/dot (see BlockRenderer's
+  // drawConnectorHandleWide) — computed once here rather than per block,
+  // since it needs the whole connection list regardless of which block is
+  // being drawn.
+  const connectionCounts = countConnectionsPerPort(project.listConnections());
 
   // Drawn before every block/boundary so a wire's own connector-handle
   // triangle (drawn as part of the block/boundary pass) always paints over
@@ -276,12 +259,19 @@ export function renderScene(
     drawBoundary(ctx, boundary.block, boundary.geometry, {
       selected: boundary.block.id === selectedBlockId,
       portHighlights,
+      connectionCounts,
       palette,
     });
   }
 
   for (const block of blocks) {
-    drawBlock(ctx, block, { selected: selectedBlockIds.has(block.id), portHighlights, requestRender, palette });
+    drawBlock(ctx, block, {
+      selected: selectedBlockIds.has(block.id),
+      portHighlights,
+      connectionCounts,
+      requestRender,
+      palette,
+    });
   }
 
   if (marqueeRect) drawMarquee(ctx, marqueeRect, camera.zoom);
