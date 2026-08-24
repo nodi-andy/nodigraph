@@ -82,6 +82,15 @@ export function computeConnectionPath(
     points,
     trunkIndex: hasTrunk ? 1 : -1,
     trunkAxis: hasTrunk ? (points[1].x === points[2].x ? 'x' : 'y') : null,
+    // Returned raw (not read back out of `points`, which can drop either
+    // one if it's collinear-redundant — a straight-through connection with
+    // no bend at all) — every connection sharing this same source or
+    // target port computes the exact same stubA/stubB, since both are a
+    // pure function of the port's own position and side. That shared,
+    // always-identical point is what SceneRenderer's drawJunctionDots
+    // anchors a fan-in/fan-out marker to.
+    stubA,
+    stubB,
   };
 }
 
@@ -244,6 +253,25 @@ export function getDashPattern(style) {
  * march. A negative offset moves them along the path's own direction,
  * which for a connection runs output to input (see model/Connection.js).
  */
+// Bigger than an individual port's own connector arrow/dot (see
+// BlockRenderer's CONNECTOR_ARROW_SIZE) — several wires truly joining at a
+// point needs to read as a distinct fact, not just as the absence of the
+// hop a mere crossing would get (see SceneRenderer's hopOver). Solid and
+// in the same neutral ink as a port's own handle rather than any one
+// wire's color, since a junction is a structural fact about the diagram,
+// not a property of whichever wire happened to be drawn last.
+export const JUNCTION_DOT_RADIUS = 6;
+
+export function drawJunctionDot(ctx, point, palette = DEFAULT_PALETTE) {
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, JUNCTION_DOT_RADIUS, 0, Math.PI * 2);
+  ctx.fillStyle = palette.connectorHandle;
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = palette.portStroke;
+  ctx.stroke();
+}
+
 export function drawPath(
   ctx,
   points,

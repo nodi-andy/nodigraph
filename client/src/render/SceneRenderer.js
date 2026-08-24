@@ -10,6 +10,7 @@ import {
 import {
   drawPath,
   drawConnectionLabel,
+  drawJunctionDot,
   getConnectionGeometry,
   getDashPattern,
   verticalSegmentsOf,
@@ -123,6 +124,31 @@ function sharesEndpoint(a, b) {
   );
 }
 
+// A port two or more connections attach to as their *same* role (both as
+// a source, or both as a target — a fan-out or a fan-in) has one point
+// every one of them is guaranteed to pass through: its own stub (see
+// computeConnectionPath's stubA/stubB, returned untouched on each
+// connection's geometry). Marking that point is what tells apart "these
+// wires are really joined here" from "these wires just happen to overlap
+// for a stretch because they're headed to the same place" — the ambiguity
+// a shared destination's converging bus otherwise leaves purely implicit.
+function collectJunctionPoints(routed) {
+  const bySourcePort = new Map();
+  const byTargetPort = new Map();
+  for (const { connection, geometry } of routed) {
+    const source = bySourcePort.get(connection.sourcePortId) || { count: 0, point: geometry.stubA };
+    source.count += 1;
+    bySourcePort.set(connection.sourcePortId, source);
+    const target = byTargetPort.get(connection.targetPortId) || { count: 0, point: geometry.stubB };
+    target.count += 1;
+    byTargetPort.set(connection.targetPortId, target);
+  }
+  const points = [];
+  for (const { count, point } of bySourcePort.values()) if (count > 1) points.push(point);
+  for (const { count, point } of byTargetPort.values()) if (count > 1) points.push(point);
+  return points;
+}
+
 function drawConnections(ctx, project, wireSelection, boundary, flowOffset, palette) {
   // Routed up front, because drawing any one wire needs to know where all
   // the others run in order to bow over the ones it merely crosses.
@@ -158,6 +184,11 @@ function drawConnections(ctx, project, wireSelection, boundary, flowOffset, pale
     });
     drawConnectionLabel(ctx, entry.geometry, entry.connection.label, palette);
   }
+
+  // On top of every wire, not interleaved with them — a junction at a
+  // point two of the drawn wires cross close to should still read as
+  // sitting on top of both, not sandwiched under whichever was drawn last.
+  for (const point of collectJunctionPoints(routed)) drawJunctionDot(ctx, point, palette);
 }
 
 // One combined lookup so drawBlock/drawBoundary don't each need to know
