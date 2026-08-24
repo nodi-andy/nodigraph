@@ -16,21 +16,29 @@ export const MIN_BLOCK_WIDTH = GRID_SIZE * 1;
 export const MIN_BLOCK_HEIGHT = GRID_SIZE * 1;
 // The accent a block is drawn with until someone picks another one.
 export const DEFAULT_BLOCK_COLOR = '#3b6fa0';
+// A text block is a plain block with no fill/border of its own (see
+// SelectionFabs' transparent swatch) — one grid cell tall reads as a
+// single label line rather than the boxy default block footprint.
+export const DEFAULT_TEXT_WIDTH = GRID_SIZE * 4;
+export const DEFAULT_TEXT_HEIGHT = GRID_SIZE * 1;
 
-export function createBlock({ x, y, name } = {}) {
-  const blockName = name || 'New Block';
+export function createBlock({ x, y, name, kind = 'block' } = {}) {
+  const isText = kind === 'text';
+  const blockName = name || (isText ? 'Text' : 'New Block');
   return {
     id: generateId('blk'),
     name: blockName,
     type: 'block',
+    // `kind` distinguishes a block used as a plain floating label from an
+    // ordinary one — same shape either way (still has ports/props/children
+    // available if someone wants them), just different creation defaults
+    // below, so it never needs its own render path or serialization case.
+    kind,
     description: `Block: ${blockName}`,
-    geometry: {
-      x: snap(x ?? 0),
-      y: snap(y ?? 0),
-      width: DEFAULT_BLOCK_WIDTH,
-      height: DEFAULT_BLOCK_HEIGHT,
-    },
-    style: { color: DEFAULT_BLOCK_COLOR },
+    geometry: isText
+      ? { x: snap(x ?? 0), y: snap(y ?? 0), width: DEFAULT_TEXT_WIDTH, height: DEFAULT_TEXT_HEIGHT }
+      : { x: snap(x ?? 0), y: snap(y ?? 0), width: DEFAULT_BLOCK_WIDTH, height: DEFAULT_BLOCK_HEIGHT },
+    style: isText ? { color: 'transparent', fill: 'transparent' } : { color: DEFAULT_BLOCK_COLOR },
     ports: [],
     props: [],
     hasChildren: false,
@@ -52,6 +60,7 @@ export function createBlock({ x, y, name } = {}) {
 export function hydrateBlock(raw) {
   return {
     ...raw,
+    kind: raw.kind || 'block',
     ports: (raw.ports || []).map((port) => ({
       side: port.direction === 'out' ? 'right' : 'left',
       ...port,

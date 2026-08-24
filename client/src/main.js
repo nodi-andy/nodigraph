@@ -47,6 +47,7 @@ initTheme();
 const canvas = document.getElementById('scene-canvas');
 const ctx = canvas.getContext('2d');
 const fabEl = document.getElementById('fab-add-block');
+const textFabEl = document.getElementById('fab-add-text');
 const inspectorEl = document.getElementById('inspector');
 const breadcrumbEl = document.getElementById('breadcrumb');
 const parentFabEl = document.getElementById('fab-parent');
@@ -814,6 +815,7 @@ async function bootstrap() {
     // selected — same "present but inert" treatment as the mini-FABs it
     // sits below, driven from the same count they use.
     fabEl.disabled = selectionCount() > 0;
+    if (textFabEl) textFabEl.disabled = selectionCount() > 0;
     pruneStaleCursors();
     onlineUsersApi.refresh(clientId, [...remoteCursors.keys()]);
     const dpr = window.devicePixelRatio || 1;
@@ -974,6 +976,7 @@ async function bootstrap() {
     selection,
     requestRender: () => renderLoop.requestRender(),
     persist,
+    textFabEl,
   });
 
   inspectorApi = mountInspector(inspectorEl, {

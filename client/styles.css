@@ -626,10 +626,9 @@ html, body {
   cursor: default;
 }
 
-/* Selection controls, stacked directly above the add FAB in the same
-   corner. Anchored to the same edge and shifted by the same amount when
-   the inspector opens (see the desktop media rule below), so the column
-   stays a column. */
+/* Selection controls: delete/colour/font for whatever is currently
+   selected, docked bottom-left — its own edge, separate from the add
+   FAB(s) on the right (see .fab-stack-right below). */
 .fab-stack {
   position: fixed;
   left: 20px;
@@ -639,6 +638,15 @@ html, body {
   flex-direction: column;
   gap: 10px;
   z-index: 20;
+}
+
+/* The "add text" mini-FAB, stacked directly above the primary add-block
+   FAB in its corner — same relationship .fab-stack used to have with the
+   add button before the selection controls moved to the opposite edge. */
+.fab-stack-right {
+  left: auto;
+  right: 20px;
+  bottom: calc(20px + 56px + 12px + env(safe-area-inset-bottom, 0px));
 }
 
 /* Wraps a mini-FAB and its own popover as siblings (see SelectionFabs.js's
@@ -735,6 +743,18 @@ html, body {
   inset: 6px;
   border: 1px dashed #8b93a3;
   border-radius: 3px;
+}
+
+/* A checkerboard, the standard way of drawing "no color here" — plain
+   `background: transparent` would just show the popover's own dark
+   background through and look indistinguishable from an empty swatch. */
+.fab-swatch-transparent {
+  background-image:
+    linear-gradient(45deg, #6b7383 25%, transparent 25%, transparent 75%, #6b7383 75%),
+    linear-gradient(45deg, #6b7383 25%, transparent 25%, transparent 75%, #6b7383 75%);
+  background-size: 10px 10px;
+  background-position: 0 0, 5px 5px;
+  background-color: #1e2530;
 }
 
 .fab-swatch-custom {
