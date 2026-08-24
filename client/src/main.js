@@ -32,7 +32,7 @@ import { showToast } from './ui/Toast.js';
 import { maybeShowOnboarding } from './ui/Onboarding.js';
 import { renderCurrentLevelDataUrl, renderCurrentLevelBlob } from './model/diagramImage.js';
 import { getBoundaryLabelRect } from './render/BlockRenderer.js';
-import { getConnectionGeometry, getConnectionLabelPosition, buildConnectionLanes } from './render/ConnectionRenderer.js';
+import { getConnectionGeometry, getConnectionLabelPosition } from './render/ConnectionRenderer.js';
 import { downloadProjectFile, readProjectFile } from './model/localFile.js';
 import { encodeProjectToParam, decodeProjectFromParam } from './model/shareLink.js';
 import { serializeSelection, pasteSelection, isClipboardPayload } from './model/clipboard.js';
@@ -529,11 +529,7 @@ async function bootstrap() {
     if (!connection) return;
     const container = project.getContainerBlock();
     const boundary = container?.boundaryGeometry ? { block: container, geometry: container.boundaryGeometry } : null;
-    // Laned the same way SceneRenderer draws it (see buildConnectionLanes)
-    // so the rename editor opens exactly over the label as it's actually
-    // rendered, not over where an unlaned center line would have put it.
-    const lanes = buildConnectionLanes(project.listConnections());
-    const geometry = getConnectionGeometry(project, connection, boundary, lanes.get(connection.id));
+    const geometry = getConnectionGeometry(project, connection, boundary);
     if (!geometry) return;
 
     const labelPos = getConnectionLabelPosition(geometry);

@@ -7,15 +7,6 @@ export const GRID_SIZE = 40;
 // then routes" look instead of a corner right at the border.
 export const WIRE_STUB_LENGTH = GRID_SIZE;
 
-// How far apart sibling wires sit once they've split (see
-// ConnectionRenderer's lane jog) when 2+ of them share a port — a fan-in
-// or fan-out otherwise renders as one line where several actually run,
-// since they'd all be routed through the exact same point. Also what the
-// widened connector handle those wires attach to is sized against (see
-// BlockRenderer's drawConnectorHandleWide), so the handle's own width
-// always matches the spread of the wires arriving under it.
-export const WIRE_LANE_GAP = 10;
-
 export const SIDES = ['left', 'right', 'top', 'bottom'];
 
 export function sideNormal(side) {

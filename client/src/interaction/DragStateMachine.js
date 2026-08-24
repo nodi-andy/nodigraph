@@ -7,7 +7,6 @@ import {
   previewPathToCursor,
   hitTestConnectionTrunk,
   hitTestConnectionPath,
-  buildConnectionLanes,
 } from '../render/ConnectionRenderer.js';
 
 // Resolves a click's modifiers into one selection verb, applied the same
@@ -374,14 +373,9 @@ export class DragStateMachine {
   // shadowed by the segment on top of it.
   hitTestWires(worldX, worldY, boundary) {
     const connections = this.project.listConnections();
-    // Laned the same way SceneRenderer draws them (see
-    // buildConnectionLanes), so a click on a fanned-out wire lands where
-    // it's actually drawn instead of where its unlaned center line would
-    // have run.
-    const lanes = buildConnectionLanes(connections);
     const geometries = connections.map((connection) => ({
       connection,
-      geometry: getConnectionGeometry(this.project, connection, boundary, lanes.get(connection.id)),
+      geometry: getConnectionGeometry(this.project, connection, boundary),
     }));
 
     for (let i = geometries.length - 1; i >= 0; i -= 1) {

@@ -13,7 +13,6 @@ import {
   getConnectionGeometry,
   getDashPattern,
   verticalSegmentsOf,
-  buildConnectionLanes,
   countConnectionsPerPort,
   FLOW_DASH,
   PREVIEW_DASH,
@@ -128,15 +127,9 @@ function sharesEndpoint(a, b) {
 function drawConnections(ctx, project, wireSelection, boundary, flowOffset, palette) {
   // Routed up front, because drawing any one wire needs to know where all
   // the others run in order to bow over the ones it merely crosses.
-  // Lanes are computed once for the whole batch (see buildConnectionLanes)
-  // and threaded into each one's geometry so a wire sharing a port with
-  // others actually splits apart along its approach instead of overlapping
-  // them for the whole run — see ConnectionRenderer.computeConnectionPath's
-  // lane-jog construction.
-  const lanes = buildConnectionLanes(project.listConnections());
   const routed = [];
   for (const connection of project.listConnections()) {
-    const geometry = getConnectionGeometry(project, connection, boundary, lanes.get(connection.id));
+    const geometry = getConnectionGeometry(project, connection, boundary);
     if (geometry) routed.push({ connection, geometry, verticals: verticalSegmentsOf(geometry.points) });
   }
 
