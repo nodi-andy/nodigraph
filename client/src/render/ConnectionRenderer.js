@@ -1,5 +1,5 @@
 import { WIRE_STUB_LENGTH, sideNormal, sideAxis, snapToCellCenter } from '../model/grid.js';
-import { findConnectorPosition } from './BlockRenderer.js';
+import { findConnectorPosition, getPortBoundaryPlacement } from './BlockRenderer.js';
 import { getCanvasPalette } from './canvasPalette.js';
 
 const DEFAULT_PALETTE = getCanvasPalette('light');
@@ -104,7 +104,7 @@ export function previewPathToCursor(sourcePos, sourceSide, cursorPos, inverted =
 // currently inside — if either endpoint is that block, its boundary
 // geometry and inverted stub direction are used instead of its own
 // (irrelevant, outside-facing) stored geometry.
-export function getConnectionGeometry(project, connection, boundary) {
+export function getConnectionGeometry(project, connection, boundary, wireMoveOverride) {
   const resolve = (blockId) => {
     const block = project.getBlock(blockId);
     if (!block) return null;
@@ -120,15 +120,57 @@ export function getConnectionGeometry(project, connection, boundary) {
   const targetPort = target.block.ports.find((p) => p.id === connection.targetPortId);
   if (!sourcePort || !targetPort) return null;
 
-  const sourcePos = findConnectorPosition(source.block, sourcePort.id, source.isBoundary);
-  const targetPos = findConnectorPosition(target.block, targetPort.id, target.isBoundary);
+  // A boundary port with several wires attached spreads them across
+  // adjacent slots (see BlockRenderer.getBoundaryWirePosition) — this
+  // connection's own index among Project.listBoundaryWires' stable order
+  // is what picks the exact one it should route to, so a wire's drawn path
+  // always lands on the same dot BlockRenderer.drawPorts drew for it.
+  const boundarySlot = (blockId, portId, isBoundary) => {
+    if (!isBoundary) return null;
+    // Mid-drag (see DragStateMachine.MOVING_PORT_WIRE), this ONE wire's
+    // own connecting line follows the live preview index directly instead
+    // of its actual stored slot — otherwise the line stays anchored at the
+    // old position while only the little pin (BlockRenderer.drawPorts'
+    // own wireMoveOverride) visibly moves, looking like it tore loose from
+    // its own wire.
+    if (wireMoveOverride && wireMoveOverride.connectionId === connection.id && wireMoveOverride.portId === portId) {
+      return { index: wireMoveOverride.previewIndex, connectionId: null };
+    }
+    const ids = project.listBoundaryWires(blockId, portId);
+    const index = ids.indexOf(connection.id);
+    // `connectionId` resolves to this wire's own *pinned* slot (see
+    // getBoundaryWireRelativeIndex) rather than its bare rank — a wire
+    // individually moved elsewhere in the port (see DragStateMachine's
+    // MOVING_PORT_WIRE) still routes to wherever it's actually drawn.
+    return { index: index < 0 ? 0 : index, connectionId: connection.id };
+  };
+
+  const sourcePos = findConnectorPosition(
+    source.block,
+    sourcePort.id,
+    source.isBoundary,
+    boundarySlot(connection.sourceBlockId, sourcePort.id, source.isBoundary),
+  );
+  const targetPos = findConnectorPosition(
+    target.block,
+    targetPort.id,
+    target.isBoundary,
+    boundarySlot(connection.targetBlockId, targetPort.id, target.isBoundary),
+  );
   if (!sourcePos || !targetPos) return null;
+
+  // A boundary-resolved port's own side (see
+  // BlockRenderer.getPortBoundaryPlacement) can differ from its
+  // outer-face `side` once it's been redocked from inside — the stub
+  // direction has to follow whichever one actually applies here.
+  const sourceSide = source.isBoundary ? getPortBoundaryPlacement(sourcePort).side : sourcePort.side;
+  const targetSide = target.isBoundary ? getPortBoundaryPlacement(targetPort).side : targetPort.side;
 
   const routed = computeConnectionPath(
     sourcePos,
-    sourcePort.side,
+    sourceSide,
     targetPos,
-    targetPort.side,
+    targetSide,
     connection.manualBend,
     source.isBoundary,
     target.isBoundary,

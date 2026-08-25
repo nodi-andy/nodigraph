@@ -39,6 +39,10 @@ export function createBlock({ x, y, name, kind = 'block' } = {}) {
       ? { x: snap(x ?? 0), y: snap(y ?? 0), width: DEFAULT_TEXT_WIDTH, height: DEFAULT_TEXT_HEIGHT }
       : { x: snap(x ?? 0), y: snap(y ?? 0), width: DEFAULT_BLOCK_WIDTH, height: DEFAULT_BLOCK_HEIGHT },
     style: isText ? { color: 'transparent', fill: 'transparent' } : { color: DEFAULT_BLOCK_COLOR },
+    // The interface (see BlockDescription's module doc): logicalPorts are
+    // named/directional definitions, ports are the placed, wireable pins —
+    // each referencing one logical port via its own `logicalId`.
+    logicalPorts: [],
     ports: [],
     props: [],
     hasChildren: false,
@@ -55,16 +59,64 @@ export function createBlock({ x, y, name, kind = 'block' } = {}) {
   };
 }
 
+// A save from before the logical-port/pin split (or one from this app's
+// own short-lived cloneGroupId experiment in between) had every field —
+// name/direction/description *and* side/offset — sitting directly on one
+// flat `ports` entry. Splits each of those into a fresh logical port plus
+// a pin that keeps the *original* port's id (so any connection already
+// referencing it by that id — untouched by this migration — still
+// resolves) and points at the new logical port via `logicalId`. Ports that
+// already shared an identity before this split existed (grouped by
+// cloneGroupId, or by name+direction for one hand-typed into the
+// Description text) collapse onto one shared logical port here too, same
+// as clonePort would produce them going forward.
+function migrateLegacyPorts(rawPorts) {
+  const groups = new Map();
+  for (const port of rawPorts) {
+    const key = port.cloneGroupId
+      ? `grp:${port.cloneGroupId}`
+      : port.name
+        ? `named:${port.direction}:${port.name}`
+        : `id:${port.id}`;
+    if (!groups.has(key)) {
+      groups.set(key, { name: port.name || '', direction: port.direction ?? null, description: port.description || '', pins: [] });
+    }
+    groups.get(key).pins.push(port);
+  }
+  const logicalPorts = [];
+  const ports = [];
+  for (const group of groups.values()) {
+    const logical = { id: generateId('io'), name: group.name, direction: group.direction, description: group.description };
+    logicalPorts.push(logical);
+    for (const pin of group.pins) {
+      ports.push({
+        id: pin.id,
+        logicalId: logical.id,
+        side: pin.side,
+        offset: pin.offset,
+        manualOffset: pin.manualOffset,
+        ...(pin.boundary ? { boundary: pin.boundary } : {}),
+      });
+    }
+  }
+  return { logicalPorts, ports };
+}
+
 // Fills in fields added after some blocks were already saved to localStorage,
 // so older saved projects don't crash on load.
 export function hydrateBlock(raw) {
+  const rawPorts = (raw.ports || []).map((port) => ({
+    side: port.direction === 'out' ? 'right' : 'left',
+    ...port,
+  }));
+  const { logicalPorts, ports } = Array.isArray(raw.logicalPorts)
+    ? { logicalPorts: raw.logicalPorts, ports: rawPorts }
+    : migrateLegacyPorts(rawPorts);
   return {
     ...raw,
     kind: raw.kind || 'block',
-    ports: (raw.ports || []).map((port) => ({
-      side: port.direction === 'out' ? 'right' : 'left',
-      ...port,
-    })),
+    logicalPorts,
+    ports,
     props: raw.props || [],
     description: raw.description || `Block: ${raw.name || 'Block'}`,
     boundaryGeometry: raw.hasChildren ? raw.boundaryGeometry || createDefaultBoundaryGeometry() : raw.boundaryGeometry || null,
