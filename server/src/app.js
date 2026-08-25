@@ -20,6 +20,20 @@ const DATA_DIR =
 const DATA_FILE = path.join(DATA_DIR, 'project.json');
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
 
+// This server has exactly one file and no auth (see the README's own
+// "Known limits") — a deliberate, documented convenience for someone
+// running it on their OWN machine, never meant to back the public hosted
+// product. Without this gate, deploying this same code anywhere shared
+// (Cloud Run, a public Docker host, ...) turns that one file — and the
+// WebSocket broadcast below — into a single global document every visitor
+// silently reads AND writes, with live cursors and drag positions relayed
+// between total strangers. The Dockerfile sets this to disable persistence
+// by default for exactly that reason; a plain local `node src/app.js` run
+// (the README's own instructions, no Docker involved) keeps working
+// exactly as documented, since nothing sets it there.
+const PERSISTENCE_DISABLED =
+  process.env.NODIGRAPH_DISABLE_PERSISTENCE === 'true' || process.env.NODIGRAPH_DISABLE_PERSISTENCE === '1';
+
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -67,6 +81,15 @@ function serveStatic(req, res) {
 }
 
 function handleGetProject(res) {
+  if (PERSISTENCE_DISABLED) {
+    // Same response shape as "no file yet" below — the client already
+    // treats that as "nothing saved here, start fresh" and falls back to
+    // its own localStorage, so a disabled server needs no special case on
+    // the client side at all.
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end('null');
+    return;
+  }
   fs.readFile(DATA_FILE, 'utf8', (err, data) => {
     // No file yet just means no project has been saved yet — not an error
     // the client needs to know about, it just starts fresh.
@@ -81,6 +104,15 @@ function handlePutProject(req, res) {
     body += chunk;
   });
   req.on('end', () => {
+    if (PERSISTENCE_DISABLED) {
+      // Accepted but deliberately dropped — nothing reaches disk, nothing
+      // reaches another client. The browser's own localStorage (see
+      // model/store.js) already holds this edit; that's the only copy
+      // this deployment is willing to keep.
+      res.writeHead(204);
+      res.end();
+      return;
+    }
     let parsed;
     try {
       parsed = JSON.parse(body);
@@ -141,6 +173,11 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server });
 
 function broadcast(message, exclude) {
+  // Disabled alongside the file itself (see PERSISTENCE_DISABLED) — this
+  // is what would otherwise relay one visitor's live cursor and drag
+  // positions to every *other* stranger also loading the page right now,
+  // socket-level collaboration nobody involved asked for or consented to.
+  if (PERSISTENCE_DISABLED) return;
   const payload = JSON.stringify(message);
   for (const client of wss.clients) {
     if (client !== exclude && client.readyState === client.OPEN) client.send(payload);
@@ -163,5 +200,9 @@ wss.on('connection', (socket) => {
 
 server.listen(PORT, () => {
   console.log(`nodigraph server running at http://localhost:${PORT}`);
-  console.log(`Project data stored at ${DATA_FILE}`);
+  console.log(
+    PERSISTENCE_DISABLED
+      ? 'Persistence disabled (NODIGRAPH_DISABLE_PERSISTENCE) — nothing is stored or broadcast server-side.'
+      : `Project data stored at ${DATA_FILE}`,
+  );
 });

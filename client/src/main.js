@@ -1,5 +1,6 @@
 import { Project } from './model/Project.js';
 import { removePort } from './model/BlockDescription.js';
+import { createDefaultDiagram } from './model/defaultDiagram.js';
 import { DEFAULT_BLOCK_COLOR } from './model/Block.js';
 import { loadProject, saveProject } from './model/store.js';
 import { connectLiveSync } from './model/liveSync.js';
@@ -125,8 +126,12 @@ async function bootstrap() {
     // wasted work, or worse, a confusing flash of the wrong diagram.
     project = isLiveGuest ? new Project({ name: 'Untitled' }) : (await loadProject()) || new Project({ name: 'Untitled' });
   }
+  // Nothing saved anywhere (a genuine first visit, a failed shared link, or
+  // a fresh live-session placeholder) — the worked example (see
+  // model/defaultDiagram.js) rather than one bare, portless block, so a
+  // blank canvas is never anyone's first look at what this even does.
   if (project.listBlocks().length === 0) {
-    project.createDefaultBlock(80, 80);
+    project = createDefaultDiagram();
   }
 
   const camera = new Camera();
@@ -722,8 +727,7 @@ async function bootstrap() {
       "Start a new diagram? This clears everything currently open — every block, wire, and nested level you've drilled into. (Nothing you draw here ever leaves your browser, so this only affects what's open in this tab.)",
     );
     if (!proceed) return;
-    const blank = new Project({ name: 'Untitled' });
-    blank.createDefaultBlock(80, 80);
+    const blank = createDefaultDiagram();
     project.applyRemoteRootBlock(blank.toJSON().rootBlock);
     selection.clear();
     wireSelection.clear();
