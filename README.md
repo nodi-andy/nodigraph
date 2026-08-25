@@ -119,9 +119,20 @@ container host works. For Cloud Run:
 gcloud run deploy nodigraph --source . --region <region> --allow-unauthenticated
 ```
 
-The server listens on `PORT`, which Cloud Run sets automatically. Project
-data is written inside the container and does not survive a redeploy —
-fine for the shared-link workflow, not yet durable storage.
+The server listens on `PORT`, which Cloud Run sets automatically.
+
+**The Dockerfile disables server-side persistence by default**
+(`NODIGRAPH_DISABLE_PERSISTENCE=true`) — a container built from it never
+reads or writes `data/project.json`, and never relays anything over its
+WebSocket between clients. This matters because the file and the socket
+are both singular per running instance: without this, every visitor to a
+shared deployment would silently read and write the *same* document, and
+see each other's live cursor and drag positions in real time, with no
+accounts and no isolation between strangers. That's fine for the "Run it
+locally" case above, where you're the only one who can reach the server at
+all — it's never fine for a container anyone on the internet can open. Only
+unset or override this variable for a deployment you're certain is
+single-user and not publicly reachable.
 
 ## How it works
 
