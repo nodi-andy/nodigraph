@@ -1033,6 +1033,15 @@ body.inspector-open .fab-stack {
   min-width: 0;
 }
 
+/* How many pins (see BlockDescription's module doc) a logical port's one
+   row actually has on the canvas — only shown past a single pin, since a
+   plain unlisted count would just be visual noise for the common case. */
+#inspector .port-pin-count {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
 #inspector .port-delete-button {
   flex-shrink: 0;
   width: 24px;

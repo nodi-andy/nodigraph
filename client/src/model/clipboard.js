@@ -37,14 +37,25 @@ export function isClipboardPayload(value) {
 // mapping so connections (at this level and any nested one) can be
 // repointed at the copies.
 function cloneWithNewIds(block, blockIdMap, portIdMap) {
+  // Logical ports get fresh ids too, same policy as everything else here —
+  // scoped to this one block's own `logicalPorts` list, so nothing else
+  // needs to know about it except each pin's own `logicalId` reference,
+  // remapped alongside.
+  const logicalIdMap = new Map();
+  const logicalPorts = (block.logicalPorts || []).map((logical) => {
+    const newLogical = { ...logical, id: generateId('io') };
+    logicalIdMap.set(logical.id, newLogical.id);
+    return newLogical;
+  });
   const clone = {
     ...block,
     id: generateId('blk'),
     geometry: { ...block.geometry },
     style: { ...block.style },
     boundaryGeometry: block.boundaryGeometry ? { ...block.boundaryGeometry } : null,
+    logicalPorts,
     ports: (block.ports || []).map((port) => {
-      const newPort = { ...port, id: generateId('prt') };
+      const newPort = { ...port, id: generateId('prt'), logicalId: logicalIdMap.get(port.logicalId) ?? port.logicalId };
       portIdMap.set(port.id, newPort.id);
       return newPort;
     }),

@@ -123,12 +123,12 @@ function sharesEndpoint(a, b) {
   );
 }
 
-function drawConnections(ctx, project, wireSelection, boundary, flowOffset, palette) {
+function drawConnections(ctx, project, wireSelection, boundary, flowOffset, palette, wireMoveOverride) {
   // Routed up front, because drawing any one wire needs to know where all
   // the others run in order to bow over the ones it merely crosses.
   const routed = [];
   for (const connection of project.listConnections()) {
-    const geometry = getConnectionGeometry(project, connection, boundary);
+    const geometry = getConnectionGeometry(project, connection, boundary, wireMoveOverride);
     if (geometry) routed.push({ connection, geometry, verticals: verticalSegmentsOf(geometry.points) });
   }
 
@@ -199,6 +199,11 @@ export function renderScene(
     remoteCursors,
     hoverGhost,
     marqueeRect,
+    // { portId, connectionId, previewIndex } while a wire is being dragged
+    // to a different slot within its own port (see
+    // DragStateMachine.getWireMoveOverride) — lets it visibly follow the
+    // cursor for this frame instead of only snapping into place on drop.
+    wireMoveOverride = null,
     // Where the marching-dash pattern currently starts, or null for solid
     // wires. Null by default so an exported diagram image (see
     // model/diagramImage.js) is never caught mid-animation.
@@ -237,15 +242,31 @@ export function renderScene(
   // triangle (drawn as part of the block/boundary pass) always paints over
   // the wire's endpoint, not the other way around — a wire sits under the
   // handles it connects to, not through them.
-  drawConnections(ctx, project, wireSelection, boundary, flowOffset, palette);
+  drawConnections(ctx, project, wireSelection, boundary, flowOffset, palette, wireMoveOverride);
 
   // Drawn before the real blocks so they visually sit "inside" the frame
   // rather than the dashed outline cutting across them.
   if (boundary) {
-    drawBoundary(ctx, boundary.block, boundary.geometry, {
+    // The container's own ports as seen from inside — cloned exterior
+    // siblings (see BlockDescription.clonePort) collapse onto one entry
+    // here, so a name+direction pair reads as the single logical pin it
+    // actually is rather than one row per wire it happens to have outside.
+    const boundaryPorts = project.listBoundaryPorts(boundary.block);
+    // Which wires (if any beyond the ordinary single one) attach to each
+    // of those pins from inside — see Project.listBoundaryWires (already
+    // resolved against the same collapsed group) and BlockRenderer.drawPorts.
+    const boundaryWireLabels = new Map(
+      boundaryPorts.map((port) => {
+        const ids = project.listBoundaryWires(boundary.block.id, port.id);
+        return [port.id, ids.map((id, rank) => ({ id, rank, label: project.getConnection(id)?.label || '' }))];
+      }),
+    );
+    drawBoundary(ctx, { ...boundary.block, ports: boundaryPorts }, boundary.geometry, {
       selected: boundary.block.id === selectedBlockId,
       portHighlights,
       palette,
+      boundaryWireLabels,
+      wireMoveOverride,
     });
   }
 

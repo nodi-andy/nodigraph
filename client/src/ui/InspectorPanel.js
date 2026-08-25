@@ -4,8 +4,9 @@ import {
   applyDescriptionText,
   setPropValue,
   addPort,
-  removePort,
+  removeLogicalPort,
   serializeBlockDescription,
+  uniqueLogicalPortName,
 } from '../model/BlockDescription.js';
 import { DASH_STYLES } from '../render/ConnectionRenderer.js';
 
@@ -299,7 +300,14 @@ export function mountInspector(container, { project, selection, wireSelection, r
 
     if (!isText) {
     container_.appendChild(sectionHeading('Ports'));
-    for (const port of block.ports) {
+    // One row per *logical* port (see BlockDescription's module doc), not
+    // per pin — this list manages the block's interface, and a pin cloned
+    // several times (Alt-drag on the canvas) is still exactly one entry in
+    // it, never one row per exterior instance. The `×N` badge is the only
+    // trace of how many pins it actually has; deleting the row removes the
+    // whole logical port, every one of those pins included.
+    for (const logical of block.logicalPorts) {
+      const pinIds = block.ports.filter((p) => p.logicalId === logical.id).map((p) => p.id);
       const row = document.createElement('div');
       row.className = 'port-row';
 
@@ -312,11 +320,11 @@ export function mountInspector(container, { project, selection, wireSelection, r
         const option = document.createElement('option');
         option.value = value;
         option.textContent = label;
-        option.selected = value === (port.direction || '');
+        option.selected = value === (logical.direction || '');
         dirSelect.appendChild(option);
       }
       dirSelect.addEventListener('change', () => {
-        port.direction = dirSelect.value || null;
+        logical.direction = dirSelect.value || null;
         syncPortChange(block, requestRender, persist);
       });
 
@@ -324,26 +332,42 @@ export function mountInspector(container, { project, selection, wireSelection, r
       nameInput.type = 'text';
       nameInput.className = 'port-name-input';
       nameInput.placeholder = 'Name';
-      nameInput.value = port.name;
+      nameInput.value = logical.name;
       nameInput.addEventListener('input', () => {
-        port.name = nameInput.value;
+        logical.name = nameInput.value;
         syncPortChange(block, requestRender);
       });
-      nameInput.addEventListener('change', () => syncPortChange(block, requestRender, persist));
+      nameInput.addEventListener('change', () => {
+        // Disambiguated only on commit, not on every keystroke — two
+        // logical ports are never allowed to end up with the same name
+        // (see BlockDescription.uniqueLogicalPortName), but fighting the
+        // user's cursor mid-type would be worse than the rare case of two
+        // *different* interfaces actually colliding on a name.
+        logical.name = uniqueLogicalPortName(block, logical.name, logical.id);
+        nameInput.value = logical.name;
+        syncPortChange(block, requestRender, persist);
+      });
 
       const deleteButton = document.createElement('button');
       deleteButton.type = 'button';
       deleteButton.className = 'port-delete-button';
       deleteButton.textContent = '×';
-      deleteButton.setAttribute('aria-label', `Delete port ${port.name}`);
+      deleteButton.setAttribute('aria-label', `Delete port ${logical.name}`);
       deleteButton.addEventListener('click', () => {
-        removePort(block, port.id);
-        project.removeConnectionsForPort(port.id);
+        const removedPinIds = removeLogicalPort(block, logical.id);
+        for (const pinId of removedPinIds) project.removeConnectionsForPort(pinId);
         syncPortChange(block, requestRender, persist);
       });
 
       row.appendChild(dirSelect);
       row.appendChild(nameInput);
+      if (pinIds.length > 1) {
+        const countBadge = document.createElement('span');
+        countBadge.className = 'port-pin-count';
+        countBadge.textContent = `×${pinIds.length}`;
+        countBadge.title = `${pinIds.length} pins on the canvas — cloned with Alt-drag`;
+        row.appendChild(countBadge);
+      }
       row.appendChild(deleteButton);
       container_.appendChild(row);
 
@@ -351,9 +375,9 @@ export function mountInspector(container, { project, selection, wireSelection, r
       descInput.type = 'text';
       descInput.className = 'port-desc-input';
       descInput.placeholder = 'Description';
-      descInput.value = port.description || '';
+      descInput.value = logical.description || '';
       descInput.addEventListener('input', () => {
-        port.description = descInput.value;
+        logical.description = descInput.value;
         syncPortChange(block, requestRender);
       });
       descInput.addEventListener('change', () => syncPortChange(block, requestRender, persist));
@@ -372,10 +396,12 @@ export function mountInspector(container, { project, selection, wireSelection, r
     addPortRow.appendChild(addPortButton);
     container_.appendChild(addPortRow);
 
-    if (block.ports.length) {
+    if (block.logicalPorts.length) {
       const hint = document.createElement('p');
       hint.className = 'hint-text';
-      hint.textContent = 'Drag a port dot on the canvas to reposition it, or from the small handle beside it to wire a connection. Click a block\'s border to add a port right there.';
+      hint.textContent = isContainer
+        ? "Drag a port dot on the canvas to reposition it, or from the small handle beside it to wire a connection. From in here, wiring a second connection to the same port fans it out into several wires side by side — double-click each one to give it its own label."
+        : 'Drag a port dot on the canvas to reposition it, or from the small handle beside it to wire a connection. Click a block\'s border to add a port right there.';
       container_.appendChild(hint);
     }
     }

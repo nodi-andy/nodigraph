@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "nodigraph-server",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server/src/app.js"],
+      "port": 8080,
+      "autoPort": true
+    }
+  ]
+}

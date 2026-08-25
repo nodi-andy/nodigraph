@@ -80,6 +80,7 @@ export function attachInputRouter(canvas, camera, stateMachine) {
       // Ctrl-based shortcut in the app (undo, save, ...) — Mac users don't
       // have a separate "Ctrl-click" gesture, Cmd-click is it.
       ctrlKey: event.ctrlKey || event.metaKey,
+      altKey: event.altKey,
       button: event.button,
       // 'mouse' | 'touch' | 'pen' — lets the state machine tell a touch
       // press (no hover phase before it, so no dwell can run first) from

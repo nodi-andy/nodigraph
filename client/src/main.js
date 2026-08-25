@@ -76,6 +76,12 @@ function pathsEqual(a, b) {
 // Loading now means a network round-trip to the data server (see
 // model/store.js), so the rest of setup — everything that touches
 // `project` — waits inside here instead of running at module top level.
+// Bumped on every change to the port-resize/boundary-port work — a quick
+// way to confirm from the console that a hard refresh actually picked up
+// the latest code, rather than assuming it based on a "did you refresh"
+// answer. Check with: window.__ndVersion
+if (typeof window !== 'undefined') window.__ndVersion = 'port-resize-2026-08-25-m';
+
 async function bootstrap() {
   // A diagram opened via a shared link (?d=...) is a self-contained
   // snapshot, not this browser's connection to the live server project —
@@ -771,6 +777,13 @@ async function bootstrap() {
         port.side = message.side;
         port.offset = message.offset;
       }
+    } else if (message.kind === 'portBoundary') {
+      // A port being dragged or resized *on the boundary* — its own
+      // placement there (see BlockRenderer.getPortBoundaryPlacement),
+      // separate from the outer-face 'port' case above.
+      const block = project.getBlock(message.blockId);
+      const port = block?.ports.find((p) => p.id === message.portId);
+      if (port) port.boundary = message.boundary;
     } else if (message.kind === 'connection') {
       const connection = project.getConnection(message.connectionId);
       if (connection) connection.manualBend = message.manualBend;
@@ -854,6 +867,7 @@ async function bootstrap() {
       wireSelection,
       remoteCursors: currentLevelCursors(),
       hoverGhost: stateMachine.getHoverGhost(),
+      wireMoveOverride: stateMachine.getWireMoveOverride(),
       marqueeRect: stateMachine.getMarqueeRect(),
       // Derived from the clock rather than counted in frames, so the
       // dashes travel at the same speed on any refresh rate. Negative

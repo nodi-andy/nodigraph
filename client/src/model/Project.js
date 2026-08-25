@@ -130,6 +130,17 @@ export class Project {
 
   removeConnection(id) {
     this.current.connections.delete(id);
+    // A removed wire's own pinned slot (see BlockRenderer's
+    // getBoundaryWireRelativeIndex / port.boundary.wireSlots) is only
+    // ever meaningful on the container you're currently inside — cheap to
+    // clean up here so a deleted wire's old slot doesn't stay permanently
+    // "reserved" for nothing.
+    const container = this.getContainerBlock();
+    for (const port of container?.ports || []) {
+      if (port.boundary?.wireSlots && id in port.boundary.wireSlots) {
+        delete port.boundary.wireSlots[id];
+      }
+    }
   }
 
   hasConnection(sourcePortId, targetPortId) {
@@ -138,10 +149,81 @@ export class Project {
     );
   }
 
+  // A sibling block that has its own sub-architecture (hasChildren) gets
+  // its port capped at one crossing wire from out here — that single wire
+  // is what becomes the port you see once you enter it (see
+  // listBoundaryWires), and from inside, *that* is free to fan out into as
+  // many wires as the interface needs. A plain leaf block's port has no
+  // "inside" for a wire to fan out into, so it keeps the older, unlimited
+  // fan-in/fan-out behaviour — this only ever tightens wiring onto a block
+  // that's actually being used as a container.
   addConnection(connection) {
     if (this.hasConnection(connection.sourcePortId, connection.targetPortId)) return null;
+    const container = this.getContainerBlock();
+    const endpoints = [
+      [connection.sourceBlockId, connection.sourcePortId],
+      [connection.targetBlockId, connection.targetPortId],
+    ];
+    for (const [blockId, portId] of endpoints) {
+      if (container && blockId === container.id) continue;
+      if (!this.current.blocks.get(blockId)?.hasChildren) continue;
+      const alreadyWired = this.listConnections().some(
+        (c) =>
+          (c.sourceBlockId === blockId && c.sourcePortId === portId) ||
+          (c.targetBlockId === blockId && c.targetPortId === portId),
+      );
+      if (alreadyWired) return null;
+    }
     this.current.connections.set(connection.id, connection);
     return connection;
+  }
+
+  // Every pin id that belongs to the same logical port as `pinId` — i.e.
+  // reads as "the same pin" once you're inside this container (see
+  // listBoundaryPorts). Two pins group together exactly when they share a
+  // `logicalId` (see BlockDescription's module doc — that's what
+  // BlockDescription.clonePort actually links a source pin and its
+  // clones by), nothing looser: a pin's own display name is never part of
+  // this, since two DIFFERENT logical ports are never allowed to share one
+  // (see BlockDescription.uniqueLogicalPortName).
+  boundaryPortGroup(block, pinId) {
+    const pin = block?.ports.find((p) => p.id === pinId);
+    if (!pin) return [pinId];
+    return block.ports.filter((p) => p.logicalId === pin.logicalId).map((p) => p.id);
+  }
+
+  // The container's own pins as they should actually be shown/interacted
+  // with from inside — one entry per logical port (its first pin standing
+  // in as the representative). Used wherever the interior view enumerates
+  // pins (SceneRenderer's boundary pass, HitTest's boundaryView); the
+  // *exterior* view (an ordinary block, seen from outside) always uses the
+  // block's raw `ports` array instead, since cloned sibling pins are
+  // genuinely separate, independently wireable attachment points out there.
+  listBoundaryPorts(block) {
+    const seen = new Map();
+    for (const pin of block?.ports || []) {
+      if (!seen.has(pin.logicalId)) seen.set(pin.logicalId, pin);
+    }
+    return [...seen.values()];
+  }
+
+  // Every current-level connection that attaches to `portId` — or any port
+  // in its boundaryPortGroup — from this container's own side, in stable
+  // insertion order — the wires you'd see if you entered the block that
+  // owns this port. A port with several of these fans out into that many
+  // distinct points along its own edge instead of every wire converging on
+  // the same pixel (see BlockRenderer.getBoundaryWirePosition and
+  // ConnectionRenderer's own use of this for routing); a plain single-wire
+  // port (the common case) still resolves to exactly one entry, same as
+  // always.
+  listBoundaryWires(containerBlockId, portId) {
+    const groupIds = new Set(this.boundaryPortGroup(this.getContainerBlock(), portId));
+    const ids = [];
+    for (const connection of this.listConnections()) {
+      if (connection.sourceBlockId === containerBlockId && groupIds.has(connection.sourcePortId)) ids.push(connection.id);
+      if (connection.targetBlockId === containerBlockId && groupIds.has(connection.targetPortId)) ids.push(connection.id);
+    }
+    return ids;
   }
 
   removeConnectionsForPort(portId) {
