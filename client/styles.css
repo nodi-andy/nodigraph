@@ -404,11 +404,19 @@ html, body {
   transform: rotate(90deg);
 }
 
-/* Settings expands in place rather than opening a second panel — there's
-   only one option behind it so far (Animate). */
+/* Shared by every expandable row (Settings, Export — see AppMenu.js's
+   expandable()), which each toggle via the plain `hidden` attribute. The
+   `display: flex` below is what actually needs overriding while hidden:
+   same specificity as the bare class rule, so without this the browser's
+   own default `[hidden] { display: none }` loses to it and the body never
+   visually collapses at all, whatever `.hidden` says. */
 .app-menu-settings-body {
   display: flex;
   flex-direction: column;
+}
+
+.app-menu-settings-body[hidden] {
+  display: none;
 }
 
 .app-menu-toggle-row {
@@ -425,6 +433,14 @@ html, body {
   width: 15px;
   height: 15px;
   accent-color: var(--accent);
+}
+
+/* A sub-item inside an expandable body (see AppMenu.js's expandable/
+   subItem) — same indentation as a toggle row, so Export's JSON/YAML
+   choices line up under "Export" the same way Animate/Dark mode line up
+   under Settings. */
+.app-menu-subitem {
+  padding-left: 34px;
 }
 
 .doc-sync-status {
