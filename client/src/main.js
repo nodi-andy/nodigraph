@@ -720,6 +720,10 @@ async function bootstrap() {
     title: 'Open from GitHub',
     buttonLabel: 'Open',
     busyLabel: 'Opening…',
+    // Reading a public repo needs no token at all — only reveal the field
+    // if one turns out to be required (see GitHubConnectDialog's own
+    // 401/404 handling).
+    tokenRequired: false,
     getInitialTarget: () => githubConnection,
     onSubmit: async ({ target, token }) => {
       const data = await readDiagramFromGitHub(target, token);

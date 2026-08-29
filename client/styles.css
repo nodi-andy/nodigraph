@@ -1338,6 +1338,25 @@ body.inspector-open .fab-stack {
   color: var(--accent);
 }
 
+/* A field revealed on demand rather than always shown — see
+   GitHubConnectDialog's collapsed token field for a public repo, where
+   most opens need no credential at all. */
+.share-link-button {
+  display: block;
+  margin: 0 0 14px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.share-link-button:hover {
+  color: var(--accent-strong);
+}
+
 .share-warning {
   margin: 14px 0 0;
   padding: 9px 11px;
