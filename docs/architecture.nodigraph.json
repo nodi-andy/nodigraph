@@ -1,0 +1,406 @@
+{
+  "rootBlock": {
+    "id": "root",
+    "name": "nodigraph",
+    "type": "block",
+    "kind": "block",
+    "description": "nodigraph — a browser-only block diagram editor.",
+    "geometry": {
+      "x": 0,
+      "y": 0,
+      "width": 1200,
+      "height": 700
+    },
+    "style": {
+      "color": "#3b6fa0"
+    },
+    "ports": [],
+    "props": [],
+    "hasChildren": true,
+    "boundaryGeometry": {
+      "x": -40,
+      "y": -40,
+      "width": 960,
+      "height": 640
+    },
+    "requirementIds": [],
+    "children": {
+      "blocks": [
+        {
+          "id": "main",
+          "name": "main.js",
+          "type": "block",
+          "kind": "block",
+          "description": "Entry point — builds the Project, mounts every UI panel/dialog, wires interaction and the render loop together.",
+          "geometry": {
+            "x": 440,
+            "y": 0,
+            "width": 240,
+            "height": 120
+          },
+          "style": {
+            "color": "#3b6fa0"
+          },
+          "ports": [
+            {
+              "side": "bottom",
+              "id": "p_main_ui",
+              "logicalId": "io_mtehcrjig",
+              "offset": 20,
+              "manualOffset": true
+            },
+            {
+              "side": "bottom",
+              "id": "p_main_interaction",
+              "logicalId": "io_mtehcrjig",
+              "offset": 100,
+              "manualOffset": true
+            },
+            {
+              "side": "bottom",
+              "id": "p_main_render",
+              "logicalId": "io_mtehcrjig",
+              "offset": 180,
+              "manualOffset": true
+            }
+          ],
+          "props": [],
+          "hasChildren": false,
+          "boundaryGeometry": null,
+          "requirementIds": [],
+          "logicalPorts": [
+            {
+              "id": "io_mtehcrjig",
+              "name": "mounts",
+              "direction": "out",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "id": "ui",
+          "name": "ui/",
+          "type": "block",
+          "kind": "block",
+          "description": "Menus, dialogs, the Inspector panel, selection FABs — every visible control outside the canvas itself.",
+          "geometry": {
+            "x": 0,
+            "y": 240,
+            "width": 240,
+            "height": 120
+          },
+          "style": {
+            "color": "#3b6fa0"
+          },
+          "ports": [
+            {
+              "side": "top",
+              "id": "p_ui_in",
+              "logicalId": "io_mtehcrjih",
+              "offset": 20,
+              "manualOffset": true
+            },
+            {
+              "side": "bottom",
+              "id": "p_ui_export",
+              "logicalId": "io_mtehcrjii",
+              "offset": 100,
+              "manualOffset": true
+            }
+          ],
+          "props": [],
+          "hasChildren": false,
+          "boundaryGeometry": null,
+          "requirementIds": [],
+          "logicalPorts": [
+            {
+              "id": "io_mtehcrjih",
+              "name": "handlers",
+              "direction": "in",
+              "description": ""
+            },
+            {
+              "id": "io_mtehcrjii",
+              "name": "exports",
+              "direction": "out",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "id": "interaction",
+          "name": "interaction/",
+          "type": "block",
+          "kind": "block",
+          "description": "DragStateMachine, hit-testing, and input routing — turns pointer/keyboard events into edits.",
+          "geometry": {
+            "x": 320,
+            "y": 240,
+            "width": 240,
+            "height": 120
+          },
+          "style": {
+            "color": "#3b6fa0"
+          },
+          "ports": [
+            {
+              "side": "top",
+              "id": "p_int_in",
+              "logicalId": "io_mtehcrjij",
+              "offset": 20,
+              "manualOffset": true
+            },
+            {
+              "side": "bottom",
+              "id": "p_int_edit",
+              "logicalId": "io_mtehcrjik",
+              "offset": 100,
+              "manualOffset": true
+            }
+          ],
+          "props": [],
+          "hasChildren": false,
+          "boundaryGeometry": null,
+          "requirementIds": [],
+          "logicalPorts": [
+            {
+              "id": "io_mtehcrjij",
+              "name": "handlers",
+              "direction": "in",
+              "description": ""
+            },
+            {
+              "id": "io_mtehcrjik",
+              "name": "edits",
+              "direction": "out",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "id": "render",
+          "name": "render/",
+          "type": "block",
+          "kind": "block",
+          "description": "SceneRenderer, BlockRenderer, ConnectionRenderer — draws the current Project to a canvas or, via svgContext, to SVG.",
+          "geometry": {
+            "x": 640,
+            "y": 240,
+            "width": 240,
+            "height": 120
+          },
+          "style": {
+            "color": "#3b6fa0"
+          },
+          "ports": [
+            {
+              "side": "top",
+              "id": "p_render_in",
+              "logicalId": "io_mtehcrjil",
+              "offset": 20,
+              "manualOffset": true
+            },
+            {
+              "side": "left",
+              "id": "p_render_data",
+              "logicalId": "io_mtehcrjim",
+              "offset": 60,
+              "manualOffset": true
+            }
+          ],
+          "props": [],
+          "hasChildren": false,
+          "boundaryGeometry": null,
+          "requirementIds": [],
+          "logicalPorts": [
+            {
+              "id": "io_mtehcrjil",
+              "name": "handlers",
+              "direction": "in",
+              "description": ""
+            },
+            {
+              "id": "io_mtehcrjim",
+              "name": "reads",
+              "direction": "in",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "id": "model",
+          "name": "model/",
+          "type": "block",
+          "kind": "block",
+          "description": "Project/Block/Connection and the grid they snap to — the one shared source of truth everything else reads or mutates.",
+          "geometry": {
+            "x": 320,
+            "y": 440,
+            "width": 240,
+            "height": 120
+          },
+          "style": {
+            "color": "#3b6fa0"
+          },
+          "ports": [
+            {
+              "side": "top",
+              "id": "p_model_in_ui",
+              "logicalId": "io_mtehcrjin",
+              "offset": 60,
+              "manualOffset": true
+            },
+            {
+              "side": "top",
+              "id": "p_model_in_int",
+              "logicalId": "io_mtehcrjio",
+              "offset": 180,
+              "manualOffset": true
+            },
+            {
+              "side": "right",
+              "id": "p_model_out_render",
+              "logicalId": "io_mtehcrjip",
+              "offset": 60,
+              "manualOffset": true
+            },
+            {
+              "side": "right",
+              "id": "p_model_out_server",
+              "logicalId": "io_mtehcrjiq",
+              "offset": 100,
+              "manualOffset": true
+            }
+          ],
+          "props": [],
+          "hasChildren": false,
+          "boundaryGeometry": null,
+          "requirementIds": [],
+          "logicalPorts": [
+            {
+              "id": "io_mtehcrjin",
+              "name": "serialize",
+              "direction": "in",
+              "description": ""
+            },
+            {
+              "id": "io_mtehcrjio",
+              "name": "mutate",
+              "direction": "in",
+              "description": ""
+            },
+            {
+              "id": "io_mtehcrjip",
+              "name": "data",
+              "direction": "out",
+              "description": ""
+            },
+            {
+              "id": "io_mtehcrjiq",
+              "name": "sync",
+              "direction": "out",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "id": "server",
+          "name": "server/",
+          "type": "block",
+          "kind": "block",
+          "description": "Small Node server: persists the project to disk and relays live-session updates over WebSocket — optional, the app works fully client-only without it.",
+          "geometry": {
+            "x": 640,
+            "y": 440,
+            "width": 240,
+            "height": 120
+          },
+          "style": {
+            "color": "#3b6fa0"
+          },
+          "ports": [
+            {
+              "side": "left",
+              "id": "p_server_in",
+              "logicalId": "io_mtehcrjir",
+              "offset": 60,
+              "manualOffset": true
+            }
+          ],
+          "props": [],
+          "hasChildren": false,
+          "boundaryGeometry": null,
+          "requirementIds": [],
+          "logicalPorts": [
+            {
+              "id": "io_mtehcrjir",
+              "name": "sync",
+              "direction": "in",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "connections": [
+        {
+          "id": "c1",
+          "sourceBlockId": "main",
+          "sourcePortId": "p_main_ui",
+          "targetBlockId": "ui",
+          "targetPortId": "p_ui_in",
+          "manualBend": null
+        },
+        {
+          "id": "c2",
+          "sourceBlockId": "main",
+          "sourcePortId": "p_main_interaction",
+          "targetBlockId": "interaction",
+          "targetPortId": "p_int_in",
+          "manualBend": null
+        },
+        {
+          "id": "c3",
+          "sourceBlockId": "main",
+          "sourcePortId": "p_main_render",
+          "targetBlockId": "render",
+          "targetPortId": "p_render_in",
+          "manualBend": null
+        },
+        {
+          "id": "c4",
+          "sourceBlockId": "ui",
+          "sourcePortId": "p_ui_export",
+          "targetBlockId": "model",
+          "targetPortId": "p_model_in_ui",
+          "manualBend": null
+        },
+        {
+          "id": "c5",
+          "sourceBlockId": "interaction",
+          "sourcePortId": "p_int_edit",
+          "targetBlockId": "model",
+          "targetPortId": "p_model_in_int",
+          "manualBend": null
+        },
+        {
+          "id": "c6",
+          "sourceBlockId": "model",
+          "sourcePortId": "p_model_out_render",
+          "targetBlockId": "render",
+          "targetPortId": "p_render_data",
+          "manualBend": null
+        },
+        {
+          "id": "c7",
+          "sourceBlockId": "model",
+          "sourcePortId": "p_model_out_server",
+          "targetBlockId": "server",
+          "targetPortId": "p_server_in",
+          "manualBend": null
+        }
+      ]
+    },
+    "logicalPorts": []
+  },
+  "path": []
+}
