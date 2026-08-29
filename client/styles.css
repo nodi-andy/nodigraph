@@ -1288,6 +1288,27 @@ body.inspector-open .fab-stack {
   outline: 1px solid var(--accent-strong);
 }
 
+/* A text field standing alone in a .share-field, rather than sharing a
+   .share-row with a Copy button — GitHubConnectDialog's repo-path and
+   token inputs. Same look as .share-row input, but full width since
+   there's no sibling button to leave room for. */
+.share-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-well);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 7px 9px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.share-input:focus {
+  outline: 1px solid var(--accent-strong);
+}
+
 .share-button {
   flex-shrink: 0;
   background: var(--bg-hover);
