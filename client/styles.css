@@ -1303,6 +1303,21 @@ body.inspector-open .fab-stack {
   color: var(--text-faint);
 }
 
+.share-checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 10px 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.share-checkbox-row input {
+  margin-top: 2px;
+}
+
 .share-hint a {
   color: var(--accent);
 }

@@ -26,8 +26,13 @@ function escapeHtml(text) {
 // address appears.
 const LINK_LABEL = 'View the editable diagram';
 
-async function copyFigure({ image, description, shareUrl }) {
+async function copyFigure({ image, description, shareUrl, includeSvg }) {
   const caption = `${description} — ${LINK_LABEL}: ${shareUrl}`;
+  // The <img> here always points at the PNG, even with "Also copy as SVG"
+  // checked: Google Docs (and most other rich-text targets) paste from
+  // this HTML flavor first, and its own paste handling doesn't reliably
+  // rasterize an SVG source — so the one thing this dialog is actually
+  // named for has to keep working regardless of the checkbox.
   // The image itself is a link too, not just the caption below it — most
   // people reach for the picture first, and a figure that's a dead end
   // until you notice the caption underneath defeats the point.
@@ -35,13 +40,26 @@ async function copyFigure({ image, description, shareUrl }) {
     `<a href="${shareUrl}"><img src="${image.dataUrl}" alt="${escapeHtml(description)}"></a>` +
     `<p>${escapeHtml(description)} — <a href="${shareUrl}">${escapeHtml(LINK_LABEL)}</a></p>`;
 
-  await navigator.clipboard.write([
-    new ClipboardItem({
-      'text/html': new Blob([html], { type: 'text/html' }),
-      'text/plain': new Blob([caption], { type: 'text/plain' }),
-      'image/png': image.blob,
-    }),
-  ]);
+  const items = {
+    'text/html': new Blob([html], { type: 'text/html' }),
+    'text/plain': new Blob([caption], { type: 'text/plain' }),
+    'image/png': image.blob,
+  };
+  // A second, additional clipboard flavor — not a replacement for the PNG
+  // above — for whatever the paste target is, if it specifically prefers
+  // a vector image over the HTML flavor's raster one. Attempted rather
+  // than assumed: not every browser accepts an SVG entry in a
+  // ClipboardItem, and a paste that still works without it is better than
+  // one that fails outright because this one extra flavor was rejected.
+  if (includeSvg) {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ ...items, 'image/svg+xml': image.svgBlob })]);
+      return;
+    } catch {
+      // Fall through to the PNG-only copy below.
+    }
+  }
+  await navigator.clipboard.write([new ClipboardItem(items)]);
 }
 
 /**
@@ -77,11 +95,23 @@ export function createGoogleDocsExportDialog({ getShareUrl, renderImage, getFigu
       captionRow.appendChild(link);
       body.appendChild(captionRow);
 
+      // Off by default so the copy this dialog is named for — pasting
+      // into a Google Doc — behaves exactly as it always has unless
+      // someone opts into the extra flavor for a different paste target.
+      const svgOption = el('label', 'share-checkbox-row');
+      const svgCheckbox = document.createElement('input');
+      svgCheckbox.type = 'checkbox';
+      svgOption.appendChild(svgCheckbox);
+      svgOption.appendChild(
+        document.createTextNode(' Also copy as SVG (Google Docs still pastes the PNG above either way)'),
+      );
+      body.appendChild(svgOption);
+
       const copyButton = el('button', 'share-button share-button-primary', 'Copy');
       copyButton.type = 'button';
       copyButton.addEventListener('click', async () => {
         try {
-          await copyFigure({ image, description, shareUrl });
+          await copyFigure({ image, description, shareUrl, includeSvg: svgCheckbox.checked });
           flash(copyButton);
         } catch {
           // Clipboard writes with multiple MIME types need a secure

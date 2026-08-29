@@ -3,7 +3,10 @@
 // keep in your own files/git repo and load back in exactly the same
 // shape (rootBlock tree) the server persists as data/project.json.
 
-function safeFileStem(name) {
+// Exported for anything else that downloads a file named after the current
+// diagram (see model/diagramSvg.js's SVG export) — one place deciding what
+// makes a filename safe rather than each caller re-deriving it.
+export function safeFileStem(name) {
   return (name || 'project').trim().replace(/[^a-z0-9 _-]/gi, '').replace(/\s+/g, '-') || 'project';
 }
 
