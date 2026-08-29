@@ -19,7 +19,11 @@ const TOKEN_HELP_URL = 'https://github.com/settings/tokens/new?scopes=repo&descr
  */
 export function createGitHubConnectDialog({
   onSubmit,
-  initialTarget,
+  // A function, not a value: re-read on every open() so a target set after
+  // this dialog was created (e.g. by loading a different diagram from
+  // GitHub in between) still pre-fills correctly instead of showing
+  // whatever was current back when the dialog was first built.
+  getInitialTarget = () => null,
   title = 'Open from GitHub',
   pathPlaceholder = 'owner/repo/path/to/diagram.nodigraph.json',
   buttonLabel = 'Open',
@@ -36,6 +40,7 @@ export function createGitHubConnectDialog({
       const targetInput = el('input');
       targetInput.type = 'text';
       targetInput.placeholder = pathPlaceholder;
+      const initialTarget = getInitialTarget();
       targetInput.value = initialTarget ? formatGitHubTarget(initialTarget) : '';
       targetField.appendChild(targetInput);
       targetField.appendChild(

@@ -720,7 +720,7 @@ async function bootstrap() {
     title: 'Open from GitHub',
     buttonLabel: 'Open',
     busyLabel: 'Opening…',
-    initialTarget: githubConnection,
+    getInitialTarget: () => githubConnection,
     onSubmit: async ({ target, token }) => {
       const data = await readDiagramFromGitHub(target, token);
       applyGitHubProject(data, target, token);
@@ -732,7 +732,7 @@ async function bootstrap() {
     pathPlaceholder: 'owner/repo/path/to/diagram.nodigraph.json',
     buttonLabel: 'Save',
     busyLabel: 'Saving…',
-    initialTarget: githubConnection,
+    getInitialTarget: () => githubConnection,
     onSubmit: async ({ target, token }) => {
       await saveToGitHubTarget(target, token);
       showToast(`Saved to ${formatGitHubTarget(target)} on GitHub.`);
@@ -828,15 +828,26 @@ async function bootstrap() {
     githubSyncedSnapshot = JSON.stringify(projectData);
   }
 
+  // Opening a diagram from a plain ?github= link (no token needed to read a
+  // public repo) sets githubConnection with no token attached — writing
+  // needs one even when reading didn't, so that case falls through to the
+  // dialog below rather than attempting (and always failing) an
+  // unauthenticated save. A 401 on an existing token — expired, revoked, or
+  // never valid for this repo — gets the same treatment: better to ask for
+  // a working one than to leave "Couldn't save" as a dead end.
   async function handleSaveToGitHub() {
-    if (githubConnection) {
+    if (githubConnection?.token) {
       try {
         await saveToGitHubTarget(githubConnection, githubConnection.token);
         showToast(`Saved to ${formatGitHubTarget(githubConnection)} on GitHub.`);
+        return;
       } catch (err) {
-        showToast(`Couldn't save to GitHub: ${err.message}`);
+        if (err.status !== 401) {
+          showToast(`Couldn't save to GitHub: ${err.message}`);
+          return;
+        }
+        // Falls through to the dialog so a bad/missing token can be fixed.
       }
-      return;
     }
     githubSaveDialog.open();
   }
