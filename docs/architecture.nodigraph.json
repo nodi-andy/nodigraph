@@ -35,7 +35,7 @@
           "geometry": {
             "x": 0,
             "y": 0,
-            "width": 240,
+            "width": 520,
             "height": 120
           },
           "style": {
@@ -53,14 +53,14 @@
               "side": "bottom",
               "id": "p_main_interaction",
               "logicalId": "io_mtehcrjig",
-              "offset": 100,
+              "offset": 300,
               "manualOffset": true
             },
             {
               "side": "bottom",
               "id": "p_main_render",
               "logicalId": "io_mtehcrjig",
-              "offset": 180,
+              "offset": 420,
               "manualOffset": true
             }
           ],
@@ -236,7 +236,7 @@
           "geometry": {
             "x": 40,
             "y": 480,
-            "width": 240,
+            "width": 360,
             "height": 120
           },
           "style": {
@@ -254,7 +254,7 @@
               "side": "top",
               "id": "p_model_in_int",
               "logicalId": "io_mtehcrjio",
-              "offset": 180,
+              "offset": 340,
               "manualOffset": true
             },
             {
