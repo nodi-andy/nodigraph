@@ -33,8 +33,8 @@
           "kind": "block",
           "description": "Entry point — builds the Project, mounts every UI panel/dialog, wires interaction and the render loop together.",
           "geometry": {
-            "x": 240,
-            "y": 40,
+            "x": 200,
+            "y": 0,
             "width": 240,
             "height": 120
           },
@@ -184,7 +184,7 @@
           "kind": "block",
           "description": "SceneRenderer, BlockRenderer, ConnectionRenderer — draws the current Project to a canvas or, via svgContext, to SVG.",
           "geometry": {
-            "x": 520,
+            "x": 600,
             "y": 240,
             "width": 240,
             "height": 120
