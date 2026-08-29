@@ -52,9 +52,13 @@ function pointInCircle(px, py, cx, cy, radius) {
   return dx * dx + dy * dy <= radius * radius;
 }
 
-function hitResizeHandle(geometry, worldX, worldY) {
-  for (const rect of Object.values(getResizeHandleRects(geometry))) {
-    if (pointInRect(worldX, worldY, rect, RESIZE_HANDLE_HIT_PADDING)) return rect.side;
+function hitResizeHandle(geometry, worldX, worldY, zoom = 1) {
+  // The padding, like the rects themselves (see getResizeHandleRects),
+  // needs to shrink in world units as zoom grows so it reads as the same
+  // constant few screen pixels of extra grab room at any zoom level.
+  const padding = RESIZE_HANDLE_HIT_PADDING / zoom;
+  for (const rect of Object.values(getResizeHandleRects(geometry, zoom))) {
+    if (pointInRect(worldX, worldY, rect, padding)) return rect.side;
   }
   return null;
 }
@@ -202,7 +206,7 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
  * select its parent block first. Returns null if nothing was hit (caller
  * should try a wire trunk, then fall back to pan/marquee).
  */
-export function hitTest(project, worldX, worldY, boundary, resizableBlockId, resizablePortId) {
+export function hitTest(project, worldX, worldY, boundary, resizableBlockId, resizablePortId, zoom = 1) {
   const blocks = project.listBlocks();
 
   // Ports outrank a resize handle exactly like they outranked the old
@@ -318,7 +322,7 @@ export function hitTest(project, worldX, worldY, boundary, resizableBlockId, res
     const isBoundaryTarget = Boolean(boundary) && resizableBlockId === boundary.block.id;
     const geometry = isBoundaryTarget ? boundary.geometry : project.getBlock(resizableBlockId)?.geometry;
     if (geometry) {
-      const side = hitResizeHandle(geometry, worldX, worldY);
+      const side = hitResizeHandle(geometry, worldX, worldY, zoom);
       if (side) return { type: 'resizeHandle', blockId: resizableBlockId, side, isBoundary: isBoundaryTarget };
     }
   }

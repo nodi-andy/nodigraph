@@ -338,24 +338,33 @@ export function projectPointToPerimeter(block, worldX, worldY) {
 export const RESIZE_HANDLE_SIZE = 12;
 export const RESIZE_HANDLE_OUTSET = 20;
 
-export function getResizeHandleRects(geometry) {
+// These constants are screen-pixel sizes, not world sizes — geometry is
+// drawn (and hit-tested) under the camera's zoom transform, so a rect this
+// function returns has to be RESIZE_HANDLE_SIZE/zoom wide to still measure
+// RESIZE_HANDLE_SIZE pixels once that transform scales it back down. Without
+// this, a fixed world-unit handle shrinks toward nothing at low zoom (no way
+// to grab it to resize a block you've zoomed out to see the whole diagram)
+// and balloons absurdly large at high zoom.
+export function getResizeHandleRects(geometry, zoom = 1) {
   const { x, y, width, height } = geometry;
-  const half = RESIZE_HANDLE_SIZE / 2;
+  const handleSize = RESIZE_HANDLE_SIZE / zoom;
+  const outset = RESIZE_HANDLE_OUTSET / zoom;
+  const half = handleSize / 2;
   const cx = x + width / 2;
   const cy = y + height / 2;
-  const square = (side, cx2, cy2) => ({ side, x: cx2 - half, y: cy2 - half, width: RESIZE_HANDLE_SIZE, height: RESIZE_HANDLE_SIZE });
+  const square = (side, cx2, cy2) => ({ side, x: cx2 - half, y: cy2 - half, width: handleSize, height: handleSize });
   // A corner's x and y offsets compound diagonally — offsetting both by
-  // the same RESIZE_HANDLE_OUTSET an edge handle uses would put the corner
-  // handle sqrt(2) times farther from the shape than an edge one is.
-  // Dividing each axis by sqrt(2) cancels that out, so every handle sits
-  // the same straight-line distance from the block/boundary regardless of
-  // which one it is.
-  const cornerOutset = RESIZE_HANDLE_OUTSET / Math.SQRT2;
+  // the same outset an edge handle uses would put the corner handle
+  // sqrt(2) times farther from the shape than an edge one is. Dividing
+  // each axis by sqrt(2) cancels that out, so every handle sits the same
+  // straight-line distance from the block/boundary regardless of which
+  // one it is.
+  const cornerOutset = outset / Math.SQRT2;
   return {
-    top: square('top', cx, y - RESIZE_HANDLE_OUTSET),
-    bottom: square('bottom', cx, y + height + RESIZE_HANDLE_OUTSET),
-    left: square('left', x - RESIZE_HANDLE_OUTSET, cy),
-    right: square('right', x + width + RESIZE_HANDLE_OUTSET, cy),
+    top: square('top', cx, y - outset),
+    bottom: square('bottom', cx, y + height + outset),
+    left: square('left', x - outset, cy),
+    right: square('right', x + width + outset, cy),
     // Corners resize both axes from the one drag — 'nw' etc. name which
     // corner, and DragStateMachine.resizeEdge reads that as its own
     // horizontal + vertical edge pair rather than needing a separate code
@@ -390,28 +399,71 @@ const RESIZE_HANDLE_ALPHA = 0.75;
 // second shape just for corners.
 const CORNER_ROTATION = { nw: Math.PI / 4, se: Math.PI / 4, ne: -Math.PI / 4, sw: -Math.PI / 4 };
 
-export function drawResizeHandles(ctx, geometry, palette = DEFAULT_PALETTE) {
-  const rects = getResizeHandleRects(geometry);
+export function drawResizeHandles(ctx, geometry, palette = DEFAULT_PALETTE, zoom = 1) {
+  const rects = getResizeHandleRects(geometry, zoom);
+  const gripLength = RESIZE_GRIP_LENGTH / zoom;
+  const gripThickness = RESIZE_GRIP_THICKNESS / zoom;
   ctx.save();
   ctx.globalAlpha = RESIZE_HANDLE_ALPHA;
   for (const rect of Object.values(rects)) {
     const cx = rect.x + rect.width / 2;
     const cy = rect.y + rect.height / 2;
     const horizontalEdge = rect.side === 'top' || rect.side === 'bottom';
-    const w = horizontalEdge ? RESIZE_GRIP_LENGTH : RESIZE_GRIP_THICKNESS;
-    const h = horizontalEdge ? RESIZE_GRIP_THICKNESS : RESIZE_GRIP_LENGTH;
+    const w = horizontalEdge ? gripLength : gripThickness;
+    const h = horizontalEdge ? gripThickness : gripLength;
     ctx.save();
     ctx.translate(cx, cy);
     const rotation = CORNER_ROTATION[rect.side];
     if (rotation) ctx.rotate(rotation);
-    roundRectPath(ctx, -w / 2, -h / 2, w, h, RESIZE_GRIP_THICKNESS / 2);
+    roundRectPath(ctx, -w / 2, -h / 2, w, h, gripThickness / 2);
     ctx.fillStyle = palette.resizeHandleFill;
     ctx.fill();
     ctx.strokeStyle = SELECTION_COLOR;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 1.5 / zoom;
     ctx.stroke();
     ctx.restore();
   }
+  ctx.restore();
+}
+
+// True once a block actually has something drawn one level down — not just
+// `hasChildren` on its own, which Project.getLevel sets the moment a block
+// is *entered* even if nothing was ever placed inside it (same "real
+// content" check the Inspector's own "Enter block (N inside)" label uses).
+export function hasSubArchitecture(block) {
+  return Boolean(block.children?.blocks?.size);
+}
+
+// A small "box within a box" marker in a block's corner, shown only once it
+// actually has sub-architecture — otherwise there's no way to tell from the
+// diagram itself which blocks are worth drilling into versus which are
+// leaves. Fixed screen size (see getResizeHandleRects' own note on why) so
+// it stays legible zoomed out across a whole large diagram, which is
+// exactly when knowing this at a glance matters most.
+const SUBLEVEL_BADGE_SIZE = 13;
+const SUBLEVEL_BADGE_MARGIN = 5;
+
+function drawSubArchitectureBadge(ctx, geometry, palette, zoom) {
+  const size = SUBLEVEL_BADGE_SIZE / zoom;
+  const margin = SUBLEVEL_BADGE_MARGIN / zoom;
+  const x = geometry.x + geometry.width - size - margin;
+  const y = geometry.y + geometry.height - size - margin;
+  ctx.save();
+  ctx.globalAlpha = 0.9;
+  roundRectPath(ctx, x, y, size, size, size * 0.22);
+  ctx.strokeStyle = palette.boundaryLabel;
+  ctx.lineWidth = 1.2 / zoom;
+  ctx.stroke();
+  // The inner square peeks out past the outer one's own bottom-right
+  // corner rather than sitting fully inside it — the same offset-stack
+  // look used everywhere else for "there's another one behind/inside
+  // this" (duplicate icons, layered windows).
+  const innerSize = size * 0.6;
+  const innerX = x + size * 0.42;
+  const innerY = y + size * 0.42;
+  roundRectPath(ctx, innerX, innerY, innerSize, innerSize, innerSize * 0.28);
+  ctx.fillStyle = palette.boundaryLabel;
+  ctx.fill();
   ctx.restore();
 }
 
@@ -824,7 +876,7 @@ function readableTextColor(hex) {
 export function drawBlock(
   ctx,
   block,
-  { selected = false, portHighlights = null, requestRender = () => {}, palette = DEFAULT_PALETTE } = {},
+  { selected = false, portHighlights = null, requestRender = () => {}, palette = DEFAULT_PALETTE, zoom = 1 } = {},
 ) {
   const { x, y, width, height } = block.geometry;
   const accentColor = block.style?.color || DEFAULT_BLOCK_COLOR;
@@ -883,7 +935,8 @@ export function drawBlock(
   // guard) — showing the discoverable empty-slot squares on it would
   // advertise an affordance that doesn't work.
   drawPorts(ctx, block, { portHighlights, showEmptySlots: selected && block.kind !== 'text', palette });
-  if (selected) drawResizeHandles(ctx, block.geometry, palette);
+  if (hasSubArchitecture(block)) drawSubArchitectureBadge(ctx, block.geometry, palette, zoom);
+  if (selected) drawResizeHandles(ctx, block.geometry, palette, zoom);
 }
 
 // The frame representing "the current system" — the block you're inside,
@@ -900,7 +953,14 @@ export function drawBoundary(
   ctx,
   block,
   geometry,
-  { selected = false, portHighlights = null, palette = DEFAULT_PALETTE, boundaryWireLabels = null, wireMoveOverride = null } = {},
+  {
+    selected = false,
+    portHighlights = null,
+    palette = DEFAULT_PALETTE,
+    boundaryWireLabels = null,
+    wireMoveOverride = null,
+    zoom = 1,
+  } = {},
 ) {
   const { x, y, width, height } = geometry;
 
@@ -930,7 +990,7 @@ export function drawBoundary(
   // 'boundaryLine' hit and DragStateMachine's handling of it), so there's
   // a real selected state to hang this on instead of showing handles
   // unconditionally.
-  if (selected) drawResizeHandles(ctx, geometry, palette);
+  if (selected) drawResizeHandles(ctx, geometry, palette, zoom);
 }
 
 export const BOUNDARY_LABEL_FONT = '11px -apple-system, Segoe UI, Roboto, sans-serif';
