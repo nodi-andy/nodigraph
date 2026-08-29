@@ -28,6 +28,13 @@ export function createGitHubConnectDialog({
   pathPlaceholder = 'owner/repo/path/to/diagram.nodigraph.json',
   buttonLabel = 'Open',
   busyLabel = 'Opening…',
+  // Writing always needs a token, on any repo — GitHub never accepts an
+  // unauthenticated write, public or not — so Save keeps the field shown
+  // up front. Reading a public repo needs none at all, so Open starts
+  // with it collapsed behind a link and only reveals it if it turns out
+  // to be needed (see the 401/404 handling below), rather than making
+  // every open ask for a credential most repos don't require.
+  tokenRequired = true,
 }) {
   const { dialog, body } = createDialogShell(title);
 
@@ -56,7 +63,9 @@ export function createGitHubConnectDialog({
       tokenInput.value = getStoredToken();
       tokenField.appendChild(tokenInput);
       const tokenHint = el('p', 'share-hint');
-      tokenHint.textContent = 'Needed to save changes back, and to read a private repo. ';
+      tokenHint.textContent = tokenRequired
+        ? 'Needed to save changes back, even to a public repo. '
+        : 'Only needed for a private repo — a public one opens with nothing. ';
       const tokenLink = el('a', null, 'Create one on GitHub');
       tokenLink.href = TOKEN_HELP_URL;
       tokenLink.target = '_blank';
@@ -71,6 +80,23 @@ export function createGitHubConnectDialog({
         ),
       );
       body.appendChild(tokenField);
+
+      // Collapsed by default when a token isn't strictly required and none
+      // is already on file — the common case (opening a public repo) then
+      // never shows a credential field at all.
+      const startsHidden = !tokenRequired && !getStoredToken();
+      tokenField.hidden = startsHidden;
+      let revealLink = null;
+      if (startsHidden) {
+        revealLink = el('button', 'share-link-button', 'Private repo? Add a personal access token');
+        revealLink.type = 'button';
+        revealLink.addEventListener('click', () => {
+          tokenField.hidden = false;
+          revealLink.hidden = true;
+          tokenInput.focus();
+        });
+        body.insertBefore(revealLink, tokenField);
+      }
 
       const errorText = el('p', 'share-warning');
       errorText.hidden = true;
@@ -94,7 +120,18 @@ export function createGitHubConnectDialog({
           await onSubmit({ target, token });
           dialog.close();
         } catch (err) {
-          errorText.textContent = err.message;
+          // A repo GitHub won't show to an unauthenticated request (private,
+          // or nonexistent — it can't tell the two apart on purpose) comes
+          // back as a 404 here; surfacing the token field right when that
+          // happens beats leaving the user to guess why a plain path didn't
+          // just work.
+          if (!token && tokenField.hidden && (err.status === 401 || err.status === 404)) {
+            tokenField.hidden = false;
+            if (revealLink) revealLink.hidden = true;
+            errorText.textContent = `${err.message} — this repo may be private and need a token below.`;
+          } else {
+            errorText.textContent = err.message;
+          }
           errorText.hidden = false;
         } finally {
           submitButton.disabled = false;
