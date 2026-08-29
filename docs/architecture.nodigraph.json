@@ -184,8 +184,8 @@
           "kind": "block",
           "description": "SceneRenderer, BlockRenderer, ConnectionRenderer — draws the current Project to a canvas or, via svgContext, to SVG.",
           "geometry": {
-            "x": 600,
-            "y": 120,
+            "x": 640,
+            "y": 160,
             "width": 240,
             "height": 120
           },
@@ -234,8 +234,8 @@
           "kind": "block",
           "description": "Project/Block/Connection and the grid they snap to — the one shared source of truth everything else reads or mutates.",
           "geometry": {
-            "x": 200,
-            "y": 440,
+            "x": 40,
+            "y": 480,
             "width": 240,
             "height": 120
           },
@@ -311,7 +311,7 @@
           "description": "Small Node server: persists the project to disk and relays live-session updates over WebSocket — optional, the app works fully client-only without it.",
           "geometry": {
             "x": 600,
-            "y": 480,
+            "y": 520,
             "width": 240,
             "height": 120
           },
