@@ -34,7 +34,8 @@ import { maybeShowOnboarding } from './ui/Onboarding.js';
 import { renderCurrentLevelDataUrl, renderCurrentLevelBlob } from './model/diagramImage.js';
 import { getBoundaryLabelRect } from './render/BlockRenderer.js';
 import { getConnectionGeometry, getConnectionLabelPosition } from './render/ConnectionRenderer.js';
-import { downloadProjectFile, readProjectFile } from './model/localFile.js';
+import { downloadProjectFile, readProjectFile, safeFileStem } from './model/localFile.js';
+import { downloadCurrentLevelSvg, renderCurrentLevelSvgBlob } from './model/diagramSvg.js';
 import { encodeProjectToParam, decodeProjectFromParam } from './model/shareLink.js';
 import { serializeSelection, pasteSelection, isClipboardPayload } from './model/clipboard.js';
 import { History } from './model/History.js';
@@ -628,10 +629,46 @@ async function bootstrap() {
   const renderFigureImage = async () => ({
     dataUrl: renderCurrentLevelDataUrl(project),
     blob: await renderCurrentLevelBlob(project),
+    // Google Docs itself only ever pastes the PNG above — its own paste
+    // handling doesn't reliably rasterize an SVG source either way it
+    // might arrive — but a target that DOES honor a vector clipboard
+    // flavor (see GoogleDocsExportDialog's "Also copy as SVG") can use
+    // this instead of a screenshot of the same diagram.
+    svgBlob: renderCurrentLevelSvgBlob(project),
   });
   // The level you're looking at is the thing the figure depicts, so its
   // name is what the figure's description should say.
   const getFigureName = () => project.getContainerBlock()?.name || project.name;
+
+  // The obvious way to keep a diagram embedded in Markdown from going
+  // stale is to never bake a snapshot into the reference at all: save this
+  // file at a stable path next to (or in) whatever repo the .md file
+  // lives in, reference it there by relative path, and the next commit
+  // that overwrites this same file is the entire "update" — GitHub (and
+  // most Markdown renderers) already show whatever's currently on disk at
+  // that path, with nothing to re-sync by hand. The copied snippet assumes
+  // exactly that — the file saved alongside the Markdown that pastes it.
+  function handleExportSvg() {
+    const figureName = getFigureName();
+    downloadCurrentLevelSvg(project, figureName);
+    const filename = `${safeFileStem(figureName)}.svg`;
+    showToast(`Downloaded ${filename}.`, {
+      actions: [
+        {
+          label: 'Copy Markdown',
+          onClick: () => {
+            navigator.clipboard.writeText(`![${figureName}](./${filename})`).catch(() => {
+              // Clipboard access can legitimately be refused (permissions,
+              // insecure context) — the file itself already downloaded, so
+              // there's nothing left to fall back to beyond leaving it to
+              // be typed by hand.
+            });
+          },
+        },
+        { label: 'OK' },
+      ],
+    });
+  }
 
   const shareLinkDialog = createShareLinkDialog({ getShareUrl: buildShareUrlOrError });
   const googleDocsExportDialog = createGoogleDocsExportDialog({
@@ -1068,6 +1105,7 @@ async function bootstrap() {
     onOpen: handleOpenFile,
     onSaveUrl: handleSaveToUrl,
     onExportFile: handleExportFile,
+    onExportSvg: handleExportSvg,
     onExportGoogleDocs: handleExportGoogleDocs,
     onAnimate: toggleAnimation,
     onToggleDarkMode: (on) => {
