@@ -267,11 +267,18 @@ export function renderScene(
       palette,
       boundaryWireLabels,
       wireMoveOverride,
+      zoom: camera.zoom,
     });
   }
 
   for (const block of blocks) {
-    drawBlock(ctx, block, { selected: selectedBlockIds.has(block.id), portHighlights, requestRender, palette });
+    drawBlock(ctx, block, {
+      selected: selectedBlockIds.has(block.id),
+      portHighlights,
+      requestRender,
+      palette,
+      zoom: camera.zoom,
+    });
   }
 
   if (marqueeRect) drawMarquee(ctx, marqueeRect, camera.zoom);

@@ -56,6 +56,8 @@ initTheme();
 const canvas = document.getElementById('scene-canvas');
 const ctx = canvas.getContext('2d');
 const fabEl = document.getElementById('fab-add-block');
+const fabAddIconEl = fabEl.querySelector('[data-icon="add"]');
+const fabEnterIconEl = fabEl.querySelector('[data-icon="enter"]');
 const textFabEl = document.getElementById('fab-add-text');
 const inspectorEl = document.getElementById('inspector');
 const breadcrumbEl = document.getElementById('breadcrumb');
@@ -515,6 +517,20 @@ async function bootstrap() {
     updateNavigationUI();
     persist();
     renderLoop.requestRender();
+  }
+
+  // The one block the add-block FAB should offer to enter instead of
+  // adding a new one (see mountToolbar) — exactly one block selected, no
+  // wire alongside it, and not a text block or the frame you're already
+  // standing inside (project.enterBlock itself already refuses both of
+  // those, but checking here means the FAB reads as disabled rather than
+  // silently doing nothing on a click that couldn't have worked).
+  function getEnterableSelectedBlock() {
+    if (selection.count !== 1 || wireSelection.list().length > 0) return null;
+    const block = project.getBlock(selection.selectedBlockId);
+    if (!block || block.kind === 'text') return null;
+    if (block.id === project.getContainerBlock()?.id) return null;
+    return block;
   }
 
   function navigateToDepth(depth) {
@@ -1053,8 +1069,16 @@ async function bootstrap() {
     selectionFabsApi?.refresh();
     // The add-block FAB is disabled rather than hidden while something is
     // selected — same "present but inert" treatment as the mini-FABs it
-    // sits below, driven from the same count they use.
-    fabEl.disabled = selectionCount() > 0;
+    // sits below, driven from the same count they use. The one exception
+    // is exactly one enterable block selected: "add a block" makes no
+    // sense with a selection already active, but "enter this block" does,
+    // so the same button switches to that instead of just going inert.
+    const enterableBlock = getEnterableSelectedBlock();
+    fabEl.disabled = selectionCount() > 0 && !enterableBlock;
+    fabAddIconEl.style.display = enterableBlock ? 'none' : '';
+    fabEnterIconEl.style.display = enterableBlock ? '' : 'none';
+    fabEl.title = enterableBlock ? 'Enter block' : 'Add block';
+    fabEl.setAttribute('aria-label', fabEl.title);
     if (textFabEl) textFabEl.disabled = selectionCount() > 0;
     pruneStaleCursors();
     onlineUsersApi.refresh(clientId, [...remoteCursors.keys()]);
@@ -1218,6 +1242,8 @@ async function bootstrap() {
     requestRender: () => renderLoop.requestRender(),
     persist,
     textFabEl,
+    getEnterableBlock: getEnterableSelectedBlock,
+    onEnterBlock: enterBlock,
   });
 
   inspectorApi = mountInspector(inspectorEl, {

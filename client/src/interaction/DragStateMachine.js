@@ -193,6 +193,7 @@ export class DragStateMachine {
         this.getBoundaryInfo(),
         this.getResizableBlockId(),
         this.getResizablePortId(),
+        this.camera.zoom,
       );
       if (reverify?.type === 'portWireGhost' && reverify.portId === ghost.portId) {
         this.wireSelection.clear();
@@ -256,6 +257,7 @@ export class DragStateMachine {
       boundary,
       this.getResizableBlockId(),
       this.getResizablePortId(),
+      this.camera.zoom,
     );
     if (hit) this.wireSelection.clear();
 
@@ -819,6 +821,7 @@ export class DragStateMachine {
             boundary,
             this.getResizableBlockId(),
             this.getResizablePortId(),
+            this.camera.zoom,
           );
           const selectedPort = boundary?.block.ports.find((p) => p.id === this.selection.selectedPortId);
           // eslint-disable-next-line no-console
@@ -905,7 +908,7 @@ export class DragStateMachine {
     // one on the open canvas.
     const boundary = this.getBoundaryInfo();
     const hit = boundary
-      ? hitTest(this.project, world.x, world.y, boundary, this.getResizableBlockId(), this.getResizablePortId())
+      ? hitTest(this.project, world.x, world.y, boundary, this.getResizableBlockId(), this.getResizablePortId(), this.camera.zoom)
       : null;
     if (hit?.type === 'portResizeHandle' || (hit?.type === 'port' && hit.blockId === boundary.block.id)) {
       this.clearHoverGhost();
@@ -1025,7 +1028,7 @@ export class DragStateMachine {
 
   computeHoverCursor(world) {
     const boundary = this.getBoundaryInfo();
-    const hit = hitTest(this.project, world.x, world.y, boundary, this.getResizableBlockId(), this.getResizablePortId());
+    const hit = hitTest(this.project, world.x, world.y, boundary, this.getResizableBlockId(), this.getResizablePortId(), this.camera.zoom);
     if (hit?.type === 'resizeHandle') return cursorForResizeEdge(hit.side);
     if (hit?.type === 'portResizeHandle') {
       const block = this.project.getBlock(hit.blockId);

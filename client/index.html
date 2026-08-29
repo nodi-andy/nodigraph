@@ -91,9 +91,16 @@
         </svg>
       </button>
     </div>
+    <!-- Doubles as "enter this block" when exactly one enterable block is
+         selected instead of nothing — same button, same corner, main.js's
+         draw() swaps which icon shows and what a click does. Mirrors
+         fab-parent's own up/add-parent icon swap above. -->
     <button id="fab-add-block" class="fab" type="button" aria-label="Add block">
-      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+      <svg data-icon="add" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
         <path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z" fill="currentColor" />
+      </svg>
+      <svg data-icon="enter" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" style="display: none">
+        <path d="M4 11h10.5l-3.3-3.3 1.4-1.4L18.4 12l-5.8 5.7-1.4-1.4 3.3-3.3H4z" fill="currentColor" />
       </svg>
     </button>
   </div>
