@@ -21,7 +21,7 @@
       "x": -40,
       "y": -40,
       "width": 960,
-      "height": 640
+      "height": 720
     },
     "requirementIds": [],
     "children": {
@@ -39,7 +39,8 @@
             "height": 120
           },
           "style": {
-            "color": "#3b6fa0"
+            "color": "#3b6fa0",
+            "fontSize": 24
           },
           "ports": [
             {
@@ -90,7 +91,8 @@
             "height": 120
           },
           "style": {
-            "color": "#3b6fa0"
+            "color": "#3b6fa0",
+            "fontSize": 36
           },
           "ports": [
             {
@@ -234,7 +236,7 @@
           "kind": "block",
           "description": "Project/Block/Connection and the grid they snap to — the one shared source of truth everything else reads or mutates.",
           "geometry": {
-            "x": 40,
+            "x": 0,
             "y": 480,
             "width": 360,
             "height": 120
