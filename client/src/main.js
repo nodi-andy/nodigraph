@@ -117,6 +117,10 @@ async function bootstrap() {
   let sharedLinkFailed = false;
   let isGitHubView = false;
   let githubConnection = null;
+  // Guards the direct (dialog-free) "Save to GitHub" path against a second
+  // tap landing while the first save is still in flight — see
+  // handleSaveToGitHub below.
+  let githubSaveInFlight = false;
   if (sharedParam) {
     try {
       project = Project.fromJSON(await decodeProjectFromParam(sharedParam));
@@ -853,6 +857,20 @@ async function bootstrap() {
   // a working one than to leave "Couldn't save" as a dead end.
   async function handleSaveToGitHub() {
     if (githubConnection?.token) {
+      // The direct-save path (unlike the dialog's own submit button) had
+      // nothing stopping a second tap from firing a second save while the
+      // first was still in flight — on a slow connection, with no visual
+      // feedback in between, that's exactly the kind of impatient re-tap
+      // this app should expect. Two overlapping writes each read the
+      // file's sha before either has written it, so one's PUT lands on a
+      // sha the other has already moved past and gets rejected — which
+      // reads as "the picture didn't update" with no obvious cause.
+      if (githubSaveInFlight) {
+        showToast('Still saving to GitHub — hang on.');
+        return;
+      }
+      githubSaveInFlight = true;
+      showToast('Saving to GitHub…');
       try {
         await saveToGitHubTarget(githubConnection, githubConnection.token);
         showToast(`Saved to ${formatGitHubTarget(githubConnection)} on GitHub.`);
@@ -863,6 +881,8 @@ async function bootstrap() {
           return;
         }
         // Falls through to the dialog so a bad/missing token can be fixed.
+      } finally {
+        githubSaveInFlight = false;
       }
     }
     githubSaveDialog.open();
