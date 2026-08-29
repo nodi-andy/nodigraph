@@ -822,10 +822,22 @@ async function bootstrap() {
   async function saveToGitHubTarget(target, token) {
     const projectData = project.toJSON();
     const svgString = renderCurrentLevelSvgString(project);
-    await writeDiagramToGitHub(target, projectData, svgString, token);
-    isGitHubView = true;
-    githubConnection = { ...target, token };
-    githubSyncedSnapshot = JSON.stringify(projectData);
+    const rememberConnection = () => {
+      isGitHubView = true;
+      githubConnection = { ...target, token };
+      githubSyncedSnapshot = JSON.stringify(projectData);
+    };
+    try {
+      await writeDiagramToGitHub(target, projectData, svgString, token);
+    } catch (err) {
+      // The JSON half can succeed even when the picture doesn't (see
+      // writeDiagramToGitHub) — the token and target are proven good
+      // either way, so there's no reason a retry should have to ask for
+      // either again.
+      if (err.partialSuccess) rememberConnection();
+      throw err;
+    }
+    rememberConnection();
   }
 
   // Opening a diagram from a plain ?github= link (no token needed to read a
