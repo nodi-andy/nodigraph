@@ -35,8 +35,15 @@ import { renderCurrentLevelDataUrl, renderCurrentLevelBlob } from './model/diagr
 import { getBoundaryLabelRect } from './render/BlockRenderer.js';
 import { getConnectionGeometry, getConnectionLabelPosition } from './render/ConnectionRenderer.js';
 import { downloadProjectFile, readProjectFile, safeFileStem } from './model/localFile.js';
-import { downloadCurrentLevelSvg, renderCurrentLevelSvgBlob } from './model/diagramSvg.js';
+import { downloadCurrentLevelSvg, renderCurrentLevelSvgBlob, renderCurrentLevelSvgString } from './model/diagramSvg.js';
 import { encodeProjectToParam, decodeProjectFromParam } from './model/shareLink.js';
+import {
+  readDiagramFromGitHub,
+  writeDiagramToGitHub,
+  parseGitHubTarget,
+  formatGitHubTarget,
+} from './model/githubSync.js';
+import { createGitHubConnectDialog } from './ui/GitHubConnectDialog.js';
 import { serializeSelection, pasteSelection, isClipboardPayload } from './model/clipboard.js';
 import { History } from './model/History.js';
 import { createPeerSession } from './model/peerSession.js';
@@ -99,9 +106,17 @@ async function bootstrap() {
   // below would otherwise apply.
   const joinId = new URLSearchParams(window.location.search).get('join');
   const isLiveGuest = Boolean(joinId);
+  // A ?github=owner/repo/path link fetches the diagram live from GitHub's
+  // Contents API instead of decoding it out of the URL itself — see
+  // model/githubSync.js. `githubConnection` remembers where it came from
+  // so "Save to GitHub" (below) knows where to write back to without
+  // asking again.
+  const githubParam = new URLSearchParams(window.location.search).get('github');
   let project;
   let isSharedView = false;
   let sharedLinkFailed = false;
+  let isGitHubView = false;
+  let githubConnection = null;
   if (sharedParam) {
     try {
       project = Project.fromJSON(await decodeProjectFromParam(sharedParam));
@@ -115,6 +130,22 @@ async function bootstrap() {
       sharedLinkFailed = true;
       window.history.replaceState(null, '', window.location.pathname);
       showToast("This link's diagram couldn't be read — it may be corrupted or incomplete. Starting a blank diagram instead.");
+    }
+  } else if (githubParam) {
+    const target = parseGitHubTarget(githubParam);
+    if (target) {
+      try {
+        const data = await readDiagramFromGitHub(target);
+        project = Project.fromJSON(data);
+        isGitHubView = true;
+        githubConnection = target;
+      } catch (err) {
+        window.history.replaceState(null, '', window.location.pathname);
+        showToast(`Couldn't load ${formatGitHubTarget(target)} from GitHub: ${err.message}`);
+      }
+    } else {
+      window.history.replaceState(null, '', window.location.pathname);
+      showToast("That GitHub link couldn't be read — expected ?github=owner/repo/path.");
     }
   }
   if (sharedLinkFailed) {
@@ -180,6 +211,11 @@ async function bootstrap() {
   // none — which is how "Save" knows whether there is anything to save.
   // A page opened from a link starts out already saved, by definition.
   let urlSnapshot = isSharedView ? JSON.stringify(project.toJSON()) : null;
+  // What's currently sitting at githubConnection's path, last we knew —
+  // null until a GitHub load or save happens at least once. Lets the
+  // beforeunload warning below tell "this GitHub-connected diagram has
+  // edits not yet pushed back" apart from "nothing's changed since".
+  let githubSyncedSnapshot = isGitHubView ? JSON.stringify(project.toJSON()) : null;
   // Assigned further down, once applyRemoteProject/applyLiveUpdate exist —
   // declared here so persist() can reach it without a dead-zone error.
   let peerSession = null;
@@ -196,8 +232,12 @@ async function bootstrap() {
     headerActionsApi?.refreshHistory();
     // A live-session guest's project is the host's, streamed in over the
     // data channel — persisting it here would overwrite this browser's own
-    // unrelated local/server document with someone else's diagram.
-    if (!isSharedView && !isLiveGuest) saveProject(project);
+    // unrelated local/server document with someone else's diagram. A
+    // GitHub-loaded diagram gets the same treatment: it lives at a path in
+    // some repo, not in this browser's local/server document, and "Save to
+    // GitHub" (not this autosave) is how its edits actually get written
+    // back.
+    if (!isSharedView && !isLiveGuest && !isGitHubView) saveProject(project);
     // The tab title is what a bookmark gets named, so it has to be the
     // diagram's name rather than the app's.
     document.title = project.name ? `${project.name} · nodigraph` : 'nodigraph';
@@ -676,6 +716,28 @@ async function bootstrap() {
     renderImage: renderFigureImage,
     getFigureName,
   });
+  const githubOpenDialog = createGitHubConnectDialog({
+    title: 'Open from GitHub',
+    buttonLabel: 'Open',
+    busyLabel: 'Opening…',
+    initialTarget: githubConnection,
+    onSubmit: async ({ target, token }) => {
+      const data = await readDiagramFromGitHub(target, token);
+      applyGitHubProject(data, target, token);
+      persist();
+    },
+  });
+  const githubSaveDialog = createGitHubConnectDialog({
+    title: 'Save to GitHub',
+    pathPlaceholder: 'owner/repo/path/to/diagram.nodigraph.json',
+    buttonLabel: 'Save',
+    busyLabel: 'Saving…',
+    initialTarget: githubConnection,
+    onSubmit: async ({ target, token }) => {
+      await saveToGitHubTarget(target, token);
+      showToast(`Saved to ${formatGitHubTarget(target)} on GitHub.`);
+    },
+  });
   const liveSessionDialog = createLiveSessionDialog({
     session: {
       getState: () => peerSession?.getState() || { state: 'idle', peers: 0 },
@@ -732,6 +794,53 @@ async function bootstrap() {
     googleDocsExportDialog.open();
   }
 
+  // Loading from GitHub replaces the whole tree the same way opening a
+  // local file does (see handleOpenFile below) — the difference is only
+  // where the data came from, and that this project now remembers where to
+  // write back to on "Save to GitHub".
+  function applyGitHubProject(data, target, token) {
+    project.applyRemoteRootBlock(data.rootBlock);
+    selection.clear();
+    wireSelection.clear();
+    frameCurrentLevel();
+    updateNavigationUI();
+    isGitHubView = true;
+    githubConnection = { ...target, token };
+    githubSyncedSnapshot = JSON.stringify(project.toJSON());
+    renderLoop.requestRender();
+  }
+
+  async function handleOpenFromGitHub() {
+    githubOpenDialog.open();
+  }
+
+  // Writes the current diagram's JSON, plus a freshly-rendered sibling SVG,
+  // straight back to the same repo path it was opened from — see
+  // model/githubSync.js. Asks where to save the first time (nothing is
+  // connected yet); after that, every "Save to GitHub" writes to the same
+  // place without asking again.
+  async function saveToGitHubTarget(target, token) {
+    const projectData = project.toJSON();
+    const svgString = renderCurrentLevelSvgString(project);
+    await writeDiagramToGitHub(target, projectData, svgString, token);
+    isGitHubView = true;
+    githubConnection = { ...target, token };
+    githubSyncedSnapshot = JSON.stringify(projectData);
+  }
+
+  async function handleSaveToGitHub() {
+    if (githubConnection) {
+      try {
+        await saveToGitHubTarget(githubConnection, githubConnection.token);
+        showToast(`Saved to ${formatGitHubTarget(githubConnection)} on GitHub.`);
+      } catch (err) {
+        showToast(`Couldn't save to GitHub: ${err.message}`);
+      }
+      return;
+    }
+    githubSaveDialog.open();
+  }
+
   // Opening a local file replaces the whole tree the same way a pushed
   // remote update does (see applyRemoteProject below) — just triggered
   // locally instead of over the WebSocket. The loaded project is
@@ -749,6 +858,12 @@ async function bootstrap() {
     wireSelection.clear();
     frameCurrentLevel();
     updateNavigationUI();
+    // This file has nothing to do with whatever GitHub path was connected
+    // before — clearing the connection means "Save to GitHub" asks where
+    // to put this file rather than silently overwriting the old one.
+    isGitHubView = false;
+    githubConnection = null;
+    githubSyncedSnapshot = null;
     persist();
     renderLoop.requestRender();
   }
@@ -778,6 +893,9 @@ async function bootstrap() {
       urlSnapshot = null;
       window.history.replaceState(null, '', window.location.pathname);
     }
+    isGitHubView = false;
+    githubConnection = null;
+    githubSyncedSnapshot = null;
     appMenuApi?.refreshSaved(null);
     persist();
     renderLoop.requestRender();
@@ -962,7 +1080,7 @@ async function bootstrap() {
   // whatever the host is sharing — connecting to it here would just
   // overwrite this browser's screen with someone else's diagram the
   // moment it next changed.
-  const liveSync = isSharedView || isLiveGuest
+  const liveSync = isSharedView || isLiveGuest || isGitHubView
     ? { sendLive: () => {} }
     : connectLiveSync({ onProject: applyRemoteProject, onLive: applyLiveUpdate });
 
@@ -1107,6 +1225,8 @@ async function bootstrap() {
     onExportFile: handleExportFile,
     onExportSvg: handleExportSvg,
     onExportGoogleDocs: handleExportGoogleDocs,
+    onOpenFromGitHub: handleOpenFromGitHub,
+    onSaveToGitHub: handleSaveToGitHub,
     onAnimate: toggleAnimation,
     onToggleDarkMode: (on) => {
       setTheme(on ? 'dark' : 'light');
@@ -1126,7 +1246,9 @@ async function bootstrap() {
   // no prompt — a confirmation dialog that fires when nothing is at stake
   // is one people learn to dismiss without reading.
   window.addEventListener('beforeunload', (event) => {
-    if (!isSharedView || urlSnapshot === lastSyncedSnapshot) return;
+    const unsavedShared = isSharedView && urlSnapshot !== lastSyncedSnapshot;
+    const unsavedGitHub = isGitHubView && githubSyncedSnapshot !== lastSyncedSnapshot;
+    if (!unsavedShared && !unsavedGitHub) return;
     event.preventDefault();
     event.returnValue = '';
   });
