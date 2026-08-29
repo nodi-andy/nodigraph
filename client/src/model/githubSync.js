@@ -64,6 +64,14 @@ function authedHeaders(token) {
 async function apiFetch(url, options, token) {
   const res = await fetch(url, {
     ...options,
+    // Every call here reads or acts on whatever is *currently* in the
+    // repo — most importantly the sha a PUT conditions its write on (see
+    // currentSha below). The browser's default HTTP cache doesn't know
+    // that a GET made moments ago is now stale because this same tab just
+    // wrote a new commit, so without this a save can silently PUT against
+    // a sha from before its own previous save, or "Open from GitHub" can
+    // hand back a diagram from before the last edit.
+    cache: 'no-store',
     headers: { ...authedHeaders(token), ...(options?.headers || {}) },
   });
   if (!res.ok) {
