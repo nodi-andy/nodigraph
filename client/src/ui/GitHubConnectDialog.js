@@ -44,7 +44,7 @@ export function createGitHubConnectDialog({
 
       const targetField = el('div', 'share-field');
       targetField.appendChild(el('label', null, 'Repo path'));
-      const targetInput = el('input');
+      const targetInput = el('input', 'share-input');
       targetInput.type = 'text';
       targetInput.placeholder = pathPlaceholder;
       const initialTarget = getInitialTarget();
@@ -57,7 +57,7 @@ export function createGitHubConnectDialog({
 
       const tokenField = el('div', 'share-field');
       tokenField.appendChild(el('label', null, 'Personal access token'));
-      const tokenInput = el('input');
+      const tokenInput = el('input', 'share-input');
       tokenInput.type = 'password';
       tokenInput.placeholder = 'ghp_…';
       tokenInput.value = getStoredToken();
