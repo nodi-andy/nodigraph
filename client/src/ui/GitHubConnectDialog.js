@@ -5,7 +5,7 @@
 // so re-opening this to switch files, or to save later, doesn't mean
 // retyping a token from scratch.
 
-import { el, createDialogShell } from './shareDialogHelpers.js';
+import { el, createDialogShell, flash } from './shareDialogHelpers.js';
 import { getStoredToken, setStoredToken, parseGitHubTarget, formatGitHubTarget } from '../model/githubSync.js';
 
 const TOKEN_HELP_URL = 'https://github.com/settings/tokens/new?scopes=repo&description=nodigraph';
@@ -83,19 +83,46 @@ export function createGitHubConnectDialog({
 
       // Collapsed by default when a token isn't strictly required and none
       // is already on file — the common case (opening a public repo) then
-      // never shows a credential field at all.
-      const startsHidden = !tokenRequired && !getStoredToken();
-      tokenField.hidden = startsHidden;
+      // never shows a credential field at all. The link itself still gets
+      // built even when a stored token means it starts hidden: forgetting
+      // that token (below) needs it to reappear, and it can't if this
+      // never existed in the first place.
       let revealLink = null;
-      if (startsHidden) {
+      if (!tokenRequired) {
         revealLink = el('button', 'share-link-button', 'Private repo? Add a personal access token');
         revealLink.type = 'button';
+        revealLink.hidden = Boolean(getStoredToken());
         revealLink.addEventListener('click', () => {
           tokenField.hidden = false;
           revealLink.hidden = true;
           tokenInput.focus();
         });
         body.insertBefore(revealLink, tokenField);
+      }
+      tokenField.hidden = !tokenRequired && !getStoredToken();
+
+      // Only shown once a token is actually on file — blanking the field
+      // and submitting already clears it (setStoredToken('') removes the
+      // key), but that's not a discoverable way to do it. This makes
+      // "stop remembering my token" its own explicit action, worth having
+      // on a shared or public machine.
+      if (getStoredToken()) {
+        const forgetButton = el('button', 'share-link-button', 'Forget this token');
+        forgetButton.type = 'button';
+        forgetButton.addEventListener('click', () => {
+          setStoredToken('');
+          tokenInput.value = '';
+          flash(forgetButton, 'Forgotten');
+          if (!tokenRequired) {
+            // Back to the same collapsed state a repo that's never needed
+            // a token starts in, once the "Forgotten" flash has been seen.
+            setTimeout(() => {
+              tokenField.hidden = true;
+              if (revealLink) revealLink.hidden = false;
+            }, 1400);
+          }
+        });
+        tokenField.appendChild(forgetButton);
       }
 
       const errorText = el('p', 'share-warning');
