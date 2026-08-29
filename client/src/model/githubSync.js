@@ -98,9 +98,21 @@ function contentsUrlForRead(target) {
 }
 
 // atob/btoa only handle Latin1 — wrapping with TextEncoder/TextDecoder
-// keeps arbitrary Unicode in a block name or description intact.
+// keeps arbitrary Unicode in a block name or description intact. Built up
+// in chunks rather than one `String.fromCharCode(...bytes)` spread: passing
+// the whole byte array as individual arguments blows a JS engine's call
+// stack once it's big enough, and a rendered SVG (verbose path/text markup)
+// crosses that line far sooner than the JSON it sits next to — which
+// otherwise fails silently only for the picture, on some diagrams and some
+// browsers, while the JSON write beside it keeps working fine.
 function utf8ToBase64(str) {
-  return btoa(String.fromCharCode(...new TextEncoder().encode(str)));
+  const bytes = new TextEncoder().encode(str);
+  const CHUNK_SIZE = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK_SIZE));
+  }
+  return btoa(binary);
 }
 
 function base64ToUtf8(b64) {
@@ -159,5 +171,18 @@ export async function writeDiagramToGitHub(target, projectData, svgString, token
   const jsonText = JSON.stringify(projectData, null, 2);
   const message = `Update ${target.path} (via nodigraph)`;
   await putFile(target, jsonText, message, token);
-  await putFile({ ...target, path: siblingSvgPath(target.path) }, svgString, message, token);
+  // A failure here is a different, more confusing situation than either
+  // file failing on its own: the diagram's source already committed, so
+  // whatever caused this needs its own message rather than reading as if
+  // nothing was saved at all.
+  try {
+    await putFile({ ...target, path: siblingSvgPath(target.path) }, svgString, message, token);
+  } catch (err) {
+    err.message = `Saved ${target.path}, but the picture didn't update: ${err.message}`;
+    // Lets a caller tell this apart from a wholesale failure — the token
+    // and target are proven good (the JSON write above used them
+    // successfully), so there's no need to ask for either again.
+    err.partialSuccess = true;
+    throw err;
+  }
 }
