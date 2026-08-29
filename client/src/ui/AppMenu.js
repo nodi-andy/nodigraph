@@ -14,6 +14,10 @@ const ICONS = {
   settings:
     '<path d="M3 6h9M17 6h4M3 12h3M9 12h12M3 18h12M18 18h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="13" cy="6" r="2" fill="currentColor"/><circle cx="6" cy="12" r="2" fill="currentColor"/><circle cx="15" cy="18" r="2" fill="currentColor"/>',
   chevron: '<path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+  // A generic branch/network glyph (three connected nodes) rather than
+  // GitHub's own octocat, which is a trademarked logo.
+  github:
+    '<circle cx="6" cy="6" r="2.5" fill="currentColor"/><circle cx="6" cy="18" r="2.5" fill="currentColor"/><circle cx="18" cy="12" r="2.5" fill="currentColor"/><path d="M6 8.5v7M8 6.8l8 3.7M8 17.2l8-3.7" fill="none" stroke="currentColor" stroke-width="1.6"/>',
 };
 
 function svg(name, size = 18) {
@@ -26,7 +30,18 @@ function svg(name, size = 18) {
 // tap behind the hamburger icon.
 export function mountAppMenu(
   container,
-  { onNew, onOpen, onSaveUrl, onExportFile, onExportSvg, onExportGoogleDocs, onAnimate, onToggleDarkMode },
+  {
+    onNew,
+    onOpen,
+    onSaveUrl,
+    onExportFile,
+    onExportSvg,
+    onExportGoogleDocs,
+    onOpenFromGitHub,
+    onSaveToGitHub,
+    onAnimate,
+    onToggleDarkMode,
+  },
 ) {
   container.innerHTML = '';
   container.className = 'app-menu';
@@ -128,6 +143,7 @@ export function mountAppMenu(
   container.appendChild(fileInput);
 
   item('open', 'Import', () => fileInput.click());
+  item('github', 'Open from GitHub', () => onOpenFromGitHub());
 
   const exportBody = expandable('export', 'Export');
   subItem(exportBody, 'JSON', () => onExportFile('json'));
@@ -138,6 +154,7 @@ export function mountAppMenu(
   // "Export to Google Docs" right below it is also a picture, not data.
   item('image', 'Export as SVG', () => onExportSvg());
   item('docs', 'Export to Google Docs', () => onExportGoogleDocs());
+  item('github', 'Save to GitHub', () => onSaveToGitHub());
 
   divider();
 

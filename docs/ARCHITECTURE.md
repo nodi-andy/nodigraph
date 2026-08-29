@@ -11,6 +11,14 @@ edit it, export as SVG again, and overwrite both files at these same paths.
 Nothing else in this repo needs to change — anything that links here keeps
 working because it was always pointing at a path, not a snapshot.
 
+[**✏️ Edit this diagram**](https://nodigraph.com/?github=nodi-andy/nodigraph/docs/architecture.nodigraph.json)
+opens it straight from this repo — hamburger menu → **Save to GitHub** to
+write your edits (plus a freshly rendered SVG) right back to these same two
+paths, with nothing to copy-paste by hand. Reading a public repo needs
+nothing further; saving needs a
+[personal access token](https://github.com/settings/tokens/new?scopes=repo&description=nodigraph),
+which the dialog asks for and keeps only in your own browser.
+
 <!-- nodigraph:architecture.nodigraph.json -->
 ![nodigraph client architecture](./architecture.svg)
 
