@@ -47,20 +47,52 @@ export function mountAppMenu(
     return button;
   }
 
+  function divider() {
+    const el = document.createElement('div');
+    el.className = 'app-menu-divider';
+    container.appendChild(el);
+  }
+
+  // A row that expands its body in place rather than opening a second
+  // panel or a hover flyout — touch-friendly, and consistent with how
+  // Settings (below) already does this. Marked data-keep-menu-open so
+  // expanding it doesn't also dismiss the whole drawer (see
+  // ui/TopbarMenu.js's click-to-close handling).
+  function expandable(iconName, label) {
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'app-menu-item';
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('data-keep-menu-open', '');
+    toggle.innerHTML = `${svg(iconName)}<span>${label}</span>${svg('chevron', 14).replace('<svg', '<svg class="app-menu-chevron"')}`;
+
+    const body = document.createElement('div');
+    body.className = 'app-menu-settings-body';
+    body.hidden = true;
+
+    toggle.addEventListener('click', () => {
+      const expanded = toggle.getAttribute('aria-expanded') === 'true';
+      toggle.setAttribute('aria-expanded', String(!expanded));
+      body.hidden = expanded;
+    });
+
+    container.append(toggle, body);
+    return body;
+  }
+
+  // A sub-item inside an expandable body — same look as a top-level item,
+  // just indented under the row that expanded it.
+  function subItem(body, label, onClick) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'app-menu-item app-menu-subitem';
+    button.textContent = label;
+    button.addEventListener('click', onClick);
+    body.appendChild(button);
+    return button;
+  }
+
   item('new', 'New', () => onNew());
-
-  const fileInput = document.createElement('input');
-  fileInput.type = 'file';
-  fileInput.accept = 'application/json,.json';
-  fileInput.hidden = true;
-  fileInput.addEventListener('change', () => {
-    const file = fileInput.files?.[0];
-    fileInput.value = ''; // allow picking the same file again later
-    if (file) onOpen(file);
-  });
-  container.appendChild(fileInput);
-
-  item('open', 'Open', () => fileInput.click());
 
   // "Save" writes the diagram into the address bar, because that is where
   // this app's documents actually live — there is no server file to write
@@ -79,28 +111,37 @@ export function mountAppMenu(
     );
   });
 
-  item('export', 'Export', () => onExportFile());
+  divider();
+
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  // .yaml/.yml alongside .json (and their MIME types) — model/localFile.js's
+  // readProjectFile tells the two apart by extension, content as a
+  // fallback for a renamed file.
+  fileInput.accept = 'application/json,.json,text/yaml,.yaml,.yml';
+  fileInput.hidden = true;
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files?.[0];
+    fileInput.value = ''; // allow picking the same file again later
+    if (file) onOpen(file);
+  });
+  container.appendChild(fileInput);
+
+  item('open', 'Import', () => fileInput.click());
+
+  const exportBody = expandable('export', 'Export');
+  subItem(exportBody, 'JSON', () => onExportFile('json'));
+  subItem(exportBody, 'YAML', () => onExportFile('yaml'));
+
+  // A rendered picture of the diagram, not project data — kept as its own
+  // row rather than a third format under Export above, the same way
+  // "Export to Google Docs" right below it is also a picture, not data.
   item('image', 'Export as SVG', () => onExportSvg());
   item('docs', 'Export to Google Docs', () => onExportGoogleDocs());
 
-  const divider = document.createElement('div');
-  divider.className = 'app-menu-divider';
-  container.appendChild(divider);
+  divider();
 
-  // Expands in place rather than opening a second panel — there's only one
-  // option behind it so far (Animate), not enough yet to justify its own
-  // screen. Marked data-keep-menu-open so expanding it doesn't also dismiss
-  // the whole drawer (see ui/TopbarMenu.js's click-to-close handling).
-  const settingsToggle = document.createElement('button');
-  settingsToggle.type = 'button';
-  settingsToggle.className = 'app-menu-item';
-  settingsToggle.setAttribute('aria-expanded', 'false');
-  settingsToggle.setAttribute('data-keep-menu-open', '');
-  settingsToggle.innerHTML = `${svg('settings')}<span>Settings</span>${svg('chevron', 14).replace('<svg', '<svg class="app-menu-chevron"')}`;
-
-  const settingsBody = document.createElement('div');
-  settingsBody.className = 'app-menu-settings-body';
-  settingsBody.hidden = true;
+  const settingsBody = expandable('settings', 'Settings');
 
   const animateLabel = document.createElement('label');
   animateLabel.className = 'app-menu-toggle-row';
@@ -121,14 +162,6 @@ export function mountAppMenu(
   darkModeLabel.append(darkModeCheckbox, darkModeText);
 
   settingsBody.append(animateLabel, darkModeLabel);
-
-  settingsToggle.addEventListener('click', () => {
-    const expanded = settingsToggle.getAttribute('aria-expanded') === 'true';
-    settingsToggle.setAttribute('aria-expanded', String(!expanded));
-    settingsBody.hidden = expanded;
-  });
-
-  container.append(settingsToggle, settingsBody);
 
   return {
     // The dot marks edits made since the address bar was last written, so

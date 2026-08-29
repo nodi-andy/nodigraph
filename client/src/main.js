@@ -589,8 +589,8 @@ async function bootstrap() {
     renderLoop.requestRender();
   }
 
-  function handleExportFile() {
-    downloadProjectFile(project);
+  function handleExportFile(format) {
+    downloadProjectFile(project, format);
   }
 
   // "Saving" here means writing the diagram into the page's own address:
