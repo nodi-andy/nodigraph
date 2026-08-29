@@ -169,14 +169,14 @@ async function putFile(target, content, message, token) {
 // of its own; git already keeps that history.
 export async function writeDiagramToGitHub(target, projectData, svgString, token = getStoredToken()) {
   const jsonText = JSON.stringify(projectData, null, 2);
-  const message = `Update ${target.path} (via nodigraph)`;
-  await putFile(target, jsonText, message, token);
+  const svgPath = siblingSvgPath(target.path);
+  await putFile(target, jsonText, `Update ${target.path} (via nodigraph)`, token);
   // A failure here is a different, more confusing situation than either
   // file failing on its own: the diagram's source already committed, so
   // whatever caused this needs its own message rather than reading as if
   // nothing was saved at all.
   try {
-    await putFile({ ...target, path: siblingSvgPath(target.path) }, svgString, message, token);
+    await putFile({ ...target, path: svgPath }, svgString, `Update ${svgPath} (via nodigraph)`, token);
   } catch (err) {
     err.message = `Saved ${target.path}, but the picture didn't update: ${err.message}`;
     // Lets a caller tell this apart from a wholesale failure — the token
