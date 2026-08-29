@@ -133,9 +133,13 @@ export function createSvgContext(width, height) {
       fill: 'none',
     };
     if (state.globalAlpha < 1) attrs['stroke-opacity'] = state.globalAlpha;
-    if (ctx._dash?.length) {
-      attrs['stroke-dasharray'] = ctx._dash.map(fmt).join(' ');
-      if (ctx._dashOffset) attrs['stroke-dashoffset'] = fmt(-ctx._dashOffset);
+    // Read from `state`, not a mirrored field on `ctx` — `state` is what
+    // save()/restore() actually snapshot, so a dash set inside one
+    // save/restore pair (see drawBoundary) doesn't leak into strokes drawn
+    // after the matching restore(), the same way a real canvas scopes it.
+    if (state.dash?.length) {
+      attrs['stroke-dasharray'] = state.dash.map(fmt).join(' ');
+      if (state.dashOffset) attrs['stroke-dashoffset'] = fmt(-state.dashOffset);
     }
     return attrs;
   }
@@ -160,11 +164,9 @@ export function createSvgContext(width, height) {
     textAlign: 'left',
     textBaseline: 'alphabetic',
     lineDashOffset: 0,
-    _dash: [],
-    _dashOffset: 0,
 
     setLineDash(segments) {
-      this._dash = segments || [];
+      state.dash = segments || [];
     },
 
     save() {
@@ -416,15 +418,8 @@ export function createSvgContext(width, height) {
     },
     set(value) {
       state.dashOffset = value;
-      ctx._dashOffset = value;
     },
   });
-  const realSetLineDash = ctx.setLineDash.bind(ctx);
-  ctx.setLineDash = (segments) => {
-    state.dash = segments || [];
-    ctx._dash = state.dash;
-    realSetLineDash(segments);
-  };
 
   function pathToD(p) {
     return p.subpaths

@@ -47,6 +47,11 @@ clipboard together, so pasting into a Doc drops in both at once and the
 figure in your document carries a working link back to the editable
 diagram.
 
+The same idea works for a plain Markdown file in a git repo — export as
+SVG, commit it at a stable path, reference that path instead of a
+snapshot. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), this repo's
+own client architecture, drawn and kept up to date this way.
+
 ## Features
 
 - **Recursive decomposition** — drill into any block to model its internals;
