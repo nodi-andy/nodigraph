@@ -104,10 +104,21 @@ function buildColorPalette(onPick) {
  * has no fill and no label font of its own. Every "back to the default"
  * case passes null (or false) rather than the default's own literal
  * value, so an unmodified diagram carries no style data at all.
+ *
+ * `getExtraFab()`, if given, is called on every refresh (a selection
+ * change, same as everything else here) and may return `null` for no
+ * extra button, or `{ title, icon, className, onClick }` to show one —
+ * this is the one hook here meant for a host page (see main.js's own
+ * comment on window.nodigraphSelectionFab) rather than nodigraph itself,
+ * letting it add its own selection-dependent action to this same stack
+ * without this file needing to know anything about what that action is.
+ * Read fresh each time rather than once, so it works however a host wires
+ * itself up — a global set before this even mounts, or one that only
+ * exists once something loads later — without either side caring which.
  */
 export function mountSelectionFabs(
   container,
-  { getSelectionCount, getSelectionStyle, onDelete, isDeleteMode = () => false, onColor, onFill, onFont, onFontSize, onBold, onItalic },
+  { getSelectionCount, getSelectionStyle, onDelete, isDeleteMode = () => false, onColor, onFill, onFont, onFontSize, onBold, onItalic, getExtraFab },
 ) {
   container.innerHTML = '';
   container.className = 'fab-stack';
@@ -225,6 +236,27 @@ export function mountSelectionFabs(
     onDelete();
   });
 
+  // A host's own button (see getExtraFab's own doc above) — built lazily
+  // the first time one is actually offered, so a session that never uses
+  // this hook doesn't carry a dead button around. Its title/icon/className
+  // are refreshed on every call in case a host wants to change them (e.g.
+  // per selected block), not just its visibility.
+  let extraButton = null;
+  let activeExtra = null;
+  function ensureExtraButton(descriptor) {
+    if (!extraButton) {
+      extraButton = miniFab(descriptor.className || 'fab-extra', descriptor.title || '', descriptor.icon || '', () => {
+        closeAllPopovers();
+        activeExtra?.onClick();
+      });
+      container.insertBefore(extraButton, deleteButton);
+    }
+    extraButton.title = descriptor.title || '';
+    extraButton.setAttribute('aria-label', descriptor.title || '');
+    extraButton.className = `fab fab-mini ${descriptor.className || 'fab-extra'}`;
+    extraButton.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">${descriptor.icon || ''}</svg>`;
+  }
+
   // Each popover sits next to its own button (see the .fab-palette CSS,
   // positioned relative to this wrapper) rather than one shared popover
   // reparented on open — simpler, and the three never show at once anyway
@@ -285,6 +317,15 @@ export function mountSelectionFabs(
       if (armed !== lastDeleteMode) {
         lastDeleteMode = armed;
         deleteButton.classList.toggle('fab-danger-armed', armed);
+      }
+
+      const descriptor = getExtraFab?.() || null;
+      activeExtra = descriptor;
+      if (descriptor) {
+        ensureExtraButton(descriptor);
+        extraButton.hidden = false;
+      } else if (extraButton) {
+        extraButton.hidden = true;
       }
     },
   };

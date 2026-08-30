@@ -30,7 +30,7 @@ prop.state: ON, OFF, Disabled, Error = ON`;
 
 // 'Description' hidden for now (not removed — renderDescriptionTab below
 // still works, and is one entry away from coming back).
-const TABS = ['Inspector'];
+const BUILT_IN_TABS = ['Inspector'];
 
 function field(labelText, inputEl) {
   const wrapper = document.createElement('div');
@@ -59,10 +59,10 @@ function sheetHeader() {
   return header;
 }
 
-function tabBar(activeTab, onSelect) {
+function tabBar(activeTab, tabs, onSelect) {
   const bar = document.createElement('div');
   bar.className = 'tab-bar';
-  for (const tab of TABS) {
+  for (const tab of tabs) {
     const button = document.createElement('button');
     button.type = 'button';
     button.textContent = tab;
@@ -73,7 +73,37 @@ function tabBar(activeTab, onSelect) {
   return bar;
 }
 
-export function mountInspector(container, { project, selection, wireSelection, requestRender, persist, deleteBlock, enterBlock, deleteConnection, toggleButton }) {
+// `extraTabs` (optional): [{ label, render(container_, { block, project,
+// requestRender, persist }) }] — a generic embedding point for a host
+// page (see main.js's own window.nodigraph hook) that wants a tab of its
+// own beside the built-in Inspector one, without forking this file to get
+// it. This module has no idea what any extra tab actually shows; it just
+// adds `label` to the tab bar and calls `render` into a fresh container
+// whenever that tab is the active one, the exact same way it already
+// drives its own built-in tabs. Ignored entirely (no tab bar, no behavior
+// change at all) when left empty, which is every caller today.
+export function mountInspector(
+  container,
+  {
+    project,
+    selection,
+    wireSelection,
+    requestRender,
+    persist,
+    deleteBlock,
+    enterBlock,
+    deleteConnection,
+    toggleButton,
+    extraTabs = [],
+    // A host page's own veto over whether a given block may be entered at
+    // all — e.g. noditron keeps its own "primitive" blocks (Bool, Data, an
+    // AND-gate) as permanent leaves, never a sub-architecture of their own
+    // (see main.js's own comment on window.nodigraphCanEnter). Optional,
+    // defaults to always allowing it, so this button behaves exactly as
+    // before for a page that never sets the hook.
+    canEnterBlock = () => true,
+  },
+) {
   // Shows either the structured Inspector or the raw Description editor at
   // once, not both stacked — persists across refresh() calls (e.g. after
   // every prop edit) since it lives outside the rebuild functions below.
@@ -249,7 +279,7 @@ export function mountInspector(container, { project, selection, wireSelection, r
     colorInput.addEventListener('change', persist);
     container_.appendChild(field('Accent color', colorInput));
 
-    if (!isContainer && !isText) {
+    if (!isContainer && !isText && canEnterBlock(block)) {
       const architectureRow = document.createElement('div');
       architectureRow.className = 'apply-row';
       const enterButton = document.createElement('button');
@@ -284,6 +314,27 @@ export function mountInspector(container, { project, selection, wireSelection, r
             persist();
           });
           container_.appendChild(field(prop.name, select));
+        } else if (prop.kind === 'range') {
+          const wrapper = document.createElement('div');
+          wrapper.className = 'prop-range-row';
+          const slider = document.createElement('input');
+          slider.type = 'range';
+          slider.min = String(prop.min);
+          slider.max = String(prop.max);
+          slider.step = '1';
+          slider.value = String(prop.value);
+          const readout = document.createElement('span');
+          readout.className = 'prop-range-readout';
+          readout.textContent = String(prop.value);
+          slider.addEventListener('input', () => {
+            const value = Number(slider.value);
+            setPropValue(block, prop.id, value);
+            readout.textContent = String(value);
+            requestRender();
+          });
+          slider.addEventListener('change', persist);
+          wrapper.append(slider, readout);
+          container_.appendChild(field(prop.name, wrapper));
         } else {
           const input = document.createElement('input');
           input.type = 'text';
@@ -459,19 +510,25 @@ export function mountInspector(container, { project, selection, wireSelection, r
   function renderBlock(block) {
     container.innerHTML = '';
     container.appendChild(sheetHeader());
+    const tabs = [...BUILT_IN_TABS, ...extraTabs.map((t) => t.label)];
     // A bar with only one tab in it has nothing to switch between — skip
     // it rather than show a button that's always already selected.
-    if (TABS.length > 1) {
+    if (tabs.length > 1) {
       container.appendChild(
-        tabBar(activeTab, (tab) => {
+        tabBar(activeTab, tabs, (tab) => {
           activeTab = tab;
           refresh();
         }),
       );
     }
 
-    if (activeTab === 'Inspector') renderInspectorTab(container, block);
-    else renderDescriptionTab(container, block);
+    if (activeTab === 'Inspector') {
+      renderInspectorTab(container, block);
+    } else {
+      const extra = extraTabs.find((t) => t.label === activeTab);
+      if (extra) extra.render(container, { block, project, requestRender, persist });
+      else renderDescriptionTab(container, block);
+    }
   }
 
   // body.inspector-open drives the layout (desktop column / mobile sheet

@@ -509,7 +509,24 @@ async function bootstrap() {
     applyLevelFraming();
   }
 
+  // A host page can veto entry into a specific block — e.g. noditron keeps
+  // its own "primitive" blocks (Bool, Data, an AND-gate) as permanent
+  // leaves, never a sub-architecture of their own — via
+  // window.nodigraphCanEnter(block), read fresh on every attempt (not just
+  // once) the same way every other host hook here is, so it works
+  // regardless of when a host sets it. Optional; a page that never sets it
+  // behaves exactly as before. This one function is the single choke point
+  // every "drill in" path already goes through (double-click, the
+  // Inspector's own "Enter block" button, the add-FAB's reuse below — see
+  // InspectorPanel's own canEnterBlock and getEnterableSelectedBlock just
+  // below, both fed from here), so gating it here alone covers all of them.
+  function canEnterBlock(block) {
+    return !window.nodigraphCanEnter || window.nodigraphCanEnter(block);
+  }
+
   function enterBlock(blockId) {
+    const block = project.getBlock(blockId);
+    if (block && !canEnterBlock(block)) return;
     if (!project.enterBlock(blockId)) return;
     selection.clear();
     wireSelection.clear();
@@ -524,12 +541,14 @@ async function bootstrap() {
   // wire alongside it, and not a text block or the frame you're already
   // standing inside (project.enterBlock itself already refuses both of
   // those, but checking here means the FAB reads as disabled rather than
-  // silently doing nothing on a click that couldn't have worked).
+  // silently doing nothing on a click that couldn't have worked). Same
+  // reasoning extends to a host's own canEnterBlock veto.
   function getEnterableSelectedBlock() {
     if (selection.count !== 1 || wireSelection.list().length > 0) return null;
     const block = project.getBlock(selection.selectedBlockId);
     if (!block || block.kind === 'text') return null;
     if (block.id === project.getContainerBlock()?.id) return null;
+    if (!canEnterBlock(block)) return null;
     return block;
   }
 
@@ -1109,6 +1128,11 @@ async function bootstrap() {
       // loaded yet the first time a frame reaches it, so nothing else
       // would trigger the frame where it actually appears.
       requestRender: () => renderLoop.requestRender(),
+      // A host's own per-block canvas drawing (see SceneRenderer's own
+      // doc on this) — read from a pre-set global for the same reason
+      // window.nodigraphExtraTabs is: nothing in this file's own call
+      // chain has a host to thread a parameter down from.
+      onDrawBlock: window.nodigraphDrawBlock,
     });
   }
 
@@ -1254,8 +1278,18 @@ async function bootstrap() {
     persist,
     deleteBlock,
     enterBlock,
+    canEnterBlock,
     deleteConnection,
     toggleButton: inspectorToggleEl,
+    // A host page's tabs (see InspectorPanel.mountInspector's own doc),
+    // read once here rather than accepted as a parameter to this file —
+    // nothing in main.js's own call chain has a host to thread one down
+    // from. A host sets this global *before* this script tag runs (a
+    // second <script> can't help: by the time it'd execute, this
+    // synchronous mountInspector call has already happened) — same
+    // "read whatever's already there, no host required" contract as
+    // window.nodigraph's own note just below.
+    extraTabs: window.nodigraphExtraTabs || [],
   });
 
   breadcrumbApi = mountBreadcrumb(breadcrumbEl, {
@@ -1338,6 +1372,20 @@ async function bootstrap() {
     onFontSize: fontSizeSelection,
     onBold: fontWeightSelection,
     onItalic: fontStyleSelection,
+    // A host page's own selection-dependent button (see SelectionFabs'
+    // own doc on getExtraFab) — window.nodigraphSelectionFab, read fresh
+    // every refresh rather than once, so it works regardless of when (or
+    // whether) a host sets it. `{ title, icon, className, isVisible(block),
+    // onClick(block) }`; only isVisible/onClick take the currently
+    // selected block, resolved here the same way selectionStyle() already
+    // does, since a host has no other way to ask nodigraph what's selected.
+    getExtraFab: () => {
+      const hook = window.nodigraphSelectionFab;
+      if (!hook) return null;
+      const block = project.getBlock(selection.selectedBlockId);
+      if (!block || !hook.isVisible(block)) return null;
+      return { title: hook.title, icon: hook.icon, className: hook.className, onClick: () => hook.onClick(block) };
+    },
   });
   selectionFabsApi.refresh();
 
@@ -1427,6 +1475,21 @@ async function bootstrap() {
   updateNavigationUI();
   renderLoop.start();
   maybeShowOnboarding();
+
+  // A generic embedding hook, not a nodigraph feature in its own right —
+  // for a *host* page that loads this exact main.js as its editor (same
+  // idea as an <iframe>'s window, just same-origin/same-document instead):
+  // it can read the live project, drive the camera/selection, and ask for
+  // a redraw, all through the same objects this file already built for
+  // itself. Nothing in here is written *for* any particular host — this
+  // file has no idea one exists — so anything reached through here is
+  // exactly the public surface a normal user action already goes through
+  // (block.ports, project.addConnection, ...), never a special back door.
+  // `project` itself is never reassigned after this point (every load path
+  // that replaces it — a shared link, "New", opening a file — mutates the
+  // existing instance in place instead, see applyRemoteRootBlock), so this
+  // reference stays valid for the lifetime of the page.
+  window.nodigraph = { project, camera, selection, wireSelection, renderLoop, persist };
 
   // joinId/isLiveGuest were resolved back at the top of bootstrap(), before
   // `project` was chosen. There's nothing on screen yet worth keeping if

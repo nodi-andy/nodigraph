@@ -13,10 +13,28 @@ import { createDefaultBoundaryGeometry } from './grid.js';
  * just its children), since selecting "the current system" to edit its
  * interface means selecting a block that isn't one of its own children.
  */
+// serializeBlockTree omits a block's `children` entirely when it's an empty
+// container (see that function's own doc — round-trips fine for an
+// ordinary block, where a missing `children` legitimately means "not
+// entered yet"). The root is different: every other method here
+// (getProjectStats, listBlocks, ...) assumes rootBlock.children is always a
+// real {blocks,connections} pair, never null — true for a root built fresh
+// by the constructor's own else-branch below, but not guaranteed for one
+// that came back from hydrateBlockTree with zero content (a genuinely
+// empty diagram). This patches that gap back in immediately after
+// hydrating any root.
+function ensureRootChildren(block) {
+  if (!block.children) {
+    block.hasChildren = true;
+    block.children = { blocks: new Map(), connections: new Map() };
+  }
+  return block;
+}
+
 export class Project {
   constructor({ name = 'Untitled', blocks = [], connections = [], rootBlock } = {}) {
     if (rootBlock) {
-      this.rootBlock = hydrateBlockTree(rootBlock);
+      this.rootBlock = ensureRootChildren(hydrateBlockTree(rootBlock));
     } else {
       this.rootBlock = createBlock({ name });
       this.rootBlock.hasChildren = true;
@@ -325,7 +343,7 @@ export class Project {
   // every module that holds a reference to it (state machine, inspector,
   // toolbar, ...) expects that reference to stay stable for the session.
   applyRemoteRootBlock(rootBlockData) {
-    this.rootBlock = hydrateBlockTree(rootBlockData);
+    this.rootBlock = ensureRootChildren(hydrateBlockTree(rootBlockData));
     this.path = this.validPathPrefix(this.path);
   }
 

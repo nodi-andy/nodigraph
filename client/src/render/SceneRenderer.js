@@ -223,6 +223,17 @@ export function renderScene(
     // palette explicitly instead, since an exported figure lands on a
     // white Doc page regardless of which theme its editor prefers.
     palette = getCanvasPalette(getTheme()),
+    // A generic embedding point for a host page (see main.js's own
+    // window.nodigraph doc) that wants to draw its own thing onto a
+    // specific block, in lockstep with this exact paint rather than a
+    // separately-timed DOM overlay drifting out of sync on every pan/zoom
+    // frame this canvas redraws but a slower host loop hasn't caught up
+    // to yet. Called once per block, right after this module draws it —
+    // `ctx` is already under this frame's camera transform at that point,
+    // so the callback can draw straight in world coordinates (block.geometry)
+    // with no transform math of its own to get right. A no-op by default,
+    // which is every caller today except a host that's set one up.
+    onDrawBlock = () => {},
   },
 ) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -279,6 +290,7 @@ export function renderScene(
       palette,
       zoom: camera.zoom,
     });
+    onDrawBlock(ctx, block);
   }
 
   if (marqueeRect) drawMarquee(ctx, marqueeRect, camera.zoom);
