@@ -722,6 +722,20 @@ html, body {
   background: #a52a2f;
 }
 
+/* A host page's own selection-dependent button (see SelectionFabs.js's
+   getExtraFab / main.js's window.nodigraphSelectionFab) — its default
+   class, used whenever a host doesn't supply its own `className`. Amber
+   rather than the neutral slate the built-in mini-FABs use, so a button
+   that isn't one of nodigraph's own four reads as visually distinct at a
+   glance, not just a fifth of the same thing. */
+.fab.fab-extra {
+  background: #8a5a12;
+}
+
+.fab.fab-extra:hover:not(:disabled) {
+  background: #a86e17;
+}
+
 /* Opens to the left of its own button, vertically centered on it, rather
    than above: above is where the canvas content usually is, and the
    stack already sits near the bottom edge on a phone. */
