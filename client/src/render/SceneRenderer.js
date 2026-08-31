@@ -149,8 +149,16 @@ function drawConnections(ctx, project, wireSelection, boundary, flowOffset, pale
     // Animate takes over the whole wire's dashing while it's running,
     // regardless of the wire's own resting style — the marching dashes
     // are the point of it, not something a dotted wire should opt out of.
+    // window.nodigraphConnectionColor (see main.js's own doc on this file's
+    // handful of host hooks) lets a host recolor a specific wire by
+    // whatever data it's presently carrying, without touching the
+    // connection's own stored `color` at all -- the Inspector's own color
+    // picker (see ui/InspectorPanel.js) stays exactly as authoritative as
+    // it always was for any wire the host has no opinion on (a host
+    // returning null/undefined here, which is every wire by default with
+    // no hook set at all).
     drawPath(ctx, entry.geometry.points, {
-      color: entry.connection.color || WIRE_COLOR,
+      color: window.nodigraphConnectionColor?.(entry.connection) || entry.connection.color || WIRE_COLOR,
       width: 3,
       hopOver,
       dash: flowOffset === null ? getDashPattern(entry.connection.dashStyle) : FLOW_DASH,
