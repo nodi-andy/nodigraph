@@ -1325,10 +1325,24 @@ async function bootstrap() {
     onShare: handleShare,
     onSession: handleSession,
   });
+  // A host page's own reaction to an explicit Save (see this file's other
+  // window.nodigraph* hooks) — e.g. noditron pushes any connected device's
+  // pending circuit changes down to it whenever the user deliberately saves
+  // the project, not on every autosave-on-edit persist() (that would spam a
+  // serial link on every drag/prop tweak). Only wired onto "Save" (writes
+  // the URL) — handleSaveToGitHub has no reliable success/failure return of
+  // its own to gate on (it can also just open a connect dialog and save
+  // nothing yet), so firing this from there risks a false positive; a host
+  // with nothing to do here just never sets the hook.
+  async function handleSaveToUrlThenNotify() {
+    const result = await handleSaveToUrl();
+    if (result.ok) window.nodigraphAfterSave?.();
+    return result;
+  }
   appMenuApi = mountAppMenu(appMenuEl, {
     onNew: handleNewDiagram,
     onOpen: handleOpenFile,
-    onSaveUrl: handleSaveToUrl,
+    onSaveUrl: handleSaveToUrlThenNotify,
     onExportFile: handleExportFile,
     onExportSvg: handleExportSvg,
     onExportGoogleDocs: handleExportGoogleDocs,
