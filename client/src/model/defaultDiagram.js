@@ -24,33 +24,33 @@ export function createDefaultDiagram() {
   const y = GRID_SIZE * 3;
   const gap = GRID_SIZE * 3;
 
-  const power = createBlock({ x: GRID_SIZE * 1, y, name: 'Power Supply' });
-  const powerOut = addNamedPort(power, 'out', '5V');
-  project.addBlock(power);
+  const blockA = createBlock({ x: GRID_SIZE * 1, y, name: 'Block A' });
+  const aOut = addNamedPort(blockA, 'out', 'Out');
+  project.addBlock(blockA);
 
-  const controller = createBlock({ x: power.geometry.x + power.geometry.width + gap, y, name: 'Controller' });
-  const controllerIn = addNamedPort(controller, 'in', '5V');
-  const controllerOut = addNamedPort(controller, 'out', 'Signal');
-  project.addBlock(controller);
+  const blockB = createBlock({ x: blockA.geometry.x + blockA.geometry.width + gap, y, name: 'Block B' });
+  const bIn = addNamedPort(blockB, 'in', 'In');
+  const bOut = addNamedPort(blockB, 'out', 'Out');
+  project.addBlock(blockB);
 
-  const led = createBlock({ x: controller.geometry.x + controller.geometry.width + gap, y, name: 'LED' });
-  const ledIn = addNamedPort(led, 'in', 'Signal');
-  project.addBlock(led);
+  const blockC = createBlock({ x: blockB.geometry.x + blockB.geometry.width + gap, y, name: 'Block C' });
+  const cIn = addNamedPort(blockC, 'in', 'In');
+  project.addBlock(blockC);
 
   project.addConnection(
     createConnection({
-      sourceBlockId: power.id,
-      sourcePortId: powerOut.id,
-      targetBlockId: controller.id,
-      targetPortId: controllerIn.id,
+      sourceBlockId: blockA.id,
+      sourcePortId: aOut.id,
+      targetBlockId: blockB.id,
+      targetPortId: bIn.id,
     }),
   );
   project.addConnection(
     createConnection({
-      sourceBlockId: controller.id,
-      sourcePortId: controllerOut.id,
-      targetBlockId: led.id,
-      targetPortId: ledIn.id,
+      sourceBlockId: blockB.id,
+      sourcePortId: bOut.id,
+      targetBlockId: blockC.id,
+      targetPortId: cIn.id,
     }),
   );
 

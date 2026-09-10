@@ -99,5 +99,5 @@ export function nearestPortSlot(sideLength, offset, occupied = []) {
 // first time a block is entered; from then on it's whatever the user has
 // dragged it to (see DragStateMachine's boundary-edge splitter drag).
 export function createDefaultBoundaryGeometry() {
-  return { x: 0, y: 0, width: GRID_SIZE * 8, height: GRID_SIZE * 6 };
+  return { x: 0, y: 0, width: GRID_SIZE * 10, height: GRID_SIZE * 6 };
 }

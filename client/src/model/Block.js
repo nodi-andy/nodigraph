@@ -7,8 +7,8 @@ export function generateId(prefix) {
   return `${prefix}_${Date.now().toString(36)}${counter.toString(36)}`;
 }
 
-export const DEFAULT_BLOCK_WIDTH = GRID_SIZE * 6;
-export const DEFAULT_BLOCK_HEIGHT = GRID_SIZE * 4;
+export const DEFAULT_BLOCK_WIDTH = GRID_SIZE * 3;
+export const DEFAULT_BLOCK_HEIGHT = GRID_SIZE * 2;
 // A single grid cell is the floor — small enough for a block that's
 // really just one named socket, and there's nothing smaller on the grid
 // to snap to anyway.
