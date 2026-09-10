@@ -5,15 +5,20 @@
 // would otherwise vanish against the new background are themed here.
 const PALETTES = {
   light: {
-    // Halfway between the old grid color and --bg-canvas (#f7f8fa) — half
-    // the contrast against the background, so the lattice reads as a faint
-    // editing aid instead of competing with the blocks drawn over it.
-    grid: '#edf0f5',
-    blockFill: '#ffffff',
+    // A dot at every grid intersection (see SceneRenderer's drawGrid),
+    // Figma-style, rather than a lattice of lines — needs a touch more
+    // contrast against --bg-canvas (#e7e9ee) than a line would, since a
+    // single dot has far less area to read against the background with.
+    grid: '#c9cdd6',
+    // A warm near-white rather than flat #ffffff — paired with the grey
+    // canvas behind it (--bg-canvas) and BlockRenderer's own drop shadow,
+    // this is what makes a block read as a sheet of paper resting on the
+    // canvas instead of a plain colored rectangle.
+    blockFill: '#fffefb',
     blockText: '#1c2431',
     portLabel: '#6b7686',
     connectorHandle: '#1c2431',
-    portStroke: '#ffffff',
+    portStroke: '#fffefb',
     emptySlotFill: 'rgba(20, 30, 45, 0.035)',
     emptySlotStroke: 'rgba(20, 30, 45, 0.16)',
     boundaryDash: 'rgba(28, 36, 49, 0.28)',
@@ -24,9 +29,10 @@ const PALETTES = {
     resizeHandleFill: '#ffffff',
   },
   dark: {
-    // Halfway between the old grid color and --bg-canvas (#12161d) — see
-    // the light palette's grid comment.
-    grid: '#161c24',
+    // A dot grid (see the light palette's own comment) needs more contrast
+    // than the old line grid did to still read against --bg-canvas
+    // (#12161d).
+    grid: '#2a3341',
     blockFill: '#1c2431',
     blockText: '#ffffff',
     portLabel: '#c3c9d4',

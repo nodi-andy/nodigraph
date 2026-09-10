@@ -20,89 +20,105 @@
 </head>
 <body>
   <div id="app">
-    <header id="topbar">
-      <!-- Opens the sliding app menu (New/Open/Save/Export/Settings — see
-           ui/AppMenu.js) — always here, on every screen size, rather than
-           only appearing once a phone-width toolbar has nowhere else to
-           put its buttons. -->
-      <button id="menu-toggle" class="menu-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="topbar-menu">
-        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-          <path d="M4 6h16v2H4zM4 11h16v2H4zM4 16h16v2H4z" fill="currentColor" />
-        </svg>
-      </button>
-      <span class="brand">nodigraph</span>
-      <nav id="breadcrumb" class="breadcrumb"></nav>
-      <!-- Undo/redo and Share/Start Session: reached often enough (or
-           needed fast enough) to stay one click away instead of behind
-           the app menu — see ui/HeaderActions.js. -->
-      <div id="header-actions"></div>
-      <!-- Who else is here right now, in a live session — see
-           ui/OnlineUsers.js. Empty and hidden until someone actually
-           joins; placed after #header-actions (not before) so it rides
-           along in the same right-pushed group that div's own
-           margin-left:auto creates, rather than getting left behind on
-           the wrong side of the gap. -->
-      <div id="online-users" class="online-users" hidden></div>
-      <!-- Mirrors #menu-toggle on the opposite edge — opens the Inspector
-           drawer (ui/InspectorPanel.js) on an explicit tap rather than
-           having it pop open the moment something is selected, the same
-           behaviour on every screen size. Disabled while there's nothing
-           selected to inspect. -->
-      <button id="inspector-toggle" class="menu-toggle" type="button" aria-label="Toggle inspector" aria-expanded="false" aria-controls="inspector" disabled>
-        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-          <rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.6" />
-          <rect x="14.5" y="5" width="6.5" height="14" fill="currentColor" />
-        </svg>
-      </button>
-      <div id="topbar-menu-backdrop" class="topbar-menu-backdrop" hidden></div>
-      <div id="topbar-menu" class="topbar-menu">
-        <div id="app-menu"></div>
-        <div id="doc-sync"></div>
-      </div>
-    </header>
     <canvas id="scene-canvas"></canvas>
+
+    <!-- A single full-width flex row (transparent, no line, no fill of its
+         own) holding two independently-floating "HUD" chips — the left one
+         (menu/brand/breadcrumb) and the right one (undo/redo, share,
+         session, online users, inspector toggle). Real flexbox space-
+         between rather than two independently `position: fixed` chips, so
+         they can never collide on a narrow screen — the layout engine
+         keeps them apart instead of hand-tuned offsets trying to. -->
+    <div id="topbar-hud" class="topbar-hud">
+      <header id="topbar" class="hud-chip hud-chip-left">
+        <!-- Opens the sliding app menu (New/Open/Save/Export/Settings —
+             see ui/AppMenu.js) — always here, on every screen size, rather
+             than only appearing once a phone-width toolbar has nowhere
+             else to put its buttons. -->
+        <button id="menu-toggle" class="menu-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="topbar-menu">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path d="M4 6h16v2H4zM4 11h16v2H4zM4 16h16v2H4z" fill="currentColor" />
+          </svg>
+        </button>
+        <span class="brand">nodigraph</span>
+        <nav id="breadcrumb" class="breadcrumb"></nav>
+      </header>
+      <div class="hud-chip hud-chip-right">
+        <!-- Undo/redo and Share/Start Session: reached often enough (or
+             needed fast enough) to stay one click away instead of behind
+             the app menu — see ui/HeaderActions.js. -->
+        <div id="header-actions"></div>
+        <!-- Who else is here right now, in a live session — see
+             ui/OnlineUsers.js. Empty and hidden until someone actually
+             joins. -->
+        <div id="online-users" class="online-users" hidden></div>
+        <!-- Mirrors #menu-toggle on the opposite edge — opens the Inspector
+             drawer (ui/InspectorPanel.js) on an explicit tap rather than
+             having it pop open the moment something is selected, the same
+             behaviour on every screen size. Disabled while there's nothing
+             selected to inspect. -->
+        <button id="inspector-toggle" class="menu-toggle" type="button" aria-label="Toggle inspector" aria-expanded="false" aria-controls="inspector" disabled>
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.6" />
+            <rect x="14.5" y="5" width="6.5" height="14" fill="currentColor" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div id="topbar-menu-backdrop" class="topbar-menu-backdrop" hidden></div>
+    <div id="topbar-menu" class="topbar-menu">
+      <div id="app-menu"></div>
+      <div id="doc-sync"></div>
+    </div>
+
     <div id="inspector"></div>
-    <!-- Mirrors the add-block FAB on the opposite corner: goes up a level,
-         or offers to create a parent when already at the top (main.js's
-         updateNavigationUI swaps which icon shows). -->
-    <button id="fab-parent" class="fab fab-left" type="button" aria-label="Go to parent">
-      <svg data-icon="up" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
-        <path d="M11 9v10h2V9h4.5L12 3.5 6.5 9z" fill="currentColor" />
-      </svg>
-      <!-- Distinct from the add-block plus: a dashed box (the boundary
-           frame this creates, in the same dashed style it's drawn with)
-           around a small plus, reading as "wrap this in a new frame"
-           rather than "add a thing". -->
-      <svg data-icon="add-parent" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" style="display: none">
-        <rect x="3.5" y="3.5" width="17" height="17" rx="3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 2.5" />
-        <path d="M11 9.5h2v2.5h2.5v2H13V16.5h-2V14H8.5v-2H11z" fill="currentColor" />
-      </svg>
-    </button>
-    <!-- Delete / colour for the current selection (main.js hides the whole
-         stack when nothing is selected). -->
-    <div id="fab-stack" class="fab-stack"></div>
-    <!-- A second thing to add, stacked directly above the primary add
-         button in its own corner — same "always-present, own edge" pattern
-         as fab-stack, just for creation instead of selection. -->
-    <div class="fab-stack fab-stack-right">
+
+    <!-- Every control that isn't the app menu or the always-on header
+         actions, gathered into one floating pill along the bottom edge —
+         a single "control bar" HUD (Figma's bottom toolbar is the model)
+         instead of four separately-anchored floating buttons scattered
+         across three corners. -->
+    <div id="control-bar" class="control-bar">
+      <!-- Mirrors the add-block FAB at the opposite end of the bar: goes up
+           a level, or offers to create a parent when already at the top
+           (main.js's updateNavigationUI swaps which icon shows). -->
+      <button id="fab-parent" class="fab fab-left" type="button" aria-label="Go to parent">
+        <svg data-icon="up" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <path d="M11 9v10h2V9h4.5L12 3.5 6.5 9z" fill="currentColor" />
+        </svg>
+        <!-- Distinct from the add-block plus: a dashed box (the boundary
+             frame this creates, in the same dashed style it's drawn with)
+             around a small plus, reading as "wrap this in a new frame"
+             rather than "add a thing". -->
+        <svg data-icon="add-parent" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" style="display: none">
+          <rect x="3.5" y="3.5" width="17" height="17" rx="3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 2.5" />
+          <path d="M11 9.5h2v2.5h2.5v2H13V16.5h-2V14H8.5v-2H11z" fill="currentColor" />
+        </svg>
+      </button>
+      <div class="control-bar-divider"></div>
+      <!-- Delete / colour for the current selection (main.js hides the whole
+           stack when nothing is selected). -->
+      <div id="fab-stack" class="fab-stack"></div>
+      <div class="control-bar-divider"></div>
       <button id="fab-add-text" class="fab fab-mini" type="button" aria-label="Add text">
-        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
           <text x="12" y="17" text-anchor="middle" font-size="17" font-weight="700" fill="currentColor" font-family="Georgia, serif">T</text>
         </svg>
       </button>
+      <!-- Doubles as "enter this block" when exactly one enterable block is
+           selected instead of nothing — same button, same spot, main.js's
+           draw() swaps which icon shows and what a click does. Mirrors
+           fab-parent's own up/add-parent icon swap above. -->
+      <button id="fab-add-block" class="fab" type="button" aria-label="Add block">
+        <svg data-icon="add" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z" fill="currentColor" />
+        </svg>
+        <svg data-icon="enter" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" style="display: none">
+          <path d="M4 11h10.5l-3.3-3.3 1.4-1.4L18.4 12l-5.8 5.7-1.4-1.4 3.3-3.3H4z" fill="currentColor" />
+        </svg>
+      </button>
     </div>
-    <!-- Doubles as "enter this block" when exactly one enterable block is
-         selected instead of nothing — same button, same corner, main.js's
-         draw() swaps which icon shows and what a click does. Mirrors
-         fab-parent's own up/add-parent icon swap above. -->
-    <button id="fab-add-block" class="fab" type="button" aria-label="Add block">
-      <svg data-icon="add" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
-        <path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z" fill="currentColor" />
-      </svg>
-      <svg data-icon="enter" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" style="display: none">
-        <path d="M4 11h10.5l-3.3-3.3 1.4-1.4L18.4 12l-5.8 5.7-1.4-1.4 3.3-3.3H4z" fill="currentColor" />
-      </svg>
-    </button>
   </div>
   <script type="module" src="src/main.js"></script>
 </body>

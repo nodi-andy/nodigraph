@@ -9,10 +9,14 @@
    themes, the same way a floating toolbar often does regardless of the
    page behind it. */
 :root {
-  /* Not a color token — kept alongside them so #app's grid row and the
-     drawer's own top offset (see .topbar-menu) can't drift apart. */
-  --topbar-height: 52px;
-  --bg-canvas: #f7f8fa;
+  /* Not a color token — the height every floating HUD chip and control-bar
+     button is built around, so the two stay visually matched. */
+  --topbar-height: 44px;
+  /* A step darker than --bg-surface — Figma-style neutral canvas gray, not
+     this app's old near-white, so a paper-white block (see --bg-surface /
+     BlockRenderer's blockFill) actually reads as a sheet resting on the
+     canvas instead of blending into it. */
+  --bg-canvas: #e7e9ee;
   --bg-surface: #ffffff;
   --bg-surface-2: #ffffff;
   --bg-well: #f3f5f8;
@@ -80,29 +84,64 @@ html, body {
   background: var(--bg-canvas);
 }
 
+/* The canvas now fills the whole viewport on its own — every other piece
+   of chrome (the HUD chips, the control bar, the inspector) is a floating,
+   `position: fixed` layer over it rather than a grid row that reserves its
+   own strip of screen, Figma-editor style. */
 #app {
-  display: grid;
-  /* A single column always — the inspector is a fixed-position panel that
-     slides in over the canvas (see #inspector below) rather than a grid
-     column that pushes it aside, so it doesn't need one of its own here. */
-  grid-template-columns: 1fr;
-  grid-template-rows: var(--topbar-height) 1fr;
-  grid-template-areas:
-    "topbar"
-    "canvas";
+  position: relative;
   height: 100%;
   height: 100dvh;
+  overflow: hidden;
 }
 
-#topbar {
-  grid-area: topbar;
+/* Spans the full width at the very top so its two chips can be laid out
+   with real flexbox space-between (never colliding on a narrow screen),
+   but carries no background/border of its own — only the two chips inside
+   it look like anything, so this reads as "two floating HUDs", not a bar. */
+.topbar-hud {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 31;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 10px 0;
+  /* Lets a stray tap between the two chips (or below them, once they wrap
+     tall) fall through to the canvas underneath instead of this row eating
+     it — each chip below opts back into being clickable. */
+  pointer-events: none;
+}
+
+.hud-chip {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 16px;
+  gap: 10px;
+  height: var(--topbar-height);
+  padding: 0 10px;
   background: var(--bg-surface);
   color: var(--text-primary);
-  border-bottom: 1px solid var(--border);
+  border-radius: calc(var(--topbar-height) / 2);
+  box-shadow: 0 2px 10px rgba(15, 18, 24, 0.12), 0 0 0 1px var(--border);
+  pointer-events: auto;
+  min-width: 0;
+}
+
+.hud-chip-left {
+  /* Can genuinely be the widest thing on the row (a long breadcrumb) — caps
+     it against the right-hand chip's own width instead of the two ever
+     fighting over the same pixels; the breadcrumb itself scrolls inside
+     that budget (see .breadcrumb's overflow-x). */
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: min(560px, 70vw);
+}
+
+.hud-chip-right {
+  flex: 0 0 auto;
 }
 
 #topbar .brand {
@@ -167,7 +206,13 @@ html, body {
    doesn't sit underneath the header's hamburger/brand/breadcrumb. */
 .topbar-menu {
   position: fixed;
-  top: var(--topbar-height);
+  /* Full height, not offset below a reserved header row (there isn't one
+     any more) — but the top-left HUD chip (see .topbar-hud) floats at a
+     higher z-index than this drawer and sits in that same top-left
+     corner, so the drawer's own top padding has to clear the chip's
+     height itself (below) or its first row or two would render underneath
+     the chip and be genuinely unclickable, not just visually crowded. */
+  top: 0;
   bottom: 0;
   left: 0;
   width: min(280px, 85vw);
@@ -177,7 +222,7 @@ html, body {
   background: var(--bg-surface);
   border-right: 1px solid var(--border);
   box-shadow: 12px 0 32px rgba(0, 0, 0, 0.5);
-  padding: 16px 12px;
+  padding: calc(10px + var(--topbar-height) + 12px) 12px 16px;
   overflow-y: auto;
   transform: translateX(-100%);
   transition: transform 0.22s ease;
@@ -201,7 +246,6 @@ html, body {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-left: auto;
   flex-shrink: 0;
 }
 
@@ -499,20 +543,12 @@ html, body {
   border-color: var(--border-strong);
 }
 
-/* The navigate-up FAB, mirroring the add FAB in the opposite corner.
-   Muted rather than accent-blue so "add a block" stays the one primary
-   action on the canvas. */
-/* Two-class selector on purpose: the base .fab rules are defined further
-   down the file, so a single .fab-left would lose the background on
-   source order alone. Top-left rather than bottom — a navigation action
-   ("go up a level") reads as its own zone up by the breadcrumb it
-   mirrors, separate from the selection controls now anchored at the
-   bottom of this same edge (see .fab-stack). */
+/* The navigate-up button, leftmost in the control bar. Muted rather than
+   accent-blue so "add a block" (still the bar's rightmost, brightest
+   button) stays the one primary action. Two-class selector on purpose:
+   the base .fab rules live further down the file, so a single .fab-left
+   would lose the background on source order alone. */
 .fab.fab-left {
-  right: auto;
-  left: 20px;
-  top: calc(var(--topbar-height) + 20px);
-  bottom: auto;
   background: #2c3644;
 }
 
@@ -588,7 +624,8 @@ html, body {
 }
 
 #scene-canvas {
-  grid-area: canvas;
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
@@ -597,17 +634,52 @@ html, body {
   touch-action: none;
 }
 
-/* Floating action button — the app's single primary action, following the
-   mobile FAB convention so the same control works for touch and mouse.
-   Sits at the viewport edge while the inspector is hidden; the desktop
-   media rule below shifts it left of the inspector column when that's
-   open, so it stays over the canvas rather than inside the panel. */
-.fab {
+/* The single floating control bar along the bottom edge — every button
+   that used to be its own fixed-position FAB (four separate elements
+   anchored to three different corners) now lives in this one pill,
+   Figma's bottom toolbar being the model: a paper-white strip, softly
+   shadowed, centered and clear of the canvas edges on every screen size.
+   `env(safe-area-inset-bottom)` keeps it clear of a phone's home-indicator
+   gesture bar. */
+.control-bar {
   position: fixed;
-  right: 20px;
-  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-  width: 56px;
-  height: 56px;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100vw - 24px);
+  padding: 6px;
+  background: var(--bg-surface);
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(15, 18, 24, 0.18), 0 0 0 1px var(--border);
+  z-index: 20;
+  /* No overflow/scroll here on purpose: every button's own style/colour
+     popover (see .style-panel) opens *above* this bar via `position:
+     absolute`, and an overflow-clipped ancestor would cut those off along
+     with any horizontal scrollbar it grew. With the border/fill/font
+     buttons combined into one Style menu the whole bar is short enough to
+     fit down to a narrow phone width without needing to scroll at all
+     (see the max-width above and the mobile media query's smaller
+     buttons/gaps). */
+}
+
+.control-bar-divider {
+  flex-shrink: 0;
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+}
+
+/* A button inside the control bar — the mobile-FAB convention (round,
+   solid, shadowed) shrunk to fit a horizontal row of several instead of
+   standing alone in a corner. */
+.fab {
+  position: relative;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   border: none;
   background: var(--accent-strong);
@@ -615,9 +687,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
   cursor: pointer;
-  z-index: 20;
   transition: transform 0.15s ease, background 0.15s ease, opacity 0.15s ease;
 }
 
@@ -630,66 +700,39 @@ html, body {
   transform: translateY(0) scale(0.94);
 }
 
-/* Once something is selected, the mini-FABs above take over that corner
-   (recolor/fill/font/delete) — the add button has nothing to do with a
-   selection. Disabled rather than hidden (main.js's draw loop sets the
+/* Once something is selected, the mini-FABs in the middle of the bar take
+   over (recolor/fill/font/delete) — the add button has nothing to do with
+   a selection. Disabled rather than hidden (main.js's draw loop sets the
    actual `disabled` attribute, matching selection count) — the same
-   "present but inert" treatment as the mini-FABs it sits below (see
-   .fab.fab-mini:disabled), so neither stack pops in and out as the
-   selection comes and goes. */
+   "present but inert" treatment as the mini-FABs (see .fab.fab-mini
+   :disabled), so the bar's width never jumps as the selection comes and
+   goes. */
 .fab:disabled {
   opacity: 0.35;
   cursor: default;
 }
 
 /* Selection controls: delete/colour/font for whatever is currently
-   selected, docked bottom-left — its own edge, separate from the add
-   FAB(s) on the right (see .fab-stack-right below). */
+   selected — one group among several in the same horizontal bar (see
+   .control-bar), not its own fixed-position stack any more. */
 .fab-stack {
-  position: fixed;
-  left: 20px;
-  right: auto;
-  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  z-index: 20;
-}
-
-/* The "add text" mini-FAB, stacked directly above the primary add-block
-   FAB in its corner — same relationship .fab-stack used to have with the
-   add button before the selection controls moved to the opposite edge. */
-.fab-stack-right {
-  left: auto;
-  right: 20px;
-  bottom: calc(20px + 56px + 12px + env(safe-area-inset-bottom, 0px));
+  align-items: center;
+  gap: 6px;
 }
 
 /* Wraps a mini-FAB and its own popover as siblings (see SelectionFabs.js's
-   miniFabWithPopover) — positioned so the popover (see .fab-palette)
-   anchors to this pair rather than to the stack as a whole, with four
-   mini-FABs now sharing the column. */
+   miniFabWithPopover) — positioned so the popover (see .style-panel)
+   anchors to this pair rather than to the bar as a whole. */
 .fab-mini-wrap {
   position: relative;
 }
 
 /* Smaller and muted: these act on an existing selection, so they must not
-   compete with "add a block" for the eye. Positioned (not the base .fab
-   rule's fixed) so it participates in the .fab-stack column layout rather
-   than jumping to a fixed corner of the viewport. */
+   compete with "add a block" for the eye. */
 .fab.fab-mini {
-  position: relative;
-  /* The base .fab rule's right/bottom are meant for its own `position:
-     fixed` (an offset from the viewport edge) — for `position: relative`
-     they don't just get dropped, they apply *on top of* this button's
-     normal flex position in the stack, silently shoving every mini-FAB an
-     extra 20px+ away from the edge the stack is already docked to. This
-     button's placement comes entirely from the flex column, so it needs
-     none of that. */
-  right: auto;
-  bottom: auto;
-  width: 44px;
-  height: 44px;
+  width: 38px;
+  height: 38px;
   background: #2c3644;
 }
 
@@ -736,26 +779,109 @@ html, body {
   background: #a86e17;
 }
 
-/* Opens to the left of its own button, vertically centered on it, rather
-   than above: above is where the canvas content usually is, and the
-   stack already sits near the bottom edge on a phone. */
-.fab-palette {
+/* The one combined "Style" popover — border colour, fill colour and font
+   all live in here as stacked sections instead of each having its own
+   button and its own popover, the same way a design tool's single style
+   flyout groups everything about a selection's appearance in one place.
+   Opens upward, centered on its own button — the control bar runs
+   horizontally along the bottom edge, so "above" is the one direction
+   guaranteed to be open canvas rather than a neighboring button. */
+.style-panel {
   position: absolute;
-  left: calc(100% + 12px);
-  top: 50%;
-  transform: translateY(-50%);
-  display: grid;
-  grid-template-columns: repeat(3, 28px);
-  gap: 8px;
-  padding: 10px;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 190px;
+  max-height: min(70vh, 420px);
+  overflow-y: auto;
+  padding: 12px;
   background: #1e2530;
   border: 1px solid #2c3644;
   border-radius: 10px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
 }
 
-.fab-palette[hidden] {
+.style-panel[hidden] {
   display: none;
+}
+
+.style-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.style-section-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #8b93a3;
+}
+
+.style-divider {
+  height: 1px;
+  background: #2c3644;
+}
+
+/* Each section's swatch row wraps within the panel's own width rather than
+   a fixed grid — the same nine swatches as before (eight presets plus the
+   native colour input), just laid out to wrap at whatever width fits. */
+.swatch-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* The Order button's own popover — a plain named-action list (Bring to
+   Front / Bring Forward / Send Backward / Send to Back) rather than the
+   swatch-grid/form shape .style-panel's own sections use, so it gets its
+   own lighter set of rules instead of reusing that class. Same popover
+   chrome and position as .style-panel (opens upward, centered on its own
+   button) for visual consistency between the two menus in this bar. */
+.order-menu {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 190px;
+  padding: 6px;
+  background: #1e2530;
+  border: 1px solid #2c3644;
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.order-menu[hidden] {
+  display: none;
+}
+
+.order-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: #e6e9ef;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.order-menu-item:hover {
+  background: #2c3644;
+}
+
+.order-menu-item svg {
+  flex-shrink: 0;
+  color: #8b93a3;
 }
 
 .fab-swatch {
@@ -815,19 +941,11 @@ html, body {
   border-radius: 4px;
 }
 
-/* The font picker's own popover: a small font dialog (family, size, bold,
-   italic) rather than a single-pick swatch grid — a block label needed the
-   same handful of controls any other piece of styled text does. */
-.fab-font-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: 190px;
-  padding: 12px;
-}
-
-.fab-font-panel select,
-.fab-font-panel input[type='number'] {
+/* The Font section's own controls: family, size, bold, italic — the same
+   handful a word processor's font dialog has, now living inside the
+   combined .style-panel's "Font" section rather than a popover of its own. */
+.style-panel select,
+.style-panel input[type='number'] {
   background: #12161d;
   border: 1px solid #2c3644;
   color: #e6e9ef;
@@ -889,7 +1007,10 @@ html, body {
    media query further down). */
 #inspector {
   position: fixed;
-  top: var(--topbar-height);
+  /* Full height — there's no reserved header row to sit below any more;
+     the top HUD chips float above this panel's own top edge instead (see
+     .topbar-hud's z-index). */
+  top: 0;
   right: 0;
   bottom: 0;
   width: 300px;
@@ -920,13 +1041,12 @@ html, body {
   }
 }
 
-/* The inspector now overlays the same corner the FABs are docked in
-   (rather than pushing the canvas, which used to leave them plainly
+/* The inspector now overlays the same bottom edge the control bar floats
+   over (rather than pushing the canvas, which used to leave it plainly
    visible beside it) — faded out and inert while it's open, the same
    treatment the mobile bottom sheet already used before this was also
    true on desktop. */
-body.inspector-open .fab,
-body.inspector-open .fab-stack {
+body.inspector-open .control-bar {
   opacity: 0;
   pointer-events: none;
 }
@@ -1161,17 +1281,36 @@ body.inspector-open .fab-stack {
    bottom sheet that slides up over the full-bleed canvas instead of eating
    permanent screen width. */
 @media (max-width: 768px) {
+  .topbar-hud {
+    padding: 8px 8px 0;
+  }
+
+  .hud-chip {
+    height: 40px;
+    /* Two independent chips (menu+breadcrumb on the left, actions on the
+       right) can still together be too wide for a phone screen — cap the
+       left one harder here than the generic desktop budget above, since
+       the breadcrumb scrolls inside its own chip rather than needing the
+       room. */
+    max-width: min(320px, 62vw);
+  }
+
   /* The brand name is the one thing here that isn't a control, so it's
-     the first to go on a narrow screen — the hamburger, breadcrumb, and
-     header-action icons all need the room more than it does. */
+     the first to go on a narrow screen — the hamburger and breadcrumb
+     need the room more than it does. */
   #topbar {
-    gap: 8px;
-    padding: 0 10px;
-    position: relative;
+    gap: 6px;
+    padding: 0 8px;
   }
 
   #topbar .brand {
     display: none;
+  }
+
+  .control-bar {
+    gap: 4px;
+    padding: 5px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   }
 
   #inspector {

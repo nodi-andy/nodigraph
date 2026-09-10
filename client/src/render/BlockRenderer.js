@@ -17,7 +17,17 @@ import { getFontFamily, ensureFontLoaded } from './fonts.js';
 
 const DEFAULT_PALETTE = getCanvasPalette('light');
 
-const CORNER_RADIUS = 6;
+// A touch softer/rounder than the old 6px — reads more like a card's
+// corner and less like a plain rectangle, part of the "sheet of paper"
+// look (see also the drop shadow in drawBlock below).
+const CORNER_RADIUS = 8;
+// Constant *screen*-pixel shadow (divided by zoom before use, the same
+// trick this file already uses for grid dots/resize handles) — the soft
+// elevation that makes a block read as a card resting on the canvas
+// rather than a flat rectangle painted onto it.
+const PAPER_SHADOW_COLOR = 'rgba(15, 18, 24, 0.16)';
+const PAPER_SHADOW_BLUR = 10;
+const PAPER_SHADOW_OFFSET_Y = 3;
 // The drawn arrowhead is smaller than this — it's the hit-test radius
 // around the handle's tip, padded like every other small handle.
 export const CONNECTOR_HANDLE_RADIUS = 4;
@@ -895,7 +905,20 @@ export function drawBlock(
   // accent colour, whether or not it's the one picked right now.
   roundRectPath(ctx, x, y, width, height, CORNER_RADIUS);
   ctx.fillStyle = fillColor;
-  ctx.fill();
+  // A card lying flat casts a shadow; a deliberately paint-nothing block
+  // (fillColor === 'transparent', see SelectionFabs' transparent swatch)
+  // is meant to read as bare floating text with no card at all, so it
+  // skips the shadow rather than getting a ghost of one.
+  if (fillColor !== 'transparent') {
+    ctx.save();
+    ctx.shadowColor = PAPER_SHADOW_COLOR;
+    ctx.shadowBlur = PAPER_SHADOW_BLUR / zoom;
+    ctx.shadowOffsetY = PAPER_SHADOW_OFFSET_Y / zoom;
+    ctx.fill();
+    ctx.restore();
+  } else {
+    ctx.fill();
+  }
   ctx.lineWidth = 1.5;
   ctx.strokeStyle = accentColor;
   ctx.stroke();
