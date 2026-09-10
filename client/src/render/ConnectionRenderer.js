@@ -267,7 +267,7 @@ export const PREVIEW_DASH = [6, 4];
 // A wire's own resting line style, set from the Inspector (see
 // ui/InspectorPanel.js) — independent of the flow animation's dashes,
 // which take over the whole wire while Animate is running regardless of
-// this setting (see SceneRenderer.drawConnections).
+// this setting (see SceneRenderer.drawOneConnection).
 export const DASH_STYLES = ['solid', 'dashed', 'dotted'];
 const DASH_PATTERNS = {
   dashed: [10, 6],
@@ -398,6 +398,30 @@ export function hitTestConnectionTrunk(geometry, worldX, worldY, threshold = 8) 
   const a = geometry.points[geometry.trunkIndex];
   const b = geometry.points[geometry.trunkIndex + 1];
   return distanceToSegment(worldX, worldY, a.x, a.y, b.x, b.y) <= threshold;
+}
+
+// Which end's own stub (if either) the point is near — the short straight
+// run right where the wire leaves a port, always the path's own first or
+// last segment (see computeConnectionPath: source, its stub, ...bridge...,
+// target's stub, target) regardless of how many bridge points sit between
+// them. Distinct from hitTestConnectionPath (any part of the wire, for
+// selecting it) and hitTestConnectionTrunk (only the draggable middle
+// segment, for bending it) — this is what lets grabbing a stub redirect
+// that specific end (see DragStateMachine's wire-hit handling), the same
+// as grabbing its port's own tiny connector handle directly, just over a
+// much bigger, easier-to-hit target — especially useful once the wire is
+// already selected and its ends are the obvious thing to grab next.
+export function hitTestConnectionStubEnd(geometry, worldX, worldY, threshold = 8) {
+  if (!geometry || geometry.points.length < 2) return null;
+  const { points } = geometry;
+  if (distanceToSegment(worldX, worldY, points[0].x, points[0].y, points[1].x, points[1].y) <= threshold) {
+    return 'source';
+  }
+  const last = points.length - 1;
+  if (distanceToSegment(worldX, worldY, points[last - 1].x, points[last - 1].y, points[last].x, points[last].y) <= threshold) {
+    return 'target';
+  }
+  return null;
 }
 
 // Any part of the wire selects it, trunk or stub — picking a pipe to

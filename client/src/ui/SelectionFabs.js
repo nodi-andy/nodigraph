@@ -1,13 +1,14 @@
 import { FONTS } from '../render/fonts.js';
 
-// The canvas-side controls for whatever is currently selected, stacked
-// above the add-block FAB. They exist so the things people do most often
-// to a selection — delete it, recolor it — don't require opening the
+// The canvas-side controls for whatever is currently selected, one group
+// among several sharing the bottom control bar (see styles.css's
+// .control-bar). They exist so the things people do most often to a
+// selection — delete it, restyle it — don't require opening the
 // Inspector, which on a small screen covers the diagram it is describing.
 //
-// The stack stays visible even with nothing selected — disabled rather
-// than hidden, so it's a fixed landmark in that corner rather than
-// something that pops in and out as the selection comes and goes.
+// The group stays visible even with nothing selected — disabled rather
+// than hidden, so it's a fixed landmark in the bar rather than something
+// that pops in and out as the selection comes and goes.
 
 // Chosen to stay legible on the dark canvas and to be tellable apart from
 // each other at wire thickness — the point of coloring a pipe is grouping
@@ -30,15 +31,28 @@ const SWATCHES = [
   { color: '#e6e9ef', label: 'White' },
 ];
 
+// Reads as "customize appearance" generically — used on the one combined
+// Style button rather than on a border-colour-only button now (see the
+// former separate colour/fill/font icons this replaced).
 const COLOR_ICON =
   'M12 3a9 9 0 0 0 0 18 1.5 1.5 0 0 0 1.5-1.5c0-.4-.15-.75-.4-1a1.5 1.5 0 0 1 1.1-2.5H16a5 5 0 0 0 5-5c0-4.42-4.03-8-9-8zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3.5 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z';
-// A rounded square, bottom half solid — reads as "fill" without needing a
-// literal (and harder to get right at 20px) paint-bucket illustration.
-const FILL_ICON =
-  '<rect x="4" y="4" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 13h14v5a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z" fill="currentColor"/>';
-const FONT_ICON =
-  '<text x="12" y="17" text-anchor="middle" font-size="15" font-weight="700" fill="currentColor" font-family="Georgia, serif">Aa</text>';
 const DELETE_ICON = 'M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z';
+// The Order button's own icon: two overlapping sheets, reading as "stacking
+// order" the way a design tool's own layers icon does.
+const ORDER_ICON =
+  '<rect x="4" y="4" width="12" height="12" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="9" y="9" width="12" height="12" rx="1.6" fill="currentColor"/>';
+// One menu item's icon per z-order action — a single chevron for a one-step
+// nudge (Forward/Backward), doubled for the "all the way" edge actions
+// (Front/Back), the same convention a media player's skip-one vs. skip-to-
+// end buttons use.
+const ORDER_MENU_ICONS = {
+  front:
+    '<path d="M12 3.5l6.5 6.5-1.4 1.4L12 6.3l-5.1 5.1-1.4-1.4z" fill="currentColor"/><path d="M12 10l6.5 6.5-1.4 1.4L12 12.8l-5.1 5.1-1.4-1.4z" fill="currentColor"/>',
+  forward: '<path d="M12 6.5l7 7-1.4 1.4L12 9.3l-5.6 5.6-1.4-1.4z" fill="currentColor"/>',
+  backward: '<path d="M12 17.5l-7-7 1.4-1.4L12 14.7l5.6-5.6 1.4 1.4z" fill="currentColor"/>',
+  back:
+    '<path d="M12 20.5l-6.5-6.5 1.4-1.4L12 17.7l5.1-5.1 1.4 1.4z" fill="currentColor"/><path d="M12 14l-6.5-6.5 1.4-1.4L12 11.2l5.1-5.1 1.4 1.4z" fill="currentColor"/>',
+};
 
 function miniFab(className, title, iconMarkup, onClick) {
   const button = document.createElement('button');
@@ -51,13 +65,15 @@ function miniFab(className, title, iconMarkup, onClick) {
   return button;
 }
 
-// A color-swatch grid, shared by the border-color and fill-color pickers —
-// they differ only in which callback a pick reaches and which color (if
-// any) opens the native picker already pointed at.
-function buildColorPalette(onPick) {
-  const palette = document.createElement('div');
-  palette.className = 'fab-palette';
-  palette.hidden = true;
+// A color-swatch grid, shared by the border-color and fill-color sections
+// of the combined style panel below — they differ only in which callback a
+// pick reaches and which color (if any) opens the native picker already
+// pointed at. `onCommit` fires (and closes the panel) on a definite pick;
+// the native input also fires plain `onPick` per-keystroke/drag so a live
+// preview still works while it's open.
+function buildSwatchGrid(onPick, onCommit) {
+  const grid = document.createElement('div');
+  grid.className = 'swatch-grid';
 
   for (const { color, label } of SWATCHES) {
     const swatch = document.createElement('button');
@@ -71,8 +87,8 @@ function buildColorPalette(onPick) {
     // show the popover's own background through — the checkerboard that
     // actually reads as "transparent" comes from the CSS class instead.
     if (color && !isTransparent) swatch.style.background = color;
-    swatch.addEventListener('click', () => onPick(color, true));
-    palette.appendChild(swatch);
+    swatch.addEventListener('click', () => onCommit(color));
+    grid.appendChild(swatch);
   }
 
   // The last swatch opens the OS picker, for the case the eight above
@@ -83,11 +99,35 @@ function buildColorPalette(onPick) {
   custom.className = 'fab-swatch fab-swatch-custom';
   custom.title = 'Custom colour';
   custom.value = '#4f8cff';
-  custom.addEventListener('input', () => onPick(custom.value, false));
-  custom.addEventListener('change', () => onPick(custom.value, true));
-  palette.appendChild(custom);
+  custom.addEventListener('input', () => onPick(custom.value));
+  custom.addEventListener('change', () => onCommit(custom.value));
+  grid.appendChild(custom);
 
-  return palette;
+  return grid;
+}
+
+// One labeled group within the combined style panel (Border / Fill / Font)
+// — just a heading over whatever controls that section holds.
+function styleSection(label, children) {
+  const section = document.createElement('div');
+  section.className = 'style-section';
+  const heading = document.createElement('div');
+  heading.className = 'style-section-label';
+  heading.textContent = label;
+  section.append(heading, ...children);
+  return section;
+}
+
+// One row in the Order menu — an icon plus a text label, the plain "list
+// of named actions" shape a z-order menu needs rather than the swatch-grid
+// shape the style panel's own sections use.
+function orderMenuItem(iconKey, label, onClick) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'order-menu-item';
+  button.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">${ORDER_MENU_ICONS[iconKey]}</svg><span>${label}</span>`;
+  button.addEventListener('click', onClick);
+  return button;
 }
 
 /**
@@ -105,6 +145,15 @@ function buildColorPalette(onPick) {
  * case passes null (or false) rather than the default's own literal
  * value, so an unmodified diagram carries no style data at all.
  *
+ * `getBlockSelectionCount()` gates the Order button/menu — z-order is a
+ * block-only concept (see main.js's reorderSelection), so unlike every
+ * other control here it stays disabled on a wire-only selection even
+ * though getSelectionCount() would report it as non-empty.
+ * `onBringToFront()`, `onSendToBack()`, `onBringForward()` and
+ * `onSendBackward()` are the Order menu's four actions, called with no
+ * arguments — which blocks they act on is main.js's own concern (the
+ * current selection), not something this component needs to know.
+ *
  * `getExtraFab()`, if given, is called on every refresh (a selection
  * change, same as everything else here) and may return `null` for no
  * extra button, or `{ title, icon, className, onClick }` to show one —
@@ -118,41 +167,59 @@ function buildColorPalette(onPick) {
  */
 export function mountSelectionFabs(
   container,
-  { getSelectionCount, getSelectionStyle, onDelete, isDeleteMode = () => false, onColor, onFill, onFont, onFontSize, onBold, onItalic, getExtraFab },
+  {
+    getSelectionCount,
+    getBlockSelectionCount = getSelectionCount,
+    getSelectionStyle,
+    onDelete,
+    isDeleteMode = () => false,
+    onColor,
+    onFill,
+    onFont,
+    onFontSize,
+    onBold,
+    onItalic,
+    onBringToFront,
+    onSendToBack,
+    onBringForward,
+    onSendBackward,
+    getExtraFab,
+  },
 ) {
   container.innerHTML = '';
   container.className = 'fab-stack';
 
-  const openPopovers = [];
-  function closeAllPopovers() {
-    for (const el of openPopovers) el.hidden = true;
-  }
-  function togglePopover(el) {
-    const wasHidden = el.hidden;
-    closeAllPopovers();
-    el.hidden = !wasHidden;
-  }
+  // Border colour, fill colour and font used to be three separate mini-FABs,
+  // each with its own popover — now one "Style" button opens a single
+  // combined panel with all three as stacked sections, the same way a
+  // design tool's own style flyout groups everything about a selection's
+  // appearance in one place rather than spreading it across several
+  // buttons in the bar.
+  const stylePanel = document.createElement('div');
+  stylePanel.className = 'style-panel';
+  stylePanel.hidden = true;
 
-  const colorPalette = buildColorPalette((value, commit) => {
-    onColor(value);
-    if (commit) closeAllPopovers();
-  });
-  const fillPalette = buildColorPalette((value, commit) => {
-    onFill(value);
-    if (commit) closeAllPopovers();
-  });
+  const borderGrid = buildSwatchGrid(
+    (value) => onColor(value),
+    (value) => {
+      onColor(value);
+      closeAllPopovers();
+    },
+  );
+  const fillGrid = buildSwatchGrid(
+    (value) => onFill(value),
+    (value) => {
+      onFill(value);
+      closeAllPopovers();
+    },
+  );
 
-  // The font popover reads like a small version of a word processor's font
-  // dialog — family, size, bold, italic — rather than the earlier plain
-  // list of family names, since a block label needed the same handful of
-  // controls any other piece of styled text does. It stays open across
-  // edits (togglePopover isn't called by any control inside it) so several
-  // of those can be changed in one sitting, unlike the single-pick color
-  // swatches.
-  const fontPanel = document.createElement('div');
-  fontPanel.className = 'fab-palette fab-font-panel';
-  fontPanel.hidden = true;
-
+  // The font section reads like a small version of a word processor's font
+  // dialog — family, size, bold, italic — rather than a plain list of
+  // family names, since a block label needs the same handful of controls
+  // any other piece of styled text does. It stays open across edits (no
+  // control inside it closes the panel) so several of those can be changed
+  // in one sitting, unlike the single-pick color swatches above.
   const familySelect = document.createElement('select');
   familySelect.className = 'fab-font-family';
   for (const { key, label } of FONTS) {
@@ -203,34 +270,77 @@ export function mountSelectionFabs(
   });
   styleRow.append(boldButton, italicButton);
 
-  fontPanel.append(familySelect, sizeRow, styleRow);
+  // The divider between the colour sections and the font section — its own
+  // plain element rather than part of styleSection, since it's not itself
+  // a labeled group.
+  const fontDivider = document.createElement('div');
+  fontDivider.className = 'style-divider';
 
-  openPopovers.push(colorPalette, fillPalette, fontPanel);
+  stylePanel.append(
+    styleSection('Border', [borderGrid]),
+    styleSection('Fill', [fillGrid]),
+    fontDivider,
+    styleSection('Font', [familySelect, sizeRow, styleRow]),
+  );
 
-  const colorButton = miniFab('fab-color', 'Border colour', `<path d="${COLOR_ICON}" fill="currentColor"/>`, (event) => {
+  // Bring to Front / Bring Forward / Send Backward / Send to Back — a
+  // named-list menu (see orderMenuItem) rather than a swatch grid, since
+  // these are four distinct actions rather than a value being picked.
+  const orderMenu = document.createElement('div');
+  orderMenu.className = 'order-menu';
+  orderMenu.hidden = true;
+  orderMenu.append(
+    orderMenuItem('front', 'Bring to Front', () => {
+      closeAllPopovers();
+      onBringToFront();
+    }),
+    orderMenuItem('forward', 'Bring Forward', () => {
+      closeAllPopovers();
+      onBringForward();
+    }),
+    orderMenuItem('backward', 'Send Backward', () => {
+      closeAllPopovers();
+      onSendBackward();
+    }),
+    orderMenuItem('back', 'Send to Back', () => {
+      closeAllPopovers();
+      onSendToBack();
+    }),
+  );
+
+  // Both popovers — any other action (another button's click, an outside
+  // click) dismisses whichever one is currently open.
+  const popovers = [stylePanel, orderMenu];
+  function closeAllPopovers() {
+    for (const popover of popovers) popover.hidden = true;
+  }
+
+  const styleButton = miniFab('fab-style', 'Style (border, fill, font)', `<path d="${COLOR_ICON}" fill="currentColor"/>`, (event) => {
     event.stopPropagation();
-    togglePopover(colorPalette);
-  });
-  const fillButton = miniFab('fab-fill', 'Background colour', FILL_ICON, (event) => {
-    event.stopPropagation();
-    togglePopover(fillPalette);
-  });
-  const fontButton = miniFab('fab-font', 'Font', FONT_ICON, (event) => {
-    event.stopPropagation();
+    const opening = stylePanel.hidden;
+    closeAllPopovers();
+    stylePanel.hidden = !opening;
     // Reflects whichever block the Inspector would show, the same
     // "last one picked" rule a multi-select uses everywhere else — read
     // fresh on every open rather than kept in sync continuously, since
     // nothing else here needs to react to a selection change moment to
     // moment.
-    if (fontPanel.hidden) {
+    if (opening) {
       const style = getSelectionStyle?.() || {};
       familySelect.value = style.font || '';
       sizeInput.value = style.fontSize || 13;
       boldButton.classList.toggle('active', Boolean(style.bold));
       italicButton.classList.toggle('active', Boolean(style.italic));
     }
-    togglePopover(fontPanel);
   });
+
+  const orderButton = miniFab('fab-order', 'Order (bring to front, send to back)', ORDER_ICON, (event) => {
+    event.stopPropagation();
+    const opening = orderMenu.hidden;
+    closeAllPopovers();
+    orderMenu.hidden = !opening;
+  });
+
   const deleteButton = miniFab('fab-danger', 'Delete the selection', `<path d="${DELETE_ICON}" fill="currentColor"/>`, () => {
     closeAllPopovers();
     onDelete();
@@ -257,16 +367,13 @@ export function mountSelectionFabs(
     extraButton.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">${descriptor.icon || ''}</svg>`;
   }
 
-  // Each popover sits next to its own button (see the .fab-palette CSS,
-  // positioned relative to this wrapper) rather than one shared popover
-  // reparented on open — simpler, and the three never show at once anyway
-  // (togglePopover closes the others first). The popover is a *sibling* of
-  // its button, not a child of it: a <button> can't validly contain other
-  // interactive content (the font popover's own <select>/<input>/<button>
-  // controls), and nesting them meant a click on, say, the bold toggle
-  // bubbled up through the button it sat inside and re-triggered that
-  // button's own click handler — closing the popover it was still trying
-  // to use.
+  // The panel sits next to its own button (see the .style-panel CSS,
+  // positioned relative to this wrapper). It's a *sibling* of the button,
+  // not a child of it: a <button> can't validly contain other interactive
+  // content (the panel's own <select>/<input>/<button> controls), and
+  // nesting them meant a click on, say, the bold toggle bubbled up through
+  // the button it sat inside and re-triggered that button's own click
+  // handler — closing the panel it was still trying to use.
   function miniFabWithPopover(button, popover) {
     const wrap = document.createElement('div');
     wrap.className = 'fab-mini-wrap';
@@ -275,43 +382,59 @@ export function mountSelectionFabs(
   }
 
   container.append(
-    miniFabWithPopover(colorButton, colorPalette),
-    miniFabWithPopover(fillButton, fillPalette),
-    miniFabWithPopover(fontButton, fontPanel),
+    miniFabWithPopover(styleButton, stylePanel),
+    miniFabWithPopover(orderButton, orderMenu),
     deleteButton,
   );
 
-  // Any click that isn't in an open popover dismisses it — including
-  // clicks on the canvas, which is where someone goes to select something
-  // else.
+  // Any click outside a popover dismisses it — including clicks on the
+  // canvas, which is where someone goes to select something else. Excludes
+  // the popover's own button (not just the popover itself): pointerdown
+  // fires before the button's own click handler runs, so without this a
+  // click on the toggle button while its popover is open would hide it
+  // here first and then the click handler's own toggle would immediately
+  // reopen it.
+  const popoverButtons = [
+    { popover: stylePanel, button: styleButton },
+    { popover: orderMenu, button: orderButton },
+  ];
   document.addEventListener('pointerdown', (event) => {
-    for (const el of openPopovers) {
-      if (!el.hidden && !el.contains(event.target)) el.hidden = true;
+    for (const { popover, button } of popoverButtons) {
+      if (!popover.hidden && !popover.contains(event.target) && !button.contains(event.target)) {
+        popover.hidden = true;
+      }
     }
   });
 
   // Called from the render loop, so it compares before touching the DOM —
   // setting `disabled` to the value it already has on every frame would be
-  // needless layout churn.
+  // needless layout churn. The delete button is deliberately not tracked
+  // here — see onDelete's doc comment above, it stays clickable with
+  // nothing selected so it can arm delete mode instead.
   let lastCount = null;
+  let lastBlockCount = null;
   let lastDeleteMode = null;
-  // The delete button is deliberately not in this list — see onDelete's
-  // doc comment above, it stays clickable with nothing selected so it can
-  // arm delete mode instead.
-  const buttons = [colorButton, fillButton, fontButton];
 
   return {
     refresh() {
       const count = getSelectionCount();
       if (count !== lastCount) {
         lastCount = count;
-        // The stack stays put and full-strength either way — disabled
-        // rather than hidden, so the corner it lives in doesn't reflow (or
-        // silently swallow a click aimed at where a button *was*) the
-        // instant a selection is made or cleared.
-        const disabled = count === 0;
-        for (const button of buttons) button.disabled = disabled;
-        if (disabled) closeAllPopovers();
+        // The bar stays put and full-strength either way — disabled
+        // rather than hidden, so its footprint doesn't reflow (or silently
+        // swallow a click aimed at where a button *was*) the instant a
+        // selection is made or cleared.
+        styleButton.disabled = count === 0;
+        if (count === 0) stylePanel.hidden = true;
+      }
+      // Order is block-only (see getBlockSelectionCount's own doc above) —
+      // tracked separately so a wire-only selection disables it even while
+      // styleButton (which a wire's own colour still uses) stays enabled.
+      const blockCount = getBlockSelectionCount();
+      if (blockCount !== lastBlockCount) {
+        lastBlockCount = blockCount;
+        orderButton.disabled = blockCount === 0;
+        if (blockCount === 0) orderMenu.hidden = true;
       }
       const armed = isDeleteMode();
       if (armed !== lastDeleteMode) {

@@ -17,8 +17,30 @@ import {
 } from '../render/BlockRenderer.js';
 
 // Handles are visually tiny, so their hit area is padded beyond what's drawn —
-// a standard diagramming-tool trick, independent of render technology.
+// a standard diagramming-tool trick, independent of render technology. Both
+// this and CONNECTOR_HIT_PADDING below are divided by zoom wherever they're
+// actually used (see hitPortsAcrossBlocks), the same way
+// RESIZE_HANDLE_HIT_PADDING already is — a fixed world-unit pad shrinks
+// toward nothing zoomed out (exactly where a diagram with more than a
+// couple of blocks usually gets viewed from) and balloons absurdly large
+// zoomed in; dividing by zoom keeps it a constant, comfortable few screen
+// pixels of extra grab room regardless.
 const HANDLE_HIT_PADDING = 6;
+// The connector handle's own circle sits checked *first* (see
+// hitPortsAcrossBlocks — it already always wins over the port's own body
+// within its own hit zone), but at the generic HANDLE_HIT_PADDING it's a
+// bare ~20px-diameter target sitting right past a much bigger, closer port
+// body — easy to aim for and still land just short of it (toward the
+// block, i.e. the very side the port's own hit-rect also covers), which
+// reads as "grabbing the arrow selected the port instead" even though the
+// priority order was never actually wrong. A modest bump over
+// HANDLE_HIT_PADDING closes most of that gap. It's kept well short of
+// reaching the port's own drawn center (14 world units away, at
+// CONNECTOR_NUB_LENGTH) on purpose — a radius big enough to reach that far
+// would make the port's own body unreachable as 'port' at all, trading the
+// original bug for a worse one (confirmed by hand: radius 14 swallowed the
+// port's exact center outright).
+const CONNECTOR_HIT_PADDING = 7;
 // Resize handles already float well clear of the block (see
 // BlockRenderer.RESIZE_HANDLE_OUTSET) — a slightly bigger pad than the
 // ports get costs nothing, and a bigger, easier-to-grab target is exactly
@@ -90,7 +112,22 @@ function hitBoundaryLine(geometry, worldX, worldY, threshold = BORDER_HIT_THRESH
 // BlockRenderer.drawPorts), so both its connector handle and its body rect
 // need to match what's actually drawn at that specific index, or a wide,
 // multi-wire port would only be clickable/grabbable at its first wire.
-function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsFor = () => []) {
+// `connectionIdFor(blockId, portId)` (non-boundary calls only) resolves
+// which single wire (if any) an *ordinary* port's own connector handle
+// represents — unlike the boundary/inverted case, an outer-face port draws
+// every wire it holds at the exact same single point (see BlockRenderer's
+// own note on this), so there's no per-wire handle to distinguish; this is
+// what lets DragStateMachine's 'connector' handling redirect the actual
+// wire being grabbed instead of always adding a new one alongside it.
+function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsFor = () => [], connectionIdFor = () => null, zoom = 1) {
+  // Divided by zoom once here rather than at each use below — a fixed
+  // world-unit pad shrinks toward nothing zoomed out and balloons zoomed
+  // in (see HANDLE_HIT_PADDING's own doc); this keeps both a constant,
+  // comfortable few screen pixels at any zoom level, the same trick
+  // hitResizeHandle already uses.
+  const padding = HANDLE_HIT_PADDING / zoom;
+  const connectorPadding = CONNECTOR_HIT_PADDING / zoom;
+
   // Connector handles first — they're the outermost/smallest target, and
   // sit close enough to their port that ambiguity should favor "start a wire"
   // when the cursor is right at the tip.
@@ -116,15 +153,15 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
           // actually drawn at.
           const pos = getBoundaryWirePosition(block, port, wireIndex, wireIds[wireIndex]);
           const handle = getConnectorHandlePosition(pos, side, true);
-          if (pointInCircle(worldX, worldY, handle.x, handle.y, CONNECTOR_HANDLE_RADIUS + HANDLE_HIT_PADDING)) {
+          if (pointInCircle(worldX, worldY, handle.x, handle.y, CONNECTOR_HANDLE_RADIUS + connectorPadding)) {
             return { type: 'connector', blockId: block.id, portId: port.id, connectionId: wireIds[wireIndex] || null };
           }
         }
       } else {
         const pos = getPortPosition(block, port);
         const handle = getConnectorHandlePosition(pos, port.side, false);
-        if (pointInCircle(worldX, worldY, handle.x, handle.y, CONNECTOR_HANDLE_RADIUS + HANDLE_HIT_PADDING)) {
-          return { type: 'connector', blockId: block.id, portId: port.id, connectionId: null };
+        if (pointInCircle(worldX, worldY, handle.x, handle.y, CONNECTOR_HANDLE_RADIUS + connectorPadding)) {
+          return { type: 'connector', blockId: block.id, portId: port.id, connectionId: connectionIdFor(block.id, port.id) };
         }
       }
     }
@@ -153,7 +190,7 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
         for (let wireIndex = 0; wireIndex < count; wireIndex += 1) {
           const pos = getBoundaryWirePosition(block, port, wireIndex, wireIds[wireIndex]);
           const rect = getSlotRectFromBorderPoint(pos.x, pos.y, side);
-          if (pointInRect(worldX, worldY, rect, HANDLE_HIT_PADDING)) {
+          if (pointInRect(worldX, worldY, rect, padding)) {
             hitWire = { type: 'port', blockId: block.id, portId: port.id, wireIndex, connectionId: wireIds[wireIndex] ?? null };
             break;
           }
@@ -170,7 +207,7 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
         const rectCount = Math.max(1, wireIds.length, width);
         if (rectCount > 1) {
           const groupRect = getBoundaryPortBlockRect(block, port, rectCount);
-          if (pointInRect(worldX, worldY, groupRect, HANDLE_HIT_PADDING)) {
+          if (pointInRect(worldX, worldY, groupRect, padding)) {
             return { type: 'port', blockId: block.id, portId: port.id };
           }
         }
@@ -181,7 +218,7 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
         // the actual rect drawn, not just a small circle at its outer
         // edge, or most of the visible shape wouldn't be clickable.
         const rect = getPortSlotRect(block, port);
-        if (pointInRect(worldX, worldY, rect, HANDLE_HIT_PADDING)) {
+        if (pointInRect(worldX, worldY, rect, padding)) {
           return { type: 'port', blockId: block.id, portId: port.id };
         }
       }
@@ -213,7 +250,15 @@ export function hitTest(project, worldX, worldY, boundary, resizableBlockId, res
   // border-drag zone: a port is the more specific target, so on the rare
   // occasion a handle and a port's connector reach do overlap, the port
   // still wins.
-  const portHit = hitPortsAcrossBlocks(blocks, worldX, worldY, false);
+  const portHit = hitPortsAcrossBlocks(
+    blocks,
+    worldX,
+    worldY,
+    false,
+    undefined,
+    (blockId, portId) => project.findConnectionForPort(blockId, portId),
+    zoom,
+  );
   if (portHit) return portHit;
 
   if (boundary) {
@@ -297,7 +342,7 @@ export function hitTest(project, worldX, worldY, boundary, resizableBlockId, res
 
     // Same as any other existing port: directly selectable without
     // selecting its block (the boundary itself) first.
-    const boundaryPortHit = hitPortsAcrossBlocks([boundaryView], worldX, worldY, true, wireIdsFor);
+    const boundaryPortHit = hitPortsAcrossBlocks([boundaryView], worldX, worldY, true, wireIdsFor, undefined, zoom);
     if (boundaryPortHit) return boundaryPortHit;
 
     // The frame's title, sitting just above its top-left corner — a click

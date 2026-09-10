@@ -138,6 +138,82 @@ export class Project {
     return block;
   }
 
+  // --- Z-order ---
+  //
+  // Draw order is nothing but `current.blocks`' own Map iteration order —
+  // SceneRenderer draws listBlocks() in order and paints each one over
+  // whatever came before it, so "later in the Map" already means "drawn on
+  // top." There's no separate z-index field to keep in sync: reordering
+  // *is* reordering the Map, and it round-trips for free through
+  // save/load/undo (serializeBlockTree/hydrateBlockTree turn the Map into
+  // a JSON array and back in that same order — see Block.js).
+
+  // Moves every block in `ids` to the very front (bringToFront) or back
+  // (sendToBack) as one contiguous group, preserving their order relative
+  // to each other — the coarse two of the four actions. Returns whether
+  // the order actually changed, so a caller can skip persisting a no-op
+  // (e.g. bringing an already-topmost block to the front).
+  _reorderToEdge(ids, toFront) {
+    const idSet = new Set(ids);
+    const entries = Array.from(this.current.blocks.entries());
+    const selected = entries.filter(([id]) => idSet.has(id));
+    if (!selected.length) return false;
+    const rest = entries.filter(([id]) => !idSet.has(id));
+    const reordered = toFront ? [...rest, ...selected] : [...selected, ...rest];
+    if (reordered.every(([id], i) => id === entries[i][0])) return false;
+    this.current.blocks = new Map(reordered);
+    return true;
+  }
+
+  // Nudges every block in `ids` one step toward the front (direction > 0)
+  // or back (direction < 0), each swapping past whichever single
+  // non-selected block currently sits next to it — the fine two of the
+  // four actions. Scans from whichever edge the move is headed toward
+  // first (front-to-back for a forward move, back-to-front for a backward
+  // one) — the same direction vector/slide editors scan a multi-selection
+  // raise or lower in, since scanning the other way would let an already-
+  // moved block get swapped again by its own neighbor later in the same
+  // pass, silently reversing the selection's relative order.
+  _reorderStep(ids, direction) {
+    const idSet = new Set(ids);
+    const entries = Array.from(this.current.blocks.entries());
+    let changed = false;
+    if (direction > 0) {
+      for (let i = entries.length - 2; i >= 0; i -= 1) {
+        if (idSet.has(entries[i][0]) && !idSet.has(entries[i + 1][0])) {
+          [entries[i], entries[i + 1]] = [entries[i + 1], entries[i]];
+          changed = true;
+        }
+      }
+    } else {
+      for (let i = 1; i < entries.length; i += 1) {
+        if (idSet.has(entries[i][0]) && !idSet.has(entries[i - 1][0])) {
+          [entries[i], entries[i - 1]] = [entries[i - 1], entries[i]];
+          changed = true;
+        }
+      }
+    }
+    if (!changed) return false;
+    this.current.blocks = new Map(entries);
+    return true;
+  }
+
+  bringToFront(ids) {
+    return this._reorderToEdge(ids, true);
+  }
+
+  sendToBack(ids) {
+    return this._reorderToEdge(ids, false);
+  }
+
+  bringForward(ids) {
+    return this._reorderStep(ids, 1);
+  }
+
+  sendBackward(ids) {
+    return this._reorderStep(ids, -1);
+  }
+
   listConnections() {
     return Array.from(this.current.connections.values());
   }
@@ -159,6 +235,29 @@ export class Project {
         delete port.boundary.wireSlots[id];
       }
     }
+  }
+
+  // The one connection (if any) currently attached to this exact
+  // block+port from outside — what grabbing an ordinary (non-boundary)
+  // port's own connector handle needs, to know which wire it's actually
+  // picking up to redirect (see DragStateMachine's 'connector' handling
+  // and HitTest's hitPortsAcrossBlocks). An ordinary port can carry more
+  // than one wire (unlike a container's own crossing wire, capped at one —
+  // see addConnection's own note), in which case this just returns
+  // whichever one listConnections() happens to list first: redirecting *a*
+  // wire the cursor is plausibly grabbing beats the alternative (never
+  // telling any of them apart, and always adding a new one alongside
+  // instead of moving one — the very bug this exists to fix).
+  findConnectionForPort(blockId, portId) {
+    for (const connection of this.listConnections()) {
+      if (
+        (connection.sourceBlockId === blockId && connection.sourcePortId === portId) ||
+        (connection.targetBlockId === blockId && connection.targetPortId === portId)
+      ) {
+        return connection.id;
+      }
+    }
+    return null;
   }
 
   hasConnection(sourcePortId, targetPortId) {

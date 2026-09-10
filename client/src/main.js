@@ -423,6 +423,24 @@ async function bootstrap() {
     return block?.style || null;
   }
 
+  // Z-order (bring to front / forward / backward / send to back) — a
+  // block-only concept, wires always draw underneath every block regardless
+  // (see SceneRenderer's draw order) so this reads straight from the block
+  // selection and ignores any selected wire entirely. Each Project method
+  // reports whether it actually changed anything, so a click that's already
+  // at the front/back of the stack doesn't spam a no-op into history.
+  function reorderSelection(method) {
+    const ids = selection.list();
+    if (!ids.length) return;
+    if (!project[method](ids)) return;
+    persist();
+    renderLoop.requestRender();
+  }
+  const bringSelectionToFront = () => reorderSelection('bringToFront');
+  const sendSelectionToBack = () => reorderSelection('sendToBack');
+  const bringSelectionForward = () => reorderSelection('bringForward');
+  const sendSelectionBackward = () => reorderSelection('sendBackward');
+
   function deleteSelectedPort() {
     const block = project.getBlock(selection.selectedBlockId);
     const portId = selection.selectedPortId;
@@ -1129,6 +1147,7 @@ async function bootstrap() {
       pendingConnectionPath: stateMachine.getPendingConnectionVisual(),
       connectionSource: dragHighlights.source,
       connectionTarget: dragHighlights.target,
+      hiddenConnectionId: stateMachine.getRedirectingConnectionId(),
       selectedBlockIds: selection.selectedBlockIds,
       wireSelection,
       remoteCursors: currentLevelCursors(),
@@ -1394,6 +1413,10 @@ async function bootstrap() {
 
   selectionFabsApi = mountSelectionFabs(fabStackEl, {
     getSelectionCount: selectionCount,
+    // Order only ever acts on blocks (see reorderSelection's own doc) — a
+    // wire-only selection has nothing for it to do, so it's gated on the
+    // block count alone rather than selectionCount()'s blocks+wires total.
+    getBlockSelectionCount: () => selection.count,
     getSelectionStyle: selectionStyle,
     // Nothing selected: this click arms delete mode instead of deleting.
     onDelete: () => (selectionCount() > 0 ? deleteSelection() : toggleDeleteMode()),
@@ -1404,6 +1427,10 @@ async function bootstrap() {
     onFontSize: fontSizeSelection,
     onBold: fontWeightSelection,
     onItalic: fontStyleSelection,
+    onBringToFront: bringSelectionToFront,
+    onSendToBack: sendSelectionToBack,
+    onBringForward: bringSelectionForward,
+    onSendBackward: sendSelectionBackward,
     // A host page's own selection-dependent button (see SelectionFabs'
     // own doc on getExtraFab) — window.nodigraphSelectionFab, read fresh
     // every refresh rather than once, so it works regardless of when (or

@@ -15,6 +15,7 @@ import {
   getConnectionGeometry,
   previewPathToCursor,
   hitTestConnectionTrunk,
+  hitTestConnectionStubEnd,
   hitTestConnectionPath,
 } from '../render/ConnectionRenderer.js';
 
@@ -32,7 +33,7 @@ function selectionVerb(modifiers) {
   return 'replace';
 }
 import { createConnection } from '../model/Connection.js';
-import { addPort, clonePort, logicalPortOf } from '../model/BlockDescription.js';
+import { addPort, clonePort, logicalPortOf, removePort } from '../model/BlockDescription.js';
 
 // How long the cursor has to sit in a block's edge zone before the
 // "click here to add a port" ghost actually appears — long enough that
@@ -51,6 +52,13 @@ const CONNECTOR_STRETCH_THRESHOLD = 6;
 // rename it doesn't fire when the user was actually double-clicking to
 // enter it.
 const RENAME_CLICK_DELAY_MS = 350;
+
+// How far a connection-drawing drag has to travel before it counts as a
+// real drag rather than a plain click that merely happened to land a pixel
+// or two off — see tryCompleteConnection's own use of context.moved. Below
+// this, releasing over an invalid target is a no-op click, not a rejected
+// drag.
+const CONNECTION_DRAG_MOVE_THRESHOLD = 4;
 
 const STATES = {
   IDLE: 'idle',
@@ -203,6 +211,7 @@ export class DragStateMachine {
           sourcePortId: ghost.portId,
           sourceInverted: true,
           currentWorld: world,
+          moved: false,
           redirectingConnectionId: null,
         };
         this.requestRender();
@@ -326,6 +335,7 @@ export class DragStateMachine {
         sourcePortId: hit.portId,
         sourceInverted: true,
         currentWorld: world,
+        moved: false,
         redirectingConnectionId: null,
         // Captured now, at the exact slot the ghost promised — resolved
         // fresh at drop time instead (see tryCompleteConnection) could
@@ -368,18 +378,37 @@ export class DragStateMachine {
       }
       // Selection is left untouched: drawing a wire shouldn't disturb
       // whatever the inspector is currently showing.
+      //
+      // Grabbing a wire this port *already has* (see HitTest's
+      // hitPortsAcrossBlocks — both the boundary and the ordinary connector
+      // loop resolve which one, via Project.findConnectionForPort on the
+      // ordinary side) picks that wire up to redirect it, rather than
+      // adding a new one alongside it — the old connection is removed only
+      // once a new one actually replaces it (see tryCompleteConnection), so
+      // cancelling the drag or dropping it somewhere invalid leaves the
+      // original wire untouched. The end you actually clicked is the one
+      // that moves, so the drag anchors at the connection's *other* end
+      // (see otherEndOfConnection) — anchoring at the clicked end instead
+      // would silently move the opposite one on a successful drop.
+      let sourceBlockId = hit.blockId;
+      let sourcePortId = hit.portId;
+      let sourceInverted = isBoundary;
+      if (hit.connectionId) {
+        const connection = this.project.getConnection(hit.connectionId);
+        if (connection) {
+          const anchor = this.otherEndOfConnection(connection, hit.blockId);
+          sourceBlockId = anchor.blockId;
+          sourcePortId = anchor.portId;
+          sourceInverted = Boolean(boundary) && anchor.blockId === boundary.block.id;
+        }
+      }
       this.state = STATES.DRAWING_CONNECTION;
       this.context = {
-        sourceBlockId: hit.blockId,
-        sourcePortId: hit.portId,
-        sourceInverted: isBoundary,
+        sourceBlockId,
+        sourcePortId,
+        sourceInverted,
         currentWorld: world,
-        // Grabbing a wire this port *already has* (see HitTest's boundary
-        // connector loop) picks that wire up to redirect it, rather than
-        // adding a new one alongside it — the old connection is removed
-        // only once a new one actually replaces it (see
-        // tryCompleteConnection), so cancelling the drag or dropping it
-        // somewhere invalid leaves the original wire untouched.
+        moved: false,
         redirectingConnectionId: hit.connectionId || null,
       };
       this.requestRender();
@@ -390,8 +419,8 @@ export class DragStateMachine {
       const isBoundary = Boolean(boundary) && hit.blockId === boundary.block.id;
       const block = this.project.getBlock(hit.blockId);
 
-      // Alt-drag duplicates the port instead of moving it — same name/
-      // direction, dropped in the next free slot beside the original,
+      // Alt-drag duplicates the port instead of wiring it directly — same
+      // name/direction, dropped in the next free slot beside the original,
       // which stays put. Only meaningful on a port's *exterior* face
       // (isBoundary false): that's the one Project.addConnection caps at a
       // single wire for a container block, so a second, separately-wired
@@ -405,17 +434,24 @@ export class DragStateMachine {
       // to the plain drag. Takes over regardless of which wire (if any)
       // was actually hit: cloning always means "a whole new port," never
       // "move just this one wire" (that's MOVING_PORT_WIRE below, a plain
-      // drag's own thing). The new port starts the exact same
-      // DRAGGING_PORT the ghost-click/new-port paths already use, so it
-      // can be dragged straight to wherever it's actually wanted.
+      // drag's own thing). The clone starts a wire draw exactly like any
+      // other port's own body drag does now (see below) — dragging FROM a
+      // port, cloned or not, always means "wire this up," never "move it."
       if (modifiers.altKey && !isBoundary) {
         const sourcePort = block.ports.find((p) => p.id === hit.portId);
         const sideLength = sideAxis(sourcePort.side) === 'x' ? block.geometry.height : block.geometry.width;
         const clone = clonePort(block, sourcePort, sideLength);
         this.selection.selectPort(block.id, clone.id);
         this.persist();
-        this.state = STATES.DRAGGING_PORT;
-        this.context = { blockId: block.id, portId: clone.id, isBoundary: false };
+        this.state = STATES.DRAWING_CONNECTION;
+        this.context = {
+          sourceBlockId: block.id,
+          sourcePortId: clone.id,
+          sourceInverted: false,
+          currentWorld: world,
+          moved: false,
+          redirectingConnectionId: null,
+        };
         this.requestRender();
         return;
       }
@@ -443,8 +479,39 @@ export class DragStateMachine {
           return;
         }
       }
-      this.state = STATES.DRAGGING_PORT;
-      this.context = { blockId: block.id, portId: hit.portId, isBoundary };
+
+      if (isBoundary) {
+        // From inside a container, dragging a port instead re-docks it to
+        // a different side/offset on the boundary frame — that's
+        // rearranging your own interface, not wiring it to anything, so it
+        // keeps the older reposition behavior. An ordinary exterior port
+        // has no such "rearrange my own layout" meaning, hence the plain
+        // branch below.
+        this.state = STATES.DRAGGING_PORT;
+        this.context = { blockId: block.id, portId: hit.portId, isBoundary };
+        this.requestRender();
+        return;
+      }
+
+      // An ordinary (exterior) port never repositions along its edge on a
+      // plain drag any more — dragging FROM it always starts a new wire,
+      // the same as grabbing an empty edge's own "+" ghost already did.
+      // This is true even when the port already has one or more wires:
+      // fanning out a new one is the port's own drag; picking up an
+      // *existing* wire to redirect it is a different, more specific
+      // gesture — grab that wire's own connector handle or stub instead
+      // (see the 'connector' branch above and hitTestWires' stubEnd) —
+      // so redirectingConnectionId stays null here regardless of how many
+      // wires this port already carries.
+      this.state = STATES.DRAWING_CONNECTION;
+      this.context = {
+        sourceBlockId: block.id,
+        sourcePortId: hit.portId,
+        sourceInverted: false,
+        currentWorld: world,
+        moved: false,
+        redirectingConnectionId: null,
+      };
       this.requestRender();
       return;
     }
@@ -536,11 +603,36 @@ export class DragStateMachine {
         // never have to guess which of two selections was meant.
         this.selection.clear();
       }
-      // Grabbing a stub selects the wire but starts no drag: a stub is
-      // anchored to its port's fixed exit point and has nothing to move.
       if (wireHit.onTrunk) {
         this.state = STATES.DRAGGING_WIRE_TRUNK;
         this.context = { items: this.buildTrunkDragItems(boundary), startWorld: world };
+      } else if (wireHit.stubEnd) {
+        // Grabbing a stub — the short run right where the wire leaves a
+        // port, a much bigger and easier target than the port's own tiny
+        // connector handle — redirects that specific end, exactly as if
+        // its connector handle had been grabbed directly (see
+        // onPointerDown's 'connector' branch below, including its own note
+        // on anchoring at the *other* end so the end actually grabbed is
+        // the one that moves). A plain click with no real drag away from
+        // here still just selects (this state entry is harmless on
+        // release: dropping back where it started is never a valid target
+        // — see resolveConnectionTarget — and this wire was never new, so
+        // tryCompleteConnection's own rollback never touches it either).
+        const connection = this.project.getConnection(wireHit.connectionId);
+        if (connection) {
+          const grabbedBlockId = wireHit.stubEnd === 'source' ? connection.sourceBlockId : connection.targetBlockId;
+          const anchor = this.otherEndOfConnection(connection, grabbedBlockId);
+          const anchorIsBoundary = Boolean(boundary) && anchor.blockId === boundary.block.id;
+          this.state = STATES.DRAWING_CONNECTION;
+          this.context = {
+            sourceBlockId: anchor.blockId,
+            sourcePortId: anchor.portId,
+            sourceInverted: anchorIsBoundary,
+            currentWorld: world,
+            moved: false,
+            redirectingConnectionId: wireHit.connectionId,
+          };
+        }
       }
       this.requestRender();
       return;
@@ -565,6 +657,27 @@ export class DragStateMachine {
     this.state = STATES.PANNING;
     this.context = { lastScreen: screen };
     this.requestRender();
+  }
+
+  // The far end of `connection` from `blockId` — matched by block id alone
+  // (not the exact port id) since a boundary connection's stored
+  // sourcePortId/targetPortId can be a cloned sibling pin of whichever
+  // exact one was actually clicked (see BlockDescription's module doc on
+  // cloned exterior pins), not necessarily identical to it.
+  //
+  // Grabbing a wire's connector/stub picks up *that specific end* to move
+  // it — so the DRAWING_CONNECTION this starts has to anchor itself at the
+  // *other*, un-grabbed end (this method's return value), not the one
+  // actually clicked. Anchoring at the clicked end instead — what a more
+  // naive reading of "grab this and drag it" suggests — silently redirects
+  // the *opposite* end whenever the drop succeeds: the wire remains
+  // attached to the exact port you clicked and a new one springs up at your
+  // cursor instead, which reads as "I grabbed the tail and the head moved."
+  otherEndOfConnection(connection, blockId) {
+    if (connection.sourceBlockId === blockId) {
+      return { blockId: connection.targetBlockId, portId: connection.targetPortId };
+    }
+    return { blockId: connection.sourceBlockId, portId: connection.sourcePortId };
   }
 
   // The marquee rectangle in world space, or null when not marqueeing —
@@ -600,7 +713,10 @@ export class DragStateMachine {
 
   // Trunks are checked across every wire before any stub is, so a trunk
   // lying under another wire's stub stays draggable rather than being
-  // shadowed by the segment on top of it.
+  // shadowed by the segment on top of it. Stub ends are checked next
+  // (before the catch-all path pass) so grabbing one is recognized as
+  // "redirect this end" (see onPointerDown's wire-hit handling) rather than
+  // just a plain select.
   hitTestWires(worldX, worldY, boundary) {
     const connections = this.project.listConnections();
     const geometries = connections.map((connection) => ({
@@ -611,13 +727,20 @@ export class DragStateMachine {
     for (let i = geometries.length - 1; i >= 0; i -= 1) {
       const { connection, geometry } = geometries[i];
       if (hitTestConnectionTrunk(geometry, worldX, worldY)) {
-        return { connectionId: connection.id, onTrunk: true };
+        return { connectionId: connection.id, onTrunk: true, stubEnd: null };
+      }
+    }
+    for (let i = geometries.length - 1; i >= 0; i -= 1) {
+      const { connection, geometry } = geometries[i];
+      const stubEnd = hitTestConnectionStubEnd(geometry, worldX, worldY);
+      if (stubEnd) {
+        return { connectionId: connection.id, onTrunk: false, stubEnd };
       }
     }
     for (let i = geometries.length - 1; i >= 0; i -= 1) {
       const { connection, geometry } = geometries[i];
       if (hitTestConnectionPath(geometry, worldX, worldY)) {
-        return { connectionId: connection.id, onTrunk: false };
+        return { connectionId: connection.id, onTrunk: false, stubEnd: null };
       }
     }
     return null;
@@ -773,6 +896,18 @@ export class DragStateMachine {
         break;
       }
       case STATES.DRAWING_CONNECTION: {
+        // Whether this ever became a real drag rather than a plain click
+        // that landed a pixel or two off — see tryCompleteConnection's own
+        // use of this (a newly-auto-created source port only gets rolled
+        // back on a real, failed drag; a plain click still just leaves the
+        // port sitting there, same as it always has).
+        if (!this.context.moved) {
+          const dx = world.x - this.context.currentWorld.x;
+          const dy = world.y - this.context.currentWorld.y;
+          if (dx * dx + dy * dy > CONNECTION_DRAG_MOVE_THRESHOLD * CONNECTION_DRAG_MOVE_THRESHOLD) {
+            this.context.moved = true;
+          }
+        }
         this.context.currentWorld = world;
         this.requestRender();
         break;
@@ -1195,9 +1330,26 @@ export class DragStateMachine {
       // Away from the border — the ordinary redirect-this-wire drag,
       // exactly as if the port were already a container and this were any
       // other wire's own connector (see onPointerDown's 'connector'
-      // branch).
+      // branch, including its own note on anchoring at the *other* end so
+      // the end actually grabbed is the one that moves).
+      let sourceBlockId = blockId;
+      let sourcePortId = portId;
+      let sourceInverted = true;
+      if (redirectingConnectionId) {
+        const connection = this.project.getConnection(redirectingConnectionId);
+        if (connection) {
+          const anchor = this.otherEndOfConnection(connection, blockId);
+          sourceBlockId = anchor.blockId;
+          sourcePortId = anchor.portId;
+          const anchorBoundary = this.getBoundaryInfo();
+          sourceInverted = Boolean(anchorBoundary) && anchor.blockId === anchorBoundary.block.id;
+        }
+      }
       this.state = STATES.DRAWING_CONNECTION;
-      this.context = { sourceBlockId: blockId, sourcePortId: portId, sourceInverted: true, currentWorld: world, redirectingConnectionId };
+      // Already moved past CONNECTOR_STRETCH_THRESHOLD to get here (see the
+      // early return above), so this is unambiguously a real drag, not a
+      // click — moved starts true rather than false.
+      this.context = { sourceBlockId, sourcePortId, sourceInverted, currentWorld: world, moved: true, redirectingConnectionId };
     }
     this.requestRender();
   }
@@ -1283,12 +1435,15 @@ export class DragStateMachine {
   }
 
   // Creates a port at `zone` and immediately starts a connection drag from
-  // it — shared by the ready-ghost click (mouse, after the hover dwell)
-  // and the touch fast path (no dwell at all) in onPointerDown. Dropping
-  // straight back onto the block it came from is never a valid target
-  // (see resolveConnectionTarget), so a press with no real drag away from
-  // here just leaves the new port sitting there, same as clicking a ghost
-  // always has.
+  // it — shared by the ready-ghost click (mouse, after the hover dwell) and
+  // the touch fast path (no dwell at all) in onPointerDown. The port has to
+  // exist for real right away so the in-progress wire has something to
+  // render/position itself against, but it's provisional until the drag
+  // actually lands somewhere: dropping straight back onto the block it came
+  // from is never a valid target (see resolveConnectionTarget), and a press
+  // with no real drag away from here is exactly that — so
+  // tryCompleteConnection undoes this port's creation rather than leaving
+  // an unconnected socket behind (see its own `sourcePortIsNew` handling).
   startConnectionFromNewPort(zone, world) {
     const port = this.addPortAt(zone.blockId, zone.side, zone.offset, zone.geometry, { isBoundary: zone.isBoundary });
     // addPortAt only fails to make one when its own blockId doesn't
@@ -1304,6 +1459,7 @@ export class DragStateMachine {
       sourcePortId: port.id,
       sourceInverted: Boolean(boundary) && zone.blockId === boundary.block.id,
       currentWorld: world,
+      moved: false,
       // Tracked so resolveConnectionTarget can tell "this whole connection
       // is being quick-created from scratch" (both ends bare edges) apart
       // from "one end already existed" — only the former gets its ports'
@@ -1518,6 +1674,27 @@ export class DragStateMachine {
       console.log('[nd:up]', { world, sourceContext: this.context, target });
     }
     if (!target?.valid) {
+      // Dragging from a bare edge auto-creates a port to draw the wire from
+      // (see startConnectionFromNewPort) before it's known whether the drag
+      // will land anywhere — necessary so the in-progress wire has a real
+      // port to render/position itself against. But a port nobody actually
+      // wired to anything isn't a fact the user asked to record, just this
+      // gesture's own scaffolding — a real drag that ends up nowhere valid
+      // undoes its creation rather than leaving a bare, unconnected socket
+      // behind. Gated on `moved` too: a *plain click* on the ghost (no real
+      // drag away from it at all) is its own long-standing, deliberate way
+      // to just add a port with no wire — see startConnectionFromNewPort's
+      // own doc — and must keep working exactly as before. A redirected
+      // wire's own already-existing source port (sourcePortIsNew unset) is
+      // never touched here either way — only ever a port this exact drag
+      // made.
+      if (this.context.sourcePortIsNew && this.context.moved) {
+        const sourceBlock = this.project.getBlock(this.context.sourceBlockId);
+        if (sourceBlock) {
+          removePort(sourceBlock, this.context.sourcePortId);
+          this.persist();
+        }
+      }
       this.requestRender();
       return;
     }
@@ -1534,6 +1711,15 @@ export class DragStateMachine {
     // a duplicate, or anywhere invalid, leaves the wire being redirected
     // exactly as it was (see onPointerDown's 'connector' handling).
     if (added && this.context.redirectingConnectionId) {
+      // A stub-grab redirect (see onPointerDown's wire-hit handling)
+      // selects the wire before picking it up — carry that selection over
+      // to its replacement, or it'd be left pointing at an id that no
+      // longer exists. A plain connector-handle grab never touches
+      // wireSelection in the first place (see that branch's own note), so
+      // this is a no-op for it, exactly as before.
+      if (this.wireSelection.isSelected(this.context.redirectingConnectionId)) {
+        this.wireSelection.selectOnly(added.id);
+      }
       this.project.removeConnection(this.context.redirectingConnectionId);
     }
     // Whichever end (if either) landed on the boundary's own container
@@ -1573,6 +1759,23 @@ export class DragStateMachine {
       source: { blockId: sourceBlockId, portId: sourcePortId },
       target: hover ? { blockId: hover.blockId, portId: hover.portId, valid: hover.valid } : null,
     };
+  }
+
+  // The one connection currently being picked up to redirect, or null —
+  // grabbing a port's own body (fan-out, a brand new wire) and grabbing an
+  // existing wire's own connector/stub (redirect) both land in the exact
+  // same DRAWING_CONNECTION state with an otherwise identical live preview,
+  // so without this there was no way to actually *see*, while dragging,
+  // which of the two a given grab landed as — only after releasing, by
+  // which point a slightly-off aim had already silently produced the wrong
+  // one. SceneRenderer skips drawing this one connection in its ordinary,
+  // static position while its id is live here, so a successful redirect
+  // grab reads exactly the way it's meant to: the wire visibly comes off
+  // its old port the instant it's grabbed and follows the cursor from then
+  // on, rather than staying put alongside a second, brand-new preview line
+  // that looks the same as this one until you let go.
+  getRedirectingConnectionId() {
+    return this.state === STATES.DRAWING_CONNECTION ? this.context.redirectingConnectionId || null : null;
   }
 
   // The live paving preview: an auto-routed path from the source port to

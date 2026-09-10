@@ -91,24 +91,31 @@ function drawMarquee(ctx, rect, zoom) {
   ctx.restore();
 }
 
+// A dot at every intersection rather than a lattice of lines — the Figma/
+// design-tool convention, and a lot less visually busy across a large
+// diagram than full-length lines crossing behind every block. Radius is a
+// fixed *screen* size (divided by zoom, the same trick the old line width
+// used) so dots stay a legible, constant pixel size whether zoomed in or
+// panned far out, instead of shrinking to nothing or ballooning with the
+// world-space geometry around them.
+const GRID_DOT_RADIUS = 1.4;
+
 function drawGrid(ctx, camera, canvasWidth, canvasHeight, palette) {
   const topLeft = camera.screenToWorld(0, 0);
   const bottomRight = camera.screenToWorld(canvasWidth, canvasHeight);
   const startX = Math.floor(topLeft.x / GRID_SIZE) * GRID_SIZE;
   const startY = Math.floor(topLeft.y / GRID_SIZE) * GRID_SIZE;
+  const radius = GRID_DOT_RADIUS / camera.zoom;
 
-  ctx.strokeStyle = palette.grid;
-  ctx.lineWidth = 1 / camera.zoom;
+  ctx.fillStyle = palette.grid;
   ctx.beginPath();
-  for (let gx = startX; gx <= bottomRight.x; gx += GRID_SIZE) {
-    ctx.moveTo(gx, topLeft.y);
-    ctx.lineTo(gx, bottomRight.y);
-  }
   for (let gy = startY; gy <= bottomRight.y; gy += GRID_SIZE) {
-    ctx.moveTo(topLeft.x, gy);
-    ctx.lineTo(bottomRight.x, gy);
+    for (let gx = startX; gx <= bottomRight.x; gx += GRID_SIZE) {
+      ctx.moveTo(gx + radius, gy);
+      ctx.arc(gx, gy, radius, 0, Math.PI * 2);
+    }
   }
-  ctx.stroke();
+  ctx.fill();
 }
 
 // Two wires that leave or arrive at the same port are the same signal, so
@@ -123,49 +130,61 @@ function sharesEndpoint(a, b) {
   );
 }
 
-function drawConnections(ctx, project, wireSelection, boundary, flowOffset, palette, wireMoveOverride) {
-  // Routed up front, because drawing any one wire needs to know where all
-  // the others run in order to bow over the ones it merely crosses.
+// Computed once per frame, independent of draw order — routing (and the
+// hopOver bow every wire needs against every other) is a purely geometric
+// question, unrelated to which of them ends up painted over which block
+// (see renderScene's own z-ordering of this same list against `blocks`).
+function routeConnections(project, boundary, wireMoveOverride, hiddenConnectionId) {
   const routed = [];
   for (const connection of project.listConnections()) {
+    // The one connection currently being picked up to redirect (see
+    // DragStateMachine.getRedirectingConnectionId) is left out of its own
+    // ordinary, static rendering entirely — the whole point being that it
+    // visibly comes off its old port the instant it's grabbed, rather than
+    // sitting there unchanged alongside the live dashed preview (drawn
+    // separately, after every block — see renderScene) that's standing in
+    // for it. Left out of hopOver bowing too: nothing else should still
+    // treat it as an obstacle once it's already "in the air."
+    if (connection.id === hiddenConnectionId) continue;
     const geometry = getConnectionGeometry(project, connection, boundary, wireMoveOverride);
     if (geometry) routed.push({ connection, geometry, verticals: verticalSegmentsOf(geometry.points) });
   }
+  return routed;
+}
 
-  for (const entry of routed) {
-    const hopOver = routed
-      .filter((other) => other !== entry && !sharesEndpoint(other.connection, entry.connection))
-      .flatMap((other) => other.verticals);
+function drawOneConnection(ctx, entry, routed, wireSelection, flowOffset, palette) {
+  const hopOver = routed
+    .filter((other) => other !== entry && !sharesEndpoint(other.connection, entry.connection))
+    .flatMap((other) => other.verticals);
 
-    // Selection is a halo behind the wire rather than a recolor of it: the
-    // main reason to select a pipe is to change its color, and repainting
-    // it to show it is selected would hide the very thing being chosen.
-    // The halo stays solid while the wire above it marches, which also
-    // makes the dashes read as gaps in a wire rather than as a new shape.
-    const selected = wireSelection?.isSelected(entry.connection.id);
-    if (selected) {
-      drawPath(ctx, entry.geometry.points, { color: WIRE_SELECTED_HALO, width: 9, hopOver });
-    }
-    // Animate takes over the whole wire's dashing while it's running,
-    // regardless of the wire's own resting style — the marching dashes
-    // are the point of it, not something a dotted wire should opt out of.
-    // window.nodigraphConnectionColor (see main.js's own doc on this file's
-    // handful of host hooks) lets a host recolor a specific wire by
-    // whatever data it's presently carrying, without touching the
-    // connection's own stored `color` at all -- the Inspector's own color
-    // picker (see ui/InspectorPanel.js) stays exactly as authoritative as
-    // it always was for any wire the host has no opinion on (a host
-    // returning null/undefined here, which is every wire by default with
-    // no hook set at all).
-    drawPath(ctx, entry.geometry.points, {
-      color: window.nodigraphConnectionColor?.(entry.connection) || entry.connection.color || WIRE_COLOR,
-      width: 3,
-      hopOver,
-      dash: flowOffset === null ? getDashPattern(entry.connection.dashStyle) : FLOW_DASH,
-      dashOffset: flowOffset ?? 0,
-    });
-    drawConnectionLabel(ctx, entry.geometry, entry.connection.label, palette);
+  // Selection is a halo behind the wire rather than a recolor of it: the
+  // main reason to select a pipe is to change its color, and repainting
+  // it to show it is selected would hide the very thing being chosen.
+  // The halo stays solid while the wire above it marches, which also
+  // makes the dashes read as gaps in a wire rather than as a new shape.
+  const selected = wireSelection?.isSelected(entry.connection.id);
+  if (selected) {
+    drawPath(ctx, entry.geometry.points, { color: WIRE_SELECTED_HALO, width: 9, hopOver });
   }
+  // Animate takes over the whole wire's dashing while it's running,
+  // regardless of the wire's own resting style — the marching dashes
+  // are the point of it, not something a dotted wire should opt out of.
+  // window.nodigraphConnectionColor (see main.js's own doc on this file's
+  // handful of host hooks) lets a host recolor a specific wire by
+  // whatever data it's presently carrying, without touching the
+  // connection's own stored `color` at all -- the Inspector's own color
+  // picker (see ui/InspectorPanel.js) stays exactly as authoritative as
+  // it always was for any wire the host has no opinion on (a host
+  // returning null/undefined here, which is every wire by default with
+  // no hook set at all).
+  drawPath(ctx, entry.geometry.points, {
+    color: window.nodigraphConnectionColor?.(entry.connection) || entry.connection.color || WIRE_COLOR,
+    width: 3,
+    hopOver,
+    dash: flowOffset === null ? getDashPattern(entry.connection.dashStyle) : FLOW_DASH,
+    dashOffset: flowOffset ?? 0,
+  });
+  drawConnectionLabel(ctx, entry.geometry, entry.connection.label, palette);
 }
 
 // One combined lookup so drawBlock/drawBoundary don't each need to know
@@ -207,6 +226,10 @@ export function renderScene(
     remoteCursors,
     hoverGhost,
     marqueeRect,
+    // The one connection (if any) currently being picked up to redirect —
+    // see DragStateMachine.getRedirectingConnectionId's own doc, and
+    // drawConnections' use of this below.
+    hiddenConnectionId = null,
     // { portId, connectionId, previewIndex } while a wire is being dragged
     // to a different slot within its own port (see
     // DragStateMachine.getWireMoveOverride) — lets it visibly follow the
@@ -257,14 +280,47 @@ export function renderScene(
     : null;
   const portHighlights = buildPortHighlights(selectedBlockId, selectedPortId, connectionSource, connectionTarget);
 
-  // Drawn before every block/boundary so a wire's own connector-handle
-  // triangle (drawn as part of the block/boundary pass) always paints over
-  // the wire's endpoint, not the other way around — a wire sits under the
-  // handles it connects to, not through them.
-  drawConnections(ctx, project, wireSelection, boundary, flowOffset, palette, wireMoveOverride);
+  const routed = routeConnections(project, boundary, wireMoveOverride, hiddenConnectionId);
 
-  // Drawn before the real blocks so they visually sit "inside" the frame
-  // rather than the dashed outline cutting across them.
+  // `blocks` is already this level's own z-order (see Project's
+  // bringToFront/sendToBack — later in the list means drawn later, i.e. on
+  // top), so a block's index here doubles as its z-index. A wire's own
+  // z-index is the *higher* of its two endpoints' — bringing a block to
+  // the front brings its wires along with it, at least far enough to clear
+  // whatever they'd otherwise still be tucked under, rather than every
+  // wire staying pinned to the very back regardless of which blocks have
+  // since been reordered in front of each other. The boundary/container
+  // itself never participates (it isn't one of `blocks`, and doesn't
+  // reorder) — a wire touching it just inherits its one real, ordinary
+  // endpoint's z-index outright, and the boundary frame itself keeps
+  // drawing before every wire regardless (see below), same as always.
+  const blockZIndex = new Map(blocks.map((block, i) => [block.id, i]));
+  const zIndexOfEndpoint = (blockId) => blockZIndex.get(blockId) ?? -1;
+
+  const drawItems = [
+    ...routed.map((entry) => ({
+      kind: 'connection',
+      z: Math.max(zIndexOfEndpoint(entry.connection.sourceBlockId), zIndexOfEndpoint(entry.connection.targetBlockId)),
+      entry,
+    })),
+    ...blocks.map((block, z) => ({ kind: 'block', z, block })),
+  ];
+  // Stable (native Array#sort is a stable sort per spec): entries already
+  // sharing a z-index keep their relative order from the concat above,
+  // which is exactly what puts a wire tied with its own frontmost block
+  // right before that block — so the block's own port/connector glyphs
+  // still paint over the wire's endpoint, not the other way around, the
+  // same relationship every wire already had with every block before this
+  // ordering existed at all.
+  drawItems.sort((a, b) => a.z - b.z);
+
+  // The boundary frame (and its own ports) still always draws before every
+  // wire, exactly as it always has — it isn't part of the z-ordered block
+  // list above, and a wire attached to it inherits its *other* endpoint's
+  // z-index (see zIndexOfEndpoint's fallback), never the boundary's own, so
+  // there's no z-indexed slot for the boundary's drawing to occupy here.
+  // Drawn before the real blocks too, so they visually sit "inside" the
+  // frame rather than the dashed outline cutting across them.
   if (boundary) {
     // The container's own ports as seen from inside — cloned exterior
     // siblings (see BlockDescription.clonePort) collapse onto one entry
@@ -290,7 +346,12 @@ export function renderScene(
     });
   }
 
-  for (const block of blocks) {
+  for (const item of drawItems) {
+    if (item.kind === 'connection') {
+      drawOneConnection(ctx, item.entry, routed, wireSelection, flowOffset, palette);
+      continue;
+    }
+    const block = item.block;
     drawBlock(ctx, block, {
       selected: selectedBlockIds.has(block.id),
       portHighlights,
