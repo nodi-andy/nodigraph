@@ -16,8 +16,24 @@
 //   - block.description's text-editor view — it's a computed cache of
 //     logicalPorts/props/name (see BlockDescription.serializeBlockDescription)
 //     and gets rebuilt from those after import, never stored twice.
-import { generateId, DEFAULT_BLOCK_WIDTH, DEFAULT_BLOCK_HEIGHT, DEFAULT_TEXT_WIDTH, DEFAULT_TEXT_HEIGHT, DEFAULT_BLOCK_COLOR } from './Block.js';
-import { createDefaultBoundaryGeometry } from './grid.js';
+import { generateId, hydrateBlockTree, DEFAULT_BLOCK_WIDTH, DEFAULT_BLOCK_HEIGHT, DEFAULT_TEXT_WIDTH, DEFAULT_TEXT_HEIGHT, DEFAULT_BLOCK_COLOR } from './Block.js';
+
+// A block's own `props` are host-defined data this module has no opinion
+// about (see Block.js's own doc) — most of it (a pin number, a toggle
+// value, a kind tag a host like noditron uses to know what a block *is*)
+// is plain, small, human-editable data, exactly what this format is for.
+// The exception is a *generated code* prop (a host's own `fn`/`render`/
+// `html`/`dialog` — see runtime.js in noditron, the one host currently
+// using props this way): a full JS source string, often hundreds of
+// characters, that a host itself already knows how to regenerate from a
+// short kind tag alone (see noditron's own palette.js rehydrateKindLogic)
+// — writing that out in full would bloat every export without adding
+// anything a paste/import can't already reconstruct, so those specific
+// names are skipped here. Nothing below knows what noditron *is*; this is
+// just "don't inline four particular prop names," the same way isText
+// above is the one other single-purpose exception this format carries.
+const CODE_PROP_NAMES = new Set(['fn', 'render', 'html', 'dialog']);
+import { createDefaultBoundaryGeometry, GRID_SIZE } from './grid.js';
 import { createConnection } from './Connection.js';
 import { flow, stringifyYaml, parseYaml } from './yaml.js';
 
@@ -127,6 +143,13 @@ function blockToSlim(block) {
 
   const { portsSlim, pinKeys } = computePortsSlim(block);
   if (Object.keys(portsSlim).length) slim.ports = portsSlim;
+
+  const propsSlim = {};
+  for (const p of block.props || []) {
+    if (CODE_PROP_NAMES.has(p.name) || p.value === undefined) continue;
+    propsSlim[p.name] = p.value;
+  }
+  if (Object.keys(propsSlim).length) slim.props = propsSlim;
 
   if (block.hasChildren) {
     const { blocksSlim, wiresSlim } = levelToSlim(block.children?.blocks || [], block.children?.connections || [], block, pinKeys);
@@ -261,7 +284,7 @@ function slimBlockToData(slimBlock) {
     },
     logicalPorts,
     ports: pins,
-    props: [],
+    props: Object.entries(slimBlock.props || {}).map(([name, value]) => ({ id: generateId('prp'), name, kind: 'value', value })),
     hasChildren,
     boundaryGeometry: null,
     children: null,
@@ -323,5 +346,60 @@ export function yamlTextToProjectData(text) {
     throw new Error('Not a nodigraph YAML file');
   }
   return slimToProjectData(slim);
+}
+
+// Offsets a pasted circuit so it doesn't land exactly on top of whatever
+// is already there — same reasoning as model/clipboard.js's own
+// PASTE_OFFSET for a duplicated selection.
+const PASTE_OFFSET = GRID_SIZE;
+
+// Adds the blocks/wires described by a YAML *document* (this format's own
+// top-level shape — see projectDataToYamlText above, e.g. what "Copy as
+// YAML" puts on the clipboard) to the level the project is currently
+// viewing, the same way model/clipboard.js's pasteSelection adds a
+// duplicated selection. Unlike that one, no id-remapping pass is needed
+// here: slimToProjectData already mints a fresh id for every block/port on
+// each call (see slimBlockToData/slimPortsToArrays above), so two pastes
+// of the same YAML text never collide. hydrateBlockTree still has to run
+// on each block, though — the plain objects slimBlockToData builds are the
+// same raw shape Project's own constructor expects to hydrate, not
+// something already carrying computed fields like `description`.
+//
+// Returns the new top-level blocks' ids (for the caller to select), or an
+// empty array if the text isn't valid nodigraph YAML at all -- deliberately
+// non-throwing (unlike yamlTextToProjectData above) so a paste handler can
+// just fall through to "not ours" without its own try/catch.
+export function pasteSlimYamlText(project, text, offset = PASTE_OFFSET) {
+  let data;
+  try {
+    data = yamlTextToProjectData(text);
+  } catch {
+    return [];
+  }
+  const newIds = [];
+  for (const raw of data.rootBlock.children.blocks) {
+    const hydrated = hydrateBlockTree(raw);
+    hydrated.geometry.x += offset;
+    hydrated.geometry.y += offset;
+    // A host's one chance to fill in whatever this format itself couldn't
+    // carry (see this module's own CODE_PROP_NAMES doc) — every block in
+    // the pasted (sub)tree, not just the top-level ones, since a container
+    // with its own children (e.g. noditron's Timer) needs each of *those*
+    // filled in too. Optional and a plain no-op with nothing set (a host
+    // with nothing to do here just never sets the hook, same as every
+    // other window.nodigraph* hook this app calls).
+    forEachBlockInTree(hydrated, (b) => window.nodigraphRehydrateBlock?.(b));
+    project.addBlock(hydrated);
+    newIds.push(hydrated.id);
+  }
+  for (const connection of data.rootBlock.children.connections) {
+    project.addConnection(connection);
+  }
+  return newIds;
+}
+
+function forEachBlockInTree(block, fn) {
+  fn(block);
+  for (const child of block.children?.blocks.values() || []) forEachBlockInTree(child, fn);
 }
 

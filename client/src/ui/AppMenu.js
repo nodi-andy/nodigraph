@@ -8,8 +8,6 @@ const ICONS = {
   open: '<path d="M4 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6z" fill="currentColor"/>',
   save: '<path d="M6 2h12v20l-6-4.5L6 22V2z" fill="currentColor"/>',
   export: '<path d="M11 3h2v11.2l3.6-3.6L18 12l-6 6-6-6 1.4-1.4L11 14.2V3zM5 19h14v2H5z" fill="currentColor"/>',
-  image:
-    '<rect x="3.5" y="4.5" width="17" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><path d="M4.5 16.5l4.5-4.5 3 3 4-4 4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>',
   docs: '<path d="M6 2h9l5 5v15H6V2z" fill="currentColor"/><path d="M15 2.5V8h5.5" fill="none" stroke="#1e2530" stroke-width="1.4"/><path d="M8.5 12.5h7M8.5 15.5h7M8.5 18.5h4" stroke="#1e2530" stroke-width="1.3" stroke-linecap="round"/>',
   settings:
     '<path d="M3 6h9M17 6h4M3 12h3M9 12h12M3 18h12M18 18h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="13" cy="6" r="2" fill="currentColor"/><circle cx="6" cy="12" r="2" fill="currentColor"/><circle cx="15" cy="18" r="2" fill="currentColor"/>',
@@ -35,6 +33,7 @@ export function mountAppMenu(
     onOpen,
     onSaveUrl,
     onExportFile,
+    onCopyYaml,
     onExportSvg,
     onExportGoogleDocs,
     onOpenFromGitHub,
@@ -148,11 +147,12 @@ export function mountAppMenu(
   const exportBody = expandable('export', 'Export');
   subItem(exportBody, 'JSON', () => onExportFile('json'));
   subItem(exportBody, 'YAML', () => onExportFile('yaml'));
+  // Same YAML text as the row above, straight onto the clipboard instead
+  // of a download — pasting into a chat/doc/AI prompt doesn't need a file
+  // on disk first.
+  subItem(exportBody, 'Copy as YAML', () => onCopyYaml());
+  subItem(exportBody, 'SVG', () => onExportSvg());
 
-  // A rendered picture of the diagram, not project data — kept as its own
-  // row rather than a third format under Export above, the same way
-  // "Export to Google Docs" right below it is also a picture, not data.
-  item('image', 'Export as SVG', () => onExportSvg());
   item('docs', 'Export to Google Docs', () => onExportGoogleDocs());
   item('github', 'Save to GitHub', () => onSaveToGitHub());
 
