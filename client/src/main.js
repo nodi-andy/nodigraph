@@ -545,7 +545,10 @@ async function bootstrap() {
 
   function enterBlock(blockId) {
     const block = project.getBlock(blockId);
-    if (block && !canEnterBlock(block)) return;
+    if (block && !canEnterBlock(block)) {
+      window.nodigraphOnEnterBlocked?.(block);
+      return;
+    }
     if (!project.enterBlock(blockId)) return;
     selection.clear();
     wireSelection.clear();

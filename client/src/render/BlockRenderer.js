@@ -812,7 +812,9 @@ function drawPorts(
     // side) label. A still-plain, single-wire port draws neither: it's
     // just the one ordinary-looking pin an outer-face port has always
     // been, name and all — same "old wiring" look until it actually
-    // becomes a container (see DragStateMachine.resolveConnectorDragPending).
+    // becomes a container (drag one of the width grips it shows once
+    // selected — see the plain-case branch below, which draws the same
+    // two).
     if (inverted && rectCount > 1) {
       const rect = getBoundaryPortBlockRect(block, port, rectCount);
       drawContainerGroupOutline(ctx, rect, palette);
@@ -848,6 +850,14 @@ function drawPorts(
     drawWireStubAndDot(ctx, { px, py, handle, side: effectiveSide, inverted, isEffectivelyOutput: isEffectivelyOutput0, color: color0, palette });
     const ringColor = portHighlights?.get(`${block.id}:${port.id}`);
     if (ringColor) drawPortRing(ctx, px, py, ringColor, SLOT_RING_RADIUS);
+    // Selecting a still-plain boundary port shows the same two width grips
+    // a widened one has, so growing it into a multi-wire container is an
+    // explicit target rather than a direction-sensitive drag of its own
+    // wire — that overload used to swallow "move this wire to the port
+    // next door," since both are a drag along the same edge.
+    if (inverted && ringColor === PORT_SELECTED_RING_COLOR) {
+      drawPortResizeHandles(ctx, getPortResizeHandleRects(block, port, rectCount), palette);
+    }
     drawPortLabel(ctx, { name: portName, side: effectiveSide }, { x: px, y: py }, inverted, palette);
   }
 }

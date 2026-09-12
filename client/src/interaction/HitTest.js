@@ -26,20 +26,20 @@ import {
 // zoomed in; dividing by zoom keeps it a constant, comfortable few screen
 // pixels of extra grab room regardless.
 const HANDLE_HIT_PADDING = 6;
-// The connector handle's own circle sits checked *first* (see
-// hitPortsAcrossBlocks — it already always wins over the port's own body
-// within its own hit zone), but at the generic HANDLE_HIT_PADDING it's a
-// bare ~20px-diameter target sitting right past a much bigger, closer port
-// body — easy to aim for and still land just short of it (toward the
-// block, i.e. the very side the port's own hit-rect also covers), which
-// reads as "grabbing the arrow selected the port instead" even though the
-// priority order was never actually wrong. A modest bump over
-// HANDLE_HIT_PADDING closes most of that gap. It's kept well short of
-// reaching the port's own drawn center (14 world units away, at
-// CONNECTOR_NUB_LENGTH) on purpose — a radius big enough to reach that far
-// would make the port's own body unreachable as 'port' at all, trading the
-// original bug for a worse one (confirmed by hand: radius 14 swallowed the
-// port's exact center outright).
+// The connector handle is a bare ~20px-diameter target sitting a stub's
+// length (CONNECTOR_NUB_LENGTH, 14 world units) past a much bigger, closer
+// port body, so it needs a bump over the generic HANDLE_HIT_PADDING to be
+// comfortably grabbable at all. What keeps that bump from eating the port
+// underneath it is no longer the size of this number — it's the explicit
+// carve-out in hitPortsAcrossBlocks, which drops the connector test
+// entirely for any point inside the port's own DRAWN rect. Before that
+// carve-out these two zones genuinely overlapped (this radius reaches back
+// to 3 units off the border; the port's padded rect extends 12 the other
+// way) and the connector, checked first, won the whole contested band —
+// including the outward half of the port square itself, which is what made
+// "grab the port to move it" start a rewire instead. With the port's drawn
+// body reserved, this can safely grow further if the arrow still feels
+// small; it can no longer reach anything the user sees as "the port."
 const CONNECTOR_HIT_PADDING = 7;
 // Resize handles already float well clear of the block (see
 // BlockRenderer.RESIZE_HANDLE_OUTSET) — a slightly bigger pad than the
@@ -130,7 +130,15 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
 
   // Connector handles first — they're the outermost/smallest target, and
   // sit close enough to their port that ambiguity should favor "start a wire"
-  // when the cursor is right at the tip.
+  // when the cursor is right at the tip. The one thing that outranks them
+  // is the port's own DRAWN body (see portBodyClaims below): the handle's
+  // padded reach is wider than the gap between the two, so checking it
+  // blindly first let it swallow the outward half of the very square the
+  // user was aiming at — "I grab the port and it starts rewiring instead."
+  // Now the split follows exactly what's on screen: on the square = the
+  // port, on the stub/arrow past it = the wire head.
+  const portBodyClaims = (pos, side) => pointInRect(worldX, worldY, getSlotRectFromBorderPoint(pos.x, pos.y, side));
+
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const block = blocks[i];
     for (const port of block.ports || []) {
@@ -152,6 +160,7 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
           // would otherwise be hit-tested at a position it's no longer
           // actually drawn at.
           const pos = getBoundaryWirePosition(block, port, wireIndex, wireIds[wireIndex]);
+          if (portBodyClaims(pos, side)) continue;
           const handle = getConnectorHandlePosition(pos, side, true);
           if (pointInCircle(worldX, worldY, handle.x, handle.y, CONNECTOR_HANDLE_RADIUS + connectorPadding)) {
             return { type: 'connector', blockId: block.id, portId: port.id, connectionId: wireIds[wireIndex] || null };
@@ -159,6 +168,7 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
         }
       } else {
         const pos = getPortPosition(block, port);
+        if (portBodyClaims(pos, port.side)) continue;
         const handle = getConnectorHandlePosition(pos, port.side, false);
         if (pointInCircle(worldX, worldY, handle.x, handle.y, CONNECTOR_HANDLE_RADIUS + connectorPadding)) {
           return { type: 'connector', blockId: block.id, portId: port.id, connectionId: connectionIdFor(block.id, port.id) };
@@ -276,13 +286,13 @@ export function hitTest(project, worldX, worldY, boundary, resizableBlockId, res
     if (resizablePortId) {
       const port = boundary.block.ports.find((p) => p.id === resizablePortId);
       const wireCount = port ? wireIdsFor(port.id).length : 0;
-      const effectiveWidth = port ? Math.max(getPortBoundaryPlacement(port).width || 1, wireCount, 1) : 1;
-      // A still-plain (not yet a container) port has no resize handles at
-      // all — same gate as whether they're even drawn (see
-      // BlockRenderer.drawPorts) — the only way to grow one from here is
-      // dragging its own wire sideways (DragStateMachine's
-      // resolveConnectorDragPending), not a handle that doesn't exist yet.
-      if (port && effectiveWidth > 1) {
+      // Available at ANY width, a still-plain single-wire port included —
+      // same gate as whether they're drawn (see BlockRenderer.drawPorts).
+      // Widening one used to have no handle of its own and was reachable
+      // only by dragging its wire sideways, which cost that wire its own
+      // "move me to another port" gesture along the same edge; grips on a
+      // selected port give widening a target that guesses at nothing.
+      if (port) {
         const count = Math.max(1, wireCount);
         // `boundaryView`, not the bare `boundary.block` — its own outer
         // geometry (how big/where it sits one level up) routinely differs
@@ -298,9 +308,26 @@ export function hitTest(project, worldX, worldY, boundary, resizableBlockId, res
         // whenever the two geometries disagree (which side felt it
         // depended on which axis diverged more — hence "vertical ports,
         // or nested" both being where it was noticed).
-        for (const [edge, rect] of Object.entries(getPortResizeHandleRects(boundaryView, port, count))) {
-          if (pointInRect(worldX, worldY, rect, PORT_RESIZE_HIT_PADDING)) {
-            return { type: 'portResizeHandle', blockId: boundary.block.id, portId: port.id, edge };
+        //
+        // The port's own drawn squares are carved out of the grips the same
+        // way they're carved out of the connector above: on the narrowest
+        // (single-wire) port the two padded grip zones leave only a ~4-unit
+        // gap between them, narrower than the 8-unit square drawn in that
+        // gap, so without this the outer slivers of the very square you're
+        // aiming at would resize instead of move. Each grip keeps all of
+        // its own area that lies clear of the squares, which is most of it.
+        const side = getPortBoundaryPlacement(port).side;
+        const wireIds = wireIdsFor(port.id);
+        let onPortBody = false;
+        for (let wireIndex = 0; wireIndex < count && !onPortBody; wireIndex += 1) {
+          const pos = getBoundaryWirePosition(boundaryView, port, wireIndex, wireIds[wireIndex]);
+          onPortBody = pointInRect(worldX, worldY, getSlotRectFromBorderPoint(pos.x, pos.y, side));
+        }
+        if (!onPortBody) {
+          for (const [edge, rect] of Object.entries(getPortResizeHandleRects(boundaryView, port, count))) {
+            if (pointInRect(worldX, worldY, rect, PORT_RESIZE_HIT_PADDING)) {
+              return { type: 'portResizeHandle', blockId: boundary.block.id, portId: port.id, edge };
+            }
           }
         }
 

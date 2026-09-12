@@ -40,14 +40,6 @@ import { addPort, clonePort, logicalPortOf, removePort } from '../model/BlockDes
 // just passing through on the way to somewhere else never flashes one.
 const HOVER_GHOST_DELAY_MS = 200;
 
-// How far a plain (not yet multi-wire) boundary port's own connector has to
-// move before its drag commits to meaning something — either "stretch
-// sideways into a container" or "redirect this wire elsewhere" (see
-// resolveConnectorDragPending). Small enough that the two are still
-// snappy to tell apart, big enough that a barely-moved click doesn't lock
-// in either reading before the user's actually committed to one.
-const CONNECTOR_STRETCH_THRESHOLD = 6;
-
 // Just past a typical double-click window, so clicking a selected block to
 // rename it doesn't fire when the user was actually double-clicking to
 // enter it.
@@ -75,13 +67,6 @@ const STATES = {
   // span — a single-wire port's own body drag still just moves the whole
   // port instead (see onPointerDown's 'port' handling), same as always.
   MOVING_PORT_WIRE: 'movingPortWire',
-  // A plain (not yet multi-wire) boundary port's own connector is held
-  // down but hasn't moved far enough yet to say whether this is a
-  // sideways stretch (becomes a container) or an ordinary redirect (see
-  // resolveConnectorDragPending) — a container's own wire never passes
-  // through this state at all, its connector always means redirect
-  // outright, exactly as before this existed.
-  CONNECTOR_DRAG_PENDING: 'connectorDragPending',
   DRAWING_CONNECTION: 'drawingConnection',
   DRAGGING_WIRE_TRUNK: 'draggingWireTrunk',
   // Dragging one of the four floating handles a selected block (or the
@@ -349,33 +334,17 @@ export class DragStateMachine {
 
     if (hit?.type === 'connector') {
       const isBoundary = Boolean(boundary) && hit.blockId === boundary.block.id;
-      // A boundary port that's still just a plain single wire (not yet a
-      // container — see getPortBoundaryPlacement/wireCountFor) doesn't
-      // decide what grabbing its own connector means until it's actually
-      // moved: away from the border redirects it, same as always;
-      // sideways along the border stretches it into a container instead
-      // (see resolveConnectorDragPending). A port that's ALREADY a
-      // container skips straight to redirect below, same as a
-      // non-boundary connector always has — growing it further from here
-      // on is what its own (now-visible) resize handles are for.
-      if (isBoundary) {
-        const block = this.project.getBlock(hit.blockId);
-        const port = block.ports.find((p) => p.id === hit.portId);
-        const placement = getPortBoundaryPlacement(port);
-        const effectiveWidth = Math.max(placement.width || 1, this.wireCountFor(hit.blockId, hit.portId), 1);
-        if (effectiveWidth === 1) {
-          this.state = STATES.CONNECTOR_DRAG_PENDING;
-          this.context = {
-            blockId: hit.blockId,
-            portId: hit.portId,
-            side: placement.side,
-            anchorWorld: world,
-            redirectingConnectionId: hit.connectionId || null,
-          };
-          this.requestRender();
-          return;
-        }
-      }
+      // Grabbing a wire head always means "move this wire," in every
+      // direction. A plain single-wire boundary port used to instead wait
+      // and read the drag's own direction — away from the border redirected
+      // it, sideways along the border stretched the port into a multi-wire
+      // container — which made moving a wire between two ports on the SAME
+      // edge (the common case: D2 down to D4 on an ESP32's left side)
+      // silently widen the port instead of moving anything. Widening is
+      // reachable without guessing now: select the port (click its body)
+      // and drag one of the two width grips it then shows, the same way a
+      // block is resized once selected (see HitTest's portResizeHandle).
+      //
       // Selection is left untouched: drawing a wire shouldn't disturb
       // whatever the inspector is currently showing.
       //
@@ -480,38 +449,21 @@ export class DragStateMachine {
         }
       }
 
-      if (isBoundary) {
-        // From inside a container, dragging a port instead re-docks it to
-        // a different side/offset on the boundary frame — that's
-        // rearranging your own interface, not wiring it to anything, so it
-        // keeps the older reposition behavior. An ordinary exterior port
-        // has no such "rearrange my own layout" meaning, hence the plain
-        // branch below.
-        this.state = STATES.DRAGGING_PORT;
-        this.context = { blockId: block.id, portId: hit.portId, isBoundary };
-        this.requestRender();
-        return;
-      }
-
-      // An ordinary (exterior) port never repositions along its edge on a
-      // plain drag any more — dragging FROM it always starts a new wire,
-      // the same as grabbing an empty edge's own "+" ghost already did.
-      // This is true even when the port already has one or more wires:
-      // fanning out a new one is the port's own drag; picking up an
-      // *existing* wire to redirect it is a different, more specific
-      // gesture — grab that wire's own connector handle or stub instead
-      // (see the 'connector' branch above and hitTestWires' stubEnd) —
-      // so redirectingConnectionId stays null here regardless of how many
-      // wires this port already carries.
-      this.state = STATES.DRAWING_CONNECTION;
-      this.context = {
-        sourceBlockId: block.id,
-        sourcePortId: hit.portId,
-        sourceInverted: false,
-        currentWorld: world,
-        moved: false,
-        redirectingConnectionId: null,
-      };
+      // Dragging a port's own body moves the port from slot to slot along
+      // its block's edge — boundary and ordinary exterior ports alike.
+      // Wiring is the connector handle's own gesture instead (see the
+      // 'connector' branch above and hitTestWires' stubEnd): a separate
+      // target sitting a stub's length further out, where an unwired port's
+      // handle starts a fresh wire and a wired one picks its existing wire
+      // up to move it to another port. Splitting the two by *which shape
+      // you grabbed* rather than by modifier or drag direction is what
+      // makes both reachable without guesswork — an exterior port used to
+      // always start a wire here, which left no gesture at all for
+      // repositioning it. The cost is that fanning a second wire out of an
+      // already-wired exterior port is no longer a plain drag: clone the
+      // port with Alt-drag (above) or add one from its edge's "+" ghost.
+      this.state = STATES.DRAGGING_PORT;
+      this.context = { blockId: block.id, portId: hit.portId, isBoundary };
       this.requestRender();
       return;
     }
@@ -891,10 +843,6 @@ export class DragStateMachine {
         this.applyPortResize(world);
         break;
       }
-      case STATES.CONNECTOR_DRAG_PENDING: {
-        this.resolveConnectorDragPending(world);
-        break;
-      }
       case STATES.DRAWING_CONNECTION: {
         // Whether this ever became a real drag rather than a plain click
         // that landed a pixel or two off — see tryCompleteConnection's own
@@ -1171,10 +1119,13 @@ export class DragStateMachine {
       const axis = port ? sideAxis(getPortBoundaryPlacement(port).side) : 'x';
       return axis === 'y' ? 'ew-resize' : 'ns-resize';
     }
-    // A boundary port's own body — as opposed to one of its resize
-    // handles — is what you drag to move it, the same "grab this" cue a
-    // draggable thing conventionally gets.
-    if (hit?.type === 'port' && boundary && hit.blockId === boundary.block.id) return 'move';
+    // Any port's own body — as opposed to one of its resize handles, or
+    // the connector handle past it — is what you drag to move it between
+    // slots, so it gets the same "grab this" cue a draggable thing
+    // conventionally gets. The connector keeps the default arrow: it
+    // starts/redirects a wire rather than moving anything, and showing the
+    // same cue for both is exactly what made the two feel interchangeable.
+    if (hit?.type === 'port') return 'move';
     if (hit?.type === 'boundaryLabel') return 'text';
     return 'default';
   }
@@ -1188,7 +1139,7 @@ export class DragStateMachine {
     if (this.state === STATES.RESIZING_PORT) {
       return sideAxis(this.context.startPlacement.side) === 'y' ? 'ew-resize' : 'ns-resize';
     }
-    if (this.state === STATES.DRAGGING_PORT && this.context.isBoundary) return 'move';
+    if (this.state === STATES.DRAGGING_PORT) return 'move';
     if (this.state === STATES.MOVING_PORT_WIRE) return 'move';
     if (this.hoverGhost?.ready) return 'pointer';
     return this.hoverCursor || 'default';
@@ -1201,11 +1152,11 @@ export class DragStateMachine {
   // handle (see RESIZE_EDGE_AXES) just runs both a horizontal and a
   // vertical edge from the one drag, so it's the same two blocks of logic
   // below rather than a separate code path of its own.
-  // Shared by RESIZING_PORT's own onPointerMove case and the moment a
-  // plain, not-yet-a-container port's own wire gets stretched sideways
-  // past CONNECTOR_STRETCH_THRESHOLD (see resolveConnectorDragPending) —
-  // both drive the exact same live anchor/width math off whatever's
-  // already in this.context (blockId, portId, edge, startPlacement).
+  // Drives RESIZING_PORT's own onPointerMove case off whatever's already
+  // in this.context (blockId, portId, edge, startPlacement), at any width
+  // — a still-plain port shows the same two grips as a widened one once
+  // selected (see HitTest's portResizeHandle), so growing one from width 1
+  // is the same live anchor/width math, not a special case.
   // Pins `connectionId` to a definite relative slot (see
   // BlockRenderer.getBoundaryWireRelativeIndex) on `portId` — a no-op for
   // a still-plain (width <= 1) port, which needs no such bookkeeping at
@@ -1287,71 +1238,6 @@ export class DragStateMachine {
     }
     this.requestRender();
     this.onLiveUpdate?.({ kind: 'portBoundary', blockId: block.id, portId: port.id, boundary: port.boundary });
-  }
-
-  // While a plain (not yet multi-wire) boundary port's own connector is
-  // held down, which way it actually gets dragged decides what the whole
-  // gesture means — same dot, two different outcomes: away from the
-  // border (the ordinary redirect-this-wire drag, unchanged from always)
-  // or sideways along the border (stretching it into a wider container
-  // that can then hold more). Below CONNECTOR_STRETCH_THRESHOLD the
-  // gesture stays undecided (a plain click, or a wobble not yet worth
-  // committing to either reading) — the SAME small deadzone a real click
-  // vs. drag distinction always needs somewhere.
-  resolveConnectorDragPending(world) {
-    const { anchorWorld, side } = this.context;
-    const alongY = sideAxis(side) === 'x';
-    const alongDelta = alongY ? world.y - anchorWorld.y : world.x - anchorWorld.x;
-    const perpDelta = alongY ? world.x - anchorWorld.x : world.y - anchorWorld.y;
-    if (Math.max(Math.abs(alongDelta), Math.abs(perpDelta)) < CONNECTOR_STRETCH_THRESHOLD) return;
-
-    const { blockId, portId, redirectingConnectionId } = this.context;
-    if (Math.abs(alongDelta) > Math.abs(perpDelta)) {
-      // Stretching it sideways — becomes a container starting at width 1
-      // (whatever it already reserved, or the plain single-wire default —
-      // see getPortBoundaryPlacement), then resizes exactly like grabbing
-      // one of its own two handles would, just kicked off from the wire
-      // itself since a plain port doesn't show any handles yet.
-      const block = this.project.getBlock(blockId);
-      const port = block?.ports.find((p) => p.id === portId);
-      if (!port) { this.state = STATES.IDLE; this.context = null; return; }
-      const placement = getPortBoundaryPlacement(port);
-      // Pin whatever real wire is already here (there may be none at all
-      // — a totally unwired port's own connector is grabbable too) at
-      // relative index 0, its own current position — so growing this
-      // container from here on (see applyPortResize) never has to guess
-      // where it started.
-      const wireSlots = redirectingConnectionId ? { [redirectingConnectionId]: 0 } : {};
-      port.boundary = { side: placement.side, offset: placement.offset, width: 1, wireSlots };
-      this.state = STATES.RESIZING_PORT;
-      this.context = { blockId, portId, edge: alongDelta > 0 ? 'end' : 'start', startPlacement: port.boundary };
-      this.applyPortResize(world);
-    } else {
-      // Away from the border — the ordinary redirect-this-wire drag,
-      // exactly as if the port were already a container and this were any
-      // other wire's own connector (see onPointerDown's 'connector'
-      // branch, including its own note on anchoring at the *other* end so
-      // the end actually grabbed is the one that moves).
-      let sourceBlockId = blockId;
-      let sourcePortId = portId;
-      let sourceInverted = true;
-      if (redirectingConnectionId) {
-        const connection = this.project.getConnection(redirectingConnectionId);
-        if (connection) {
-          const anchor = this.otherEndOfConnection(connection, blockId);
-          sourceBlockId = anchor.blockId;
-          sourcePortId = anchor.portId;
-          const anchorBoundary = this.getBoundaryInfo();
-          sourceInverted = Boolean(anchorBoundary) && anchor.blockId === anchorBoundary.block.id;
-        }
-      }
-      this.state = STATES.DRAWING_CONNECTION;
-      // Already moved past CONNECTOR_STRETCH_THRESHOLD to get here (see the
-      // early return above), so this is unambiguously a real drag, not a
-      // click — moved starts true rather than false.
-      this.context = { sourceBlockId, sourcePortId, sourceInverted, currentWorld: world, moved: true, redirectingConnectionId };
-    }
-    this.requestRender();
   }
 
   resizeEdge(world) {
