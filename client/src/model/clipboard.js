@@ -9,6 +9,7 @@
 // the original.
 import { generateId, hydrateBlockTree, serializeBlockTree } from './Block.js';
 import { GRID_SIZE } from './grid.js';
+import { translateRoute } from './wireRoute.js';
 
 const FORMAT = 'nodigraph/clipboard-v1';
 
@@ -82,8 +83,14 @@ function cloneWithNewIds(block, blockIdMap, portIdMap) {
   return clone;
 }
 
-function remapConnection(connection, blockIdMap, portIdMap) {
-  return {
+// `offset` is how far the pasted blocks were shifted (see pasteSelection).
+// A hand-drawn route (see model/wireRoute.js) is absolute coordinates, so
+// it shifts by the same amount to stay with the blocks it runs between —
+// and is rebuilt rather than shared, so reshaping the copy never bends the
+// original. The older one-number manualBend shifts too: the paste offset
+// is the same on both axes, so which axis it was on doesn't matter.
+function remapConnection(connection, blockIdMap, portIdMap, offset = 0) {
+  const clone = {
     ...connection,
     id: generateId('conn'),
     sourceBlockId: blockIdMap.get(connection.sourceBlockId) ?? connection.sourceBlockId,
@@ -91,6 +98,9 @@ function remapConnection(connection, blockIdMap, portIdMap) {
     targetBlockId: blockIdMap.get(connection.targetBlockId) ?? connection.targetBlockId,
     targetPortId: portIdMap.get(connection.targetPortId) ?? connection.targetPortId,
   };
+  if (connection.route) clone.route = translateRoute(connection.route, offset, offset);
+  if (connection.manualBend != null) clone.manualBend = connection.manualBend + offset;
+  return clone;
 }
 
 /**
@@ -114,7 +124,7 @@ export function pasteSelection(project, payload, offset = PASTE_OFFSET) {
   }
 
   for (const connection of payload.connections || []) {
-    project.addConnection(remapConnection(connection, blockIdMap, portIdMap));
+    project.addConnection(remapConnection(connection, blockIdMap, portIdMap, offset));
   }
 
   return newIds;

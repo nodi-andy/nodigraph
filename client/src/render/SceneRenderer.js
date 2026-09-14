@@ -10,6 +10,7 @@ import {
 import {
   drawPath,
   drawConnectionLabel,
+  drawWireGrips,
   getConnectionGeometry,
   getDashPattern,
   verticalSegmentsOf,
@@ -235,6 +236,9 @@ export function renderScene(
     // DragStateMachine.getWireMoveOverride) — lets it visibly follow the
     // cursor for this frame instead of only snapping into place on drop.
     wireMoveOverride = null,
+    // { connectionId, index } for the wire piece being dragged right now
+    // (see DragStateMachine.getActiveWirePiece), so its grip draws filled.
+    activeWirePiece = null,
     // Where the marching-dash pattern currently starts, or null for solid
     // wires. Null by default so an exported diagram image (see
     // model/diagramImage.js) is never caught mid-animation.
@@ -360,6 +364,21 @@ export function renderScene(
       zoom: camera.zoom,
     });
     onDrawBlock(ctx, block);
+  }
+
+  // A selected wire's grips (see ConnectionRenderer.drawWireGrips), drawn
+  // after every block so none hides under a block its wire routes across —
+  // a grip is exactly the thing being reached for. Exports pass no
+  // wireSelection, so they never carry any.
+  if (wireSelection) {
+    for (const entry of routed) {
+      if (!wireSelection.isSelected(entry.connection.id)) continue;
+      drawWireGrips(ctx, entry.geometry, camera.zoom, {
+        fill: palette.resizeHandleFill,
+        stroke: WIRE_COLOR,
+        activeIndex: activeWirePiece?.connectionId === entry.connection.id ? activeWirePiece.index : null,
+      });
+    }
   }
 
   if (marqueeRect) drawMarquee(ctx, marqueeRect, camera.zoom);

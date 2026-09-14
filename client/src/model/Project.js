@@ -371,6 +371,26 @@ export class Project {
       maxX = Math.max(maxX, r.x + r.width);
       maxY = Math.max(maxY, r.y + r.height);
     }
+    // A hand-routed wire (see model/wireRoute.js) can run well clear of
+    // every block — a detour around the outside of the diagram — and an
+    // export sized to the blocks alone would cut it off. Every corner of a
+    // route sits on one of its own coordinates or on a port, so widening
+    // the box by the coordinates on each axis is enough.
+    for (const connection of this.listConnections()) {
+      const route = connection.route;
+      if (!Array.isArray(route?.coords)) continue;
+      const other = route.first === 'x' ? 'y' : 'x';
+      route.coords.forEach((value, i) => {
+        if (!Number.isFinite(value)) return;
+        if ((i % 2 === 0 ? route.first : other) === 'x') {
+          minX = Math.min(minX, value);
+          maxX = Math.max(maxX, value);
+        } else {
+          minY = Math.min(minY, value);
+          maxY = Math.max(maxY, value);
+        }
+      });
+    }
     return { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
   }
 

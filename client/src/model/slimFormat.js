@@ -11,8 +11,8 @@
 //   - a pin's *interior* placement once entered (see BlockRenderer's
 //     getPortBoundaryPlacement) — falls back to mirroring its exterior
 //     side/offset, its ordinary default before anyone drags it from inside.
-//   - a wire's manually-dragged trunk bend — re-routes automatically,
-//     same as a wire that was never dragged.
+//   - a wire's hand-drawn route (see model/wireRoute.js) — re-routes
+//     automatically, same as a wire that was never dragged.
 //   - block.description's text-editor view — it's a computed cache of
 //     logicalPorts/props/name (see BlockDescription.serializeBlockDescription)
 //     and gets rebuilt from those after import, never stored twice.

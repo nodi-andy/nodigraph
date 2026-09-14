@@ -14,10 +14,19 @@ import {
 import {
   getConnectionGeometry,
   previewPathToCursor,
-  hitTestConnectionTrunk,
+  hitTestConnectionPiece,
   hitTestConnectionStubEnd,
   hitTestConnectionPath,
+  hitTestWireGrip,
 } from '../render/ConnectionRenderer.js';
+import {
+  jogCoordinate,
+  translateRoute,
+  withEndJog,
+  withMovedPiece,
+  withSplitPiece,
+  withoutStraightenedBends,
+} from '../model/wireRoute.js';
 
 // Resolves a click's modifiers into one selection verb, applied the same
 // way to blocks, wires, and a marquee sweep so the convention doesn't
@@ -52,6 +61,27 @@ const RENAME_CLICK_DELAY_MS = 350;
 // drag.
 const CONNECTION_DRAG_MOVE_THRESHOLD = 4;
 
+// A selected wire's grips are small on screen, so their hit area reaches
+// further — much further for a finger, which covers the very grip it's
+// aiming at. Screen pixels (see ConnectionRenderer.hitTestWireGrip).
+const GRIP_HIT_RADIUS_MOUSE = 12;
+const GRIP_HIT_RADIUS_TOUCH = 22;
+
+// How far (screen pixels) a press on a wire piece has to travel before it
+// moves the piece — below this, releasing a grip is a tap, which splits
+// it. A finger jitters more than a mouse does while it's down.
+const WIRE_PIECE_DRAG_THRESHOLD_MOUSE = 4;
+const WIRE_PIECE_DRAG_THRESHOLD_TOUCH = 10;
+
+function isTouchLike(pointerType) {
+  return Boolean(pointerType) && pointerType !== 'mouse';
+}
+
+// A horizontal piece moves up and down, a vertical one side to side.
+function cursorForPiece(o) {
+  return o === 'h' ? 'row-resize' : 'col-resize';
+}
+
 const STATES = {
   IDLE: 'idle',
   PANNING: 'panning',
@@ -68,7 +98,9 @@ const STATES = {
   // port instead (see onPointerDown's 'port' handling), same as always.
   MOVING_PORT_WIRE: 'movingPortWire',
   DRAWING_CONNECTION: 'drawingConnection',
-  DRAGGING_WIRE_TRUNK: 'draggingWireTrunk',
+  // Dragging one piece of a wire's route sideways (see model/wireRoute.js)
+  // — or, released without moving, tapping its grip to split it.
+  DRAGGING_WIRE_PIECE: 'draggingWirePiece',
   // Dragging one of the four floating handles a selected block (or the
   // boundary frame) shows — every edge is a resize splitter, there's no
   // separate corner-handle resize.
@@ -114,7 +146,7 @@ function invertDirection(direction) {
 /**
  * Explicit finite states rather than ad-hoc booleans — this is what makes
  * "drag block body" vs "drag an edge to resize" vs "drag a port" vs "draw
- * a wire" vs "drag a wire's trunk" vs "pan background" unambiguous.
+ * a wire" vs "drag a piece of a wire" vs "pan background" unambiguous.
  */
 export class DragStateMachine {
   constructor({ camera, project, selection, wireSelection, requestRender, persist, onEnterBlock, onRequestRename, onRequestWireLabel, onLiveUpdate }) {
@@ -132,12 +164,15 @@ export class DragStateMachine {
     // click lands first.
     this.onRequestRename = onRequestRename;
     this.renameTimer = null;
+    // A tapped grip splits its piece only once the double-click window has
+    // passed (see finishWirePieceDrag) — same reasoning as renameTimer.
+    this.splitTimer = null;
     // Opens an inline label editor over a wire (see main.js) — double
     // click only, unlike a block's rename, since a wire has no "already
     // selected, click it again" gesture to reuse for it.
     this.onRequestWireLabel = onRequestWireLabel;
     // Fired on every pointermove while dragging something positional (a
-    // block, a port, a wire trunk, a boundary edge) — this is what lets
+    // block, a port, a wire piece, a boundary edge) — this is what lets
     // another open client see the move as it happens instead of only once
     // you release and it's actually saved to disk (see main.js/liveSync.js).
     this.onLiveUpdate = onLiveUpdate;
@@ -253,6 +288,19 @@ export class DragStateMachine {
       this.getResizablePortId(),
       this.camera.zoom,
     );
+
+    // A selected wire's own grips sit on top of whatever its route passes
+    // over — a block's body, the boundary's dashed line — and win over
+    // those, the same way a selected block's resize handles win over what's
+    // underneath them. Ports and handles still come first: a grip that
+    // happens to land on one never takes it away.
+    if (!hit || hit.type === 'body' || hit.type === 'boundaryLine') {
+      const grip = this.hitTestWireGrips(world, modifiers.pointerType);
+      if (grip && this.startWirePieceDrag(grip.connectionId, grip.index, screen, world, { fromGrip: true, pointerType: modifiers.pointerType })) {
+        this.requestRender();
+        return;
+      }
+    }
     if (hit) this.wireSelection.clear();
 
     // Same opt-in diagnostic as the hover pass (window.__ndDebug) — logged
@@ -481,7 +529,7 @@ export class DragStateMachine {
       const block = this.project.getBlock(hit.blockId);
 
       // A modified click adjusts the selection rather than starting a drag —
-      // same convention used for a wire trunk just below.
+      // same convention used for a wire just below.
       const verb = selectionVerb(modifiers);
       if (verb !== 'replace') {
         if (verb === 'toggle') this.selection.toggle(block.id);
@@ -515,6 +563,7 @@ export class DragStateMachine {
           .list()
           .map((id) => ({ id, startGeom: { ...(this.project.getBlock(id)?.geometry || {}) } }))
           .filter((item) => item.startGeom.x !== undefined),
+        routeItems: this.buildRouteFollowItems(this.selection.list()),
         wasSelected,
         moved: false,
       };
@@ -541,7 +590,8 @@ export class DragStateMachine {
       const wireVerb = selectionVerb(modifiers);
       if (wireVerb !== 'replace') {
         // A modified click only adjusts membership — a following drag
-        // (grabbing any selected trunk) is what actually moves the group.
+        // (grabbing a piece of any selected wire) is what actually moves
+        // the group.
         if (wireVerb === 'toggle') this.wireSelection.toggle(wireHit.connectionId);
         else if (wireVerb === 'add') this.wireSelection.add(wireHit.connectionId);
         else this.wireSelection.remove(wireHit.connectionId);
@@ -555,9 +605,8 @@ export class DragStateMachine {
         // never have to guess which of two selections was meant.
         this.selection.clear();
       }
-      if (wireHit.onTrunk) {
-        this.state = STATES.DRAGGING_WIRE_TRUNK;
-        this.context = { items: this.buildTrunkDragItems(boundary), startWorld: world };
+      if (wireHit.pieceIndex >= 0) {
+        this.startWirePieceDrag(wireHit.connectionId, wireHit.pieceIndex, screen, world, { fromGrip: false, pointerType: modifiers.pointerType });
       } else if (wireHit.stubEnd) {
         // Grabbing a stub — the short run right where the wire leaves a
         // port, a much bigger and easier target than the port's own tiny
@@ -663,12 +712,13 @@ export class DragStateMachine {
       .map((block) => block.id);
   }
 
-  // Trunks are checked across every wire before any stub is, so a trunk
-  // lying under another wire's stub stays draggable rather than being
-  // shadowed by the segment on top of it. Stub ends are checked next
-  // (before the catch-all path pass) so grabbing one is recognized as
-  // "redirect this end" (see onPointerDown's wire-hit handling) rather than
-  // just a plain select.
+  // Free pieces (see model/wireRoute.js) are checked across every wire
+  // before any stub is, so a piece lying under another wire's stub stays
+  // draggable rather than being shadowed by the segment on top of it. Stub
+  // ends are checked next (before the catch-all path pass) so grabbing one
+  // is recognized as "redirect this end" (see onPointerDown's wire-hit
+  // handling) rather than just a plain select. `pieceIndex` is -1 unless a
+  // free piece was hit, and `pieceO` is then that piece's orientation.
   hitTestWires(worldX, worldY, boundary) {
     const connections = this.project.listConnections();
     const geometries = connections.map((connection) => ({
@@ -678,42 +728,201 @@ export class DragStateMachine {
 
     for (let i = geometries.length - 1; i >= 0; i -= 1) {
       const { connection, geometry } = geometries[i];
-      if (hitTestConnectionTrunk(geometry, worldX, worldY)) {
-        return { connectionId: connection.id, onTrunk: true, stubEnd: null };
+      const pieceIndex = hitTestConnectionPiece(geometry, worldX, worldY);
+      if (pieceIndex >= 0) {
+        return { connectionId: connection.id, pieceIndex, pieceO: geometry.pieces[pieceIndex].o, stubEnd: null };
       }
     }
     for (let i = geometries.length - 1; i >= 0; i -= 1) {
       const { connection, geometry } = geometries[i];
       const stubEnd = hitTestConnectionStubEnd(geometry, worldX, worldY);
       if (stubEnd) {
-        return { connectionId: connection.id, onTrunk: false, stubEnd };
+        return { connectionId: connection.id, pieceIndex: -1, stubEnd };
       }
     }
     for (let i = geometries.length - 1; i >= 0; i -= 1) {
       const { connection, geometry } = geometries[i];
       if (hitTestConnectionPath(geometry, worldX, worldY)) {
-        return { connectionId: connection.id, onTrunk: false, stubEnd: null };
+        return { connectionId: connection.id, pieceIndex: -1, stubEnd: null };
       }
     }
     return null;
   }
 
-  // Captures each selected trunk's current axis + displayed position once,
-  // at drag start, so the group can be dragged together even when one of
-  // them hasn't been manually bent before (its baseline is the live
-  // auto-computed midpoint, not an arbitrary jump).
-  buildTrunkDragItems(boundary) {
-    return this.wireSelection
-      .list()
-      .map((connectionId) => {
-        const connection = this.project.getConnection(connectionId);
-        const geometry = connection && getConnectionGeometry(this.project, connection, boundary);
-        if (!connection || !geometry || geometry.trunkIndex < 0) return null;
-        const axis = geometry.trunkAxis;
-        const point = geometry.points[geometry.trunkIndex];
-        return { connectionId, axis, startBend: axis === 'x' ? point.x : point.y };
+  // The grip (see ConnectionRenderer.getWireGrips) under the pointer on any
+  // currently selected wire, nearest first, or null. Only a selected wire
+  // shows grips, so only a selected wire's grips are live.
+  hitTestWireGrips(world, pointerType) {
+    const ids = this.wireSelection.list();
+    if (!ids.length) return null;
+    const boundary = this.getBoundaryInfo();
+    const radius = isTouchLike(pointerType) ? GRIP_HIT_RADIUS_TOUCH : GRIP_HIT_RADIUS_MOUSE;
+    let best = null;
+    for (const connectionId of ids) {
+      const connection = this.project.getConnection(connectionId);
+      const geometry = connection && getConnectionGeometry(this.project, connection, boundary);
+      const grip = geometry && hitTestWireGrip(geometry, world.x, world.y, this.camera.zoom, radius);
+      if (grip && (!best || grip.distance < best.distance)) best = { ...grip, connectionId };
+    }
+    return best;
+  }
+
+  // Everything a piece drag needs about one wire, captured once at drag
+  // start: the route it started from (the live automatic one if it had
+  // none yet, so the first drag never jumps), and the piece's own line.
+  // Blocks don't move during a piece drag, so the stubs captured here stay
+  // true for the whole drag.
+  pieceDragItem(connectionId, index, boundary) {
+    const connection = this.project.getConnection(connectionId);
+    const geometry = connection && getConnectionGeometry(this.project, connection, boundary);
+    const piece = geometry?.pieces[index];
+    if (!piece) return null;
+    const { lines } = geometry;
+    let jog = null;
+    if (piece.anchor === 'source') jog = jogCoordinate(geometry.stubA, geometry.sourcePos, lines[1].o);
+    if (piece.anchor === 'target') jog = jogCoordinate(geometry.stubB, geometry.targetPos, lines[lines.length - 2].o);
+    return {
+      connectionId,
+      index,
+      liveIndex: index,
+      o: piece.o,
+      anchor: piece.anchor,
+      startValue: piece.value,
+      first: geometry.first,
+      startCoords: geometry.coords,
+      startLine: lines[0],
+      stubB: geometry.stubB,
+      jog,
+    };
+  }
+
+  // Starts DRAGGING_WIRE_PIECE on piece `index` of a wire. With several
+  // wires selected, grabbing a free piece of one moves the same-numbered
+  // piece of every other selected wire that has one running the same way —
+  // which, for wires still on their automatic single trunk, is exactly the
+  // "drag every selected trunk together" this has always done. A pinned
+  // end run (reachable only by its grip) acts on its own wire alone.
+  // Returns false, changing nothing, if the piece doesn't resolve.
+  startWirePieceDrag(connectionId, index, screen, world, { fromGrip = false, pointerType } = {}) {
+    const boundary = this.getBoundaryInfo();
+    const primary = this.pieceDragItem(connectionId, index, boundary);
+    if (!primary) return false;
+    const items = [primary];
+    if (!primary.anchor) {
+      for (const otherId of this.wireSelection.list()) {
+        if (otherId === connectionId) continue;
+        const item = this.pieceDragItem(otherId, index, boundary);
+        if (item && !item.anchor && item.o === primary.o) items.push(item);
+      }
+    }
+    this.state = STATES.DRAGGING_WIRE_PIECE;
+    this.context = {
+      items,
+      startScreen: screen,
+      startWorld: world,
+      moved: false,
+      fromGrip,
+      threshold: isTouchLike(pointerType) ? WIRE_PIECE_DRAG_THRESHOLD_TOUCH : WIRE_PIECE_DRAG_THRESHOLD_MOUSE,
+    };
+    return true;
+  }
+
+  // Writes a wire's route (null for back to automatic) and tells other
+  // clients. The older one-number manualBend always goes: once a route has
+  // been written, it's the only thing that describes the wire.
+  setWireRoute(connection, route) {
+    if (route) connection.route = route;
+    else delete connection.route;
+    delete connection.manualBend;
+    this.onLiveUpdate?.({ kind: 'connection', connectionId: connection.id, route: route || null });
+  }
+
+  // Release of a piece drag. A real drag tidies away any bend it just
+  // straightened (see wireRoute.withoutStraightenedBends) and saves. A tap
+  // on a grip (no drag) splits that piece in two — held back until the
+  // double-click window passes, so double-clicking a wire to label it
+  // doesn't also split it. `world` is missing when the gesture was
+  // cancelled (a second finger landing to pinch), which must never split.
+  finishWirePieceDrag(world) {
+    const { items, moved, fromGrip } = this.context;
+    if (moved) {
+      for (const item of items) {
+        const connection = this.project.getConnection(item.connectionId);
+        if (!connection?.route) continue;
+        const coords = withoutStraightenedBends(connection.route.coords, item.startLine, item.stubB, item.liveIndex);
+        if (coords !== connection.route.coords) this.setWireRoute(connection, { first: item.first, coords });
+      }
+      this.persist();
+      this.requestRender();
+      return;
+    }
+    if (!fromGrip || !world) return;
+    const { connectionId, index } = items[0];
+    clearTimeout(this.splitTimer);
+    this.splitTimer = setTimeout(() => {
+      this.splitTimer = null;
+      this.splitWirePiece(connectionId, index);
+    }, RENAME_CLICK_DELAY_MS);
+  }
+
+  // Breaks piece `index` of a wire into two halves at its middle, each
+  // with its own grip from then on — the "break the wire into pieces" half
+  // of routing by hand; dragging a piece is the other half.
+  splitWirePiece(connectionId, index) {
+    const connection = this.project.getConnection(connectionId);
+    const geometry = connection && getConnectionGeometry(this.project, connection, this.getBoundaryInfo());
+    const piece = geometry?.pieces[index];
+    if (!piece) return;
+    const along = piece.o === 'h' ? 'x' : 'y';
+    const from = piece.a[along];
+    const to = piece.b[along];
+    // On the grid when the grid leaves room for it; a piece too short to
+    // have a grid point strictly inside it splits at its exact middle
+    // instead, rather than at one of its own ends (which splits nothing).
+    let at = snapToCellCenter((from + to) / 2);
+    if (!(at > Math.min(from, to) && at < Math.max(from, to))) at = (from + to) / 2;
+    this.setWireRoute(connection, { first: geometry.first, coords: withSplitPiece(geometry.coords, piece, at) });
+    this.persist();
+    this.requestRender();
+  }
+
+  // Wires with both ends on blocks that are about to move together, each
+  // with the hand-drawn route it had when the drag started — so the route
+  // travels with the group instead of staying behind and tangling (see
+  // moveFollowingRoutes). Wires still routed automatically need nothing:
+  // they re-route from their ports every frame anyway.
+  buildRouteFollowItems(blockIds) {
+    const moving = new Set(blockIds);
+    const boundary = this.getBoundaryInfo();
+    return this.project
+      .listConnections()
+      .filter((connection) => moving.has(connection.sourceBlockId) && moving.has(connection.targetBlockId))
+      .map((connection) => {
+        const geometry = getConnectionGeometry(this.project, connection, boundary);
+        if (!geometry?.manual) return null;
+        return { connectionId: connection.id, route: { first: geometry.first, coords: geometry.coords } };
       })
       .filter(Boolean);
+  }
+
+  // Shifts every route in DRAGGING_BLOCK's routeItems by however far the
+  // grabbed block has actually moved after snapping, so each route lands
+  // on the same grid family its blocks do.
+  moveFollowingRoutes() {
+    const { routeItems, items, blockId } = this.context;
+    if (!routeItems?.length) return;
+    const lead = items.find((item) => item.id === blockId) || items[0];
+    const block = lead && this.project.getBlock(lead.id);
+    if (!block) return;
+    const dx = block.geometry.x - lead.startGeom.x;
+    const dy = block.geometry.y - lead.startGeom.y;
+    if (dx === this.context.routeDx && dy === this.context.routeDy) return;
+    this.context.routeDx = dx;
+    this.context.routeDy = dy;
+    for (const item of routeItems) {
+      const connection = this.project.getConnection(item.connectionId);
+      if (connection) this.setWireRoute(connection, translateRoute(item.route, dx, dy));
+    }
   }
 
   onPointerMove(screen, world) {
@@ -746,6 +955,7 @@ export class DragStateMachine {
           }
           this.onLiveUpdate?.({ kind: 'block', blockId: block.id, geometry: block.geometry });
         }
+        this.moveFollowingRoutes();
         this.requestRender();
         break;
       }
@@ -860,22 +1070,38 @@ export class DragStateMachine {
         this.requestRender();
         break;
       }
-      case STATES.DRAGGING_WIRE_TRUNK: {
-        const dx = world.x - this.context.startWorld.x;
-        const dy = world.y - this.context.startWorld.y;
-        for (const item of this.context.items) {
+      case STATES.DRAGGING_WIRE_PIECE: {
+        const context = this.context;
+        if (!context.moved) {
+          const travelled = Math.hypot(screen.x - context.startScreen.x, screen.y - context.startScreen.y);
+          if (travelled < context.threshold) break;
+          context.moved = true;
+          // A split still pending from a tap a moment ago would land on
+          // piece numbers this drag is about to change — drop it.
+          clearTimeout(this.splitTimer);
+          this.splitTimer = null;
+        }
+        const dx = world.x - context.startWorld.x;
+        const dy = world.y - context.startWorld.y;
+        for (const item of context.items) {
           const connection = this.project.getConnection(item.connectionId);
           if (!connection) continue;
-          // Each wire moves along its own trunk axis, so a diagonal drag
-          // over a mixed horizontal/vertical selection still moves each one
-          // correctly instead of fighting over a single shared axis.
-          const delta = item.axis === 'x' ? dx : dy;
-          // Cell-center family, matching the trunk's own auto-midpoint
-          // (see ConnectionRenderer.computeConnectionPath) — plain grid-line
-          // snap() would let a manual drag land the trunk a half-cell off
-          // from where the ports it connects actually are.
-          connection.manualBend = snapToCellCenter(item.startBend + delta);
-          this.onLiveUpdate?.({ kind: 'connection', connectionId: connection.id, manualBend: connection.manualBend });
+          // A piece only ever moves across itself — a horizontal piece up
+          // and down, a vertical one side to side — so a diagonal drag over
+          // a mixed selection still moves each along its own axis.
+          // Cell-center family, matching the automatic trunk (see
+          // wireRoute.resolveRouteCoords): plain grid-line snap() would land
+          // a piece a half-cell off the ports it's meant to line up with.
+          const value = snapToCellCenter(item.startValue + (item.o === 'h' ? dy : dx));
+          let coords;
+          if (item.anchor) {
+            const jogged = withEndJog(item.startCoords, item.anchor, value, item.jog);
+            coords = jogged.coords;
+            item.liveIndex = jogged.index;
+          } else {
+            coords = withMovedPiece(item.startCoords, item.index, value);
+          }
+          this.setWireRoute(connection, { first: item.first, coords });
         }
         this.requestRender();
         break;
@@ -1091,6 +1317,14 @@ export class DragStateMachine {
     return { portId, connectionId, previewIndex };
   }
 
+  // The wire piece being dragged right now, so SceneRenderer can fill its
+  // grip solid (see ConnectionRenderer.drawWireGrips) — null otherwise.
+  getActiveWirePiece() {
+    if (this.state !== STATES.DRAGGING_WIRE_PIECE) return null;
+    const [item] = this.context.items;
+    return { connectionId: item.connectionId, index: item.liveIndex };
+  }
+
   // Which block, if any, is allowed to show resize handles right now — a
   // lone selected block, or none. Multi-select has no defined "resize all
   // of these together" behavior, so nothing offers a handle once more than
@@ -1112,6 +1346,17 @@ export class DragStateMachine {
   computeHoverCursor(world) {
     const boundary = this.getBoundaryInfo();
     const hit = hitTest(this.project, world.x, world.y, boundary, this.getResizableBlockId(), this.getResizablePortId(), this.camera.zoom);
+    // Same priority onPointerDown gives them: a selected wire's grip over a
+    // block body or the boundary line, then any wire's free piece where
+    // nothing else was hit at all.
+    if (!hit || hit.type === 'body' || hit.type === 'boundaryLine') {
+      const grip = this.hitTestWireGrips(world, 'mouse');
+      if (grip) return cursorForPiece(grip.o);
+    }
+    if (!hit) {
+      const wireHit = this.hitTestWires(world.x, world.y, boundary);
+      if (wireHit?.pieceIndex >= 0) return cursorForPiece(wireHit.pieceO);
+    }
     if (hit?.type === 'resizeHandle') return cursorForResizeEdge(hit.side);
     if (hit?.type === 'portResizeHandle') {
       const block = this.project.getBlock(hit.blockId);
@@ -1141,6 +1386,7 @@ export class DragStateMachine {
     }
     if (this.state === STATES.DRAGGING_PORT) return 'move';
     if (this.state === STATES.MOVING_PORT_WIRE) return 'move';
+    if (this.state === STATES.DRAGGING_WIRE_PIECE) return cursorForPiece(this.context.items[0].o);
     if (this.hoverGhost?.ready) return 'pointer';
     return this.hoverCursor || 'default';
   }
@@ -1376,8 +1622,8 @@ export class DragStateMachine {
       this.persist();
     } else if (this.state === STATES.DRAWING_CONNECTION) {
       this.tryCompleteConnection(world);
-    } else if (this.state === STATES.DRAGGING_WIRE_TRUNK) {
-      this.persist();
+    } else if (this.state === STATES.DRAGGING_WIRE_PIECE) {
+      this.finishWirePieceDrag(world);
     } else if (this.state === STATES.RESIZING_EDGE || this.state === STATES.RESIZING_PORT) {
       this.persist();
     } else if (this.state === STATES.MOVING_PORT_WIRE) {
@@ -1709,12 +1955,14 @@ export class DragStateMachine {
   onDoubleClick(world) {
     clearTimeout(this.renameTimer);
     this.renameTimer = null;
+    clearTimeout(this.splitTimer);
+    this.splitTimer = null;
     const hit = hitTest(this.project, world.x, world.y);
     if (hit?.type === 'body') {
       this.onEnterBlock?.(hit.blockId);
       return;
     }
-    // Anywhere along a wire, not only its draggable trunk — same reach as
+    // Anywhere along a wire, not only its draggable pieces — same reach as
     // clicking to select it (see hitTestWires), so there's no dead length
     // of wire double-clicking does nothing on.
     const wireHit = this.hitTestWires(world.x, world.y, this.getBoundaryInfo());

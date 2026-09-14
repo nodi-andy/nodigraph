@@ -10,12 +10,14 @@ export function createConnection({ sourceBlockId, sourcePortId, targetBlockId, t
     sourcePortId,
     targetBlockId,
     targetPortId,
-    // The wire's route is always recomputed live from the current port
+    // The wire's path is always recomputed live from the current port
     // positions (see ConnectionRenderer.getConnectionGeometry) rather than
     // stored as an absolute point list — that way it stays attached when a
-    // block moves. manualBend is the one thing a user-drag actually changes:
-    // the fixed coordinate of the paved trunk segment, null until dragged.
-    manualBend: null,
+    // block moves. What dragging a wire changes is `route`: the pieces it
+    // has been dragged into between its two port stubs (see
+    // model/wireRoute.js). Absent until someone drags one, the same way
+    // `color` below is absent until someone sets one. Diagrams saved before
+    // routes existed may carry `manualBend` instead, a one-piece route.
     // `color` is deliberately absent rather than null: a wire nobody has
     // recolored is drawn in the default, and storing that as data would
     // put a field on every connection in every share link to say nothing.

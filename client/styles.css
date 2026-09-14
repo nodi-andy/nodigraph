@@ -1238,6 +1238,21 @@ body.inspector-open .control-bar {
   background: var(--danger-tint);
 }
 
+#inspector .secondary-button {
+  width: 100%;
+  background: var(--bg-well);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#inspector .secondary-button:hover {
+  border-color: var(--text-faint);
+}
+
 #inspector .field {
   display: flex;
   flex-direction: column;

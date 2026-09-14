@@ -66,8 +66,12 @@ own client architecture, drawn and kept up to date this way.
   per edge, sitting outside the block rather than on its border so they
   never fight with a port for the same touch. Click the dashed line of
   the frame you're inside to select and resize it the same way.
-- **Orthogonal routing** — wires pave themselves around blocks, with a
-  draggable trunk segment when you want a different route. Wires that cross
+- **Orthogonal routing** — wires pave themselves around blocks, and any wire
+  can be routed by hand over as many bends as it needs. Select it and each
+  piece gets a handle: drag one to move that piece, tap one to split its
+  piece in two, and drag a piece back into line to remove its bend. The
+  handles are sized for a finger, so routing works the same on a phone,
+  and Reset in the Inspector returns a wire to automatic. Wires that cross
   without joining bow over each other, so a crossing never reads as a
   connection.
 - **Labelled, styled pipes** — double-click a wire to name it, in place,

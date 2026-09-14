@@ -313,6 +313,17 @@ async function bootstrap() {
     renderLoop.requestRender();
   }
 
+  // Drops a wire's hand-drawn route (see model/wireRoute.js) so it routes
+  // itself automatically again — the Inspector's own "Reset" button.
+  function resetConnectionRoute(connectionId) {
+    const connection = project.getConnection(connectionId);
+    if (!connection || (!connection.route && connection.manualBend == null)) return;
+    delete connection.route;
+    delete connection.manualBend;
+    persist();
+    renderLoop.requestRender();
+  }
+
   // What the delete FAB acts on: whichever kind of thing is currently
   // selected. Wires go without a prompt (a wire is one fact, and undo is a
   // click away); blocks ask first, since deleting one takes its whole
@@ -634,8 +645,8 @@ async function bootstrap() {
   });
 
   // Opens an inline editor over a wire's own label, positioned the same
-  // place the label itself is drawn — the middle of its trunk, or the
-  // arc-length midpoint of the whole path when it has no trunk (see
+  // place the label itself is drawn — the middle of its longest free
+  // piece, or the arc-length midpoint of the whole path when it has none (see
   // ConnectionRenderer.getConnectionLabelPosition).
   function openWireLabelRename(connectionId) {
     const connection = project.getConnection(connectionId);
@@ -1065,7 +1076,16 @@ async function bootstrap() {
       if (port) port.boundary = message.boundary;
     } else if (message.kind === 'connection') {
       const connection = project.getConnection(message.connectionId);
-      if (connection) connection.manualBend = message.manualBend;
+      if (connection && 'route' in message) {
+        // A piece of the wire's route being dragged (see
+        // DragStateMachine.setWireRoute) — null means back to automatic.
+        if (message.route) connection.route = message.route;
+        else delete connection.route;
+        delete connection.manualBend;
+      } else if (connection) {
+        // An older client still sends its one dragged trunk coordinate.
+        connection.manualBend = message.manualBend;
+      }
     } else if (message.kind === 'boundary') {
       const block = project.getBlock(message.blockId);
       if (block?.boundaryGeometry) Object.assign(block.boundaryGeometry, message.boundaryGeometry);
@@ -1156,6 +1176,7 @@ async function bootstrap() {
       remoteCursors: currentLevelCursors(),
       hoverGhost: stateMachine.getHoverGhost(),
       wireMoveOverride: stateMachine.getWireMoveOverride(),
+      activeWirePiece: stateMachine.getActiveWirePiece(),
       marqueeRect: stateMachine.getMarqueeRect(),
       // Derived from the clock rather than counted in frames, so the
       // dashes travel at the same speed on any refresh rate. Negative
@@ -1319,6 +1340,7 @@ async function bootstrap() {
     enterBlock,
     canEnterBlock,
     deleteConnection,
+    resetConnectionRoute,
     toggleButton: inspectorToggleEl,
     // A host page's tabs (see InspectorPanel.mountInspector's own doc),
     // read once here rather than accepted as a parameter to this file —

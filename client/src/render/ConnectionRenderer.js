@@ -1,4 +1,5 @@
-import { WIRE_STUB_LENGTH, sideNormal, sideAxis, snapToCellCenter } from '../model/grid.js';
+import { WIRE_STUB_LENGTH, sideNormal, sideAxis } from '../model/grid.js';
+import { resolveRouteCoords, buildRouteLines, routePieces } from '../model/wireRoute.js';
 import { findConnectorPosition, getPortBoundaryPlacement } from './BlockRenderer.js';
 import { getCanvasPalette } from './canvasPalette.js';
 
@@ -33,18 +34,24 @@ function simplifyPath(rawPoints) {
 
 /**
  * Manhattan router, similar in spirit to belt/trace routing: each port gets
- * a fixed-length stub straight out from its side, then the two stubs are
- * bridged with either a single corner (mixed side axes — no free segment to
- * grab afterward) or two corners around a middle "trunk" (aligned side
- * axes — this is the one segment a user can pick up and drag). manualBend
- * overrides the trunk's auto-midpoint once someone has dragged it.
+ * a fixed-length stub straight out from its side, and the two stubs are
+ * joined through the wire's route (see model/wireRoute.js) — the pieces a
+ * user has dragged it into, or when nobody has, a single corner (ports on
+ * different axes) or two corners around a middle "trunk" (ports on the
+ * same axis). `routing` is the connection itself (its `route`, or an older
+ * diagram's one-number `manualBend`); null routes automatically.
+ *
+ * Besides the drawn `points`, returns the route's own `pieces` (what the
+ * grips and piece-dragging work on), its `lines`, the `coords` in effect,
+ * which axis they start on (`first`), whether they're hand-drawn
+ * (`manual`), and both stub ends.
  */
 export function computeConnectionPath(
   sourcePos,
   sourceSide,
   targetPos,
   targetSide,
-  manualBend,
+  routing,
   sourceInverted = false,
   targetInverted = false,
 ) {
@@ -56,32 +63,19 @@ export function computeConnectionPath(
   const tSign = targetInverted ? -1 : 1;
   const stubA = { x: sourcePos.x + sNorm.x * sSign * WIRE_STUB_LENGTH, y: sourcePos.y + sNorm.y * sSign * WIRE_STUB_LENGTH };
   const stubB = { x: targetPos.x + tNorm.x * tSign * WIRE_STUB_LENGTH, y: targetPos.y + tNorm.y * tSign * WIRE_STUB_LENGTH };
-  const sourceAxis = sideAxis(sourceSide);
-  const targetAxis = sideAxis(targetSide);
 
-  // The auto midpoint snaps to the same cell-center family a port's own
-  // position is built from (see grid.snapToCellCenter) — plain grid-line
-  // snapping would land the trunk a half-cell off from the ports it's
-  // supposed to connect, most visible on a vertical trunk (this branch).
-  let bridge;
-  if (sourceAxis === 'x' && targetAxis === 'x') {
-    const midX = manualBend != null ? manualBend : snapToCellCenter((stubA.x + stubB.x) / 2);
-    bridge = [{ x: midX, y: stubA.y }, { x: midX, y: stubB.y }];
-  } else if (sourceAxis === 'y' && targetAxis === 'y') {
-    const midY = manualBend != null ? manualBend : snapToCellCenter((stubA.y + stubB.y) / 2);
-    bridge = [{ x: stubA.x, y: midY }, { x: stubB.x, y: midY }];
-  } else if (sourceAxis === 'x') {
-    bridge = [{ x: stubB.x, y: stubA.y }];
-  } else {
-    bridge = [{ x: stubA.x, y: stubB.y }];
-  }
-
-  const points = simplifyPath([sourcePos, stubA, ...bridge, stubB, targetPos]);
-  const hasTrunk = points.length >= 4;
+  const { first, coords, manual } = resolveRouteCoords(routing, sourceSide, targetSide, stubA, stubB);
+  const lines = buildRouteLines(stubA, sourceSide, stubB, coords);
+  const { corners, pieces } = routePieces(lines, stubA, stubB);
   return {
-    points,
-    trunkIndex: hasTrunk ? 1 : -1,
-    trunkAxis: hasTrunk ? (points[1].x === points[2].x ? 'x' : 'y') : null,
+    points: simplifyPath([sourcePos, stubA, ...corners, stubB, targetPos]),
+    pieces,
+    lines,
+    coords,
+    first,
+    manual,
+    stubA,
+    stubB,
   };
 }
 
@@ -171,7 +165,7 @@ export function getConnectionGeometry(project, connection, boundary, wireMoveOve
     sourceSide,
     targetPos,
     targetSide,
-    connection.manualBend,
+    connection,
     source.isBoundary,
     target.isBoundary,
   );
@@ -314,18 +308,24 @@ export function drawPath(
   ctx.restore();
 }
 
-// Where a wire's own label sits: the middle of the trunk when there is one
-// (the one straight, centrally-placed segment every wire with a bend has),
-// or the geometric midpoint by arc length when there isn't (a single-
-// corner route). Either way this is also what places the inline editor
-// over the label when you double-click it (see main.js).
+// Where a wire's own label sits: the middle of its longest free piece when
+// it has one (on a wire nobody has routed by hand, that's the automatic
+// trunk), or the geometric midpoint by arc length when it doesn't (a
+// single-corner or straight route). Either way this is also what places
+// the inline editor over the label when you double-click it (see main.js).
 export function getConnectionLabelPosition(geometry) {
-  const { points, trunkIndex } = geometry;
-  if (trunkIndex >= 0) {
-    const a = points[trunkIndex];
-    const b = points[trunkIndex + 1];
-    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  const { points, pieces = [] } = geometry;
+  let longest = null;
+  let longestLength = 0;
+  for (const piece of pieces) {
+    if (piece.anchor) continue;
+    const length = Math.hypot(piece.b.x - piece.a.x, piece.b.y - piece.a.y);
+    if (length > longestLength) {
+      longest = piece;
+      longestLength = length;
+    }
   }
+  if (longest) return { x: (longest.a.x + longest.b.x) / 2, y: (longest.a.y + longest.b.y) / 2 };
 
   const lengths = [];
   let total = 0;
@@ -389,15 +389,122 @@ function distanceToSegment(px, py, ax, ay, bx, by) {
   return Math.hypot(px - cx, py - cy);
 }
 
-// Only the trunk segment is a valid drag target — the two stub segments are
-// anchored directly to a port's fixed exit point, so they aren't offered up
-// for dragging at all. Selecting is a different question: see
-// hitTestConnectionPath.
-export function hitTestConnectionTrunk(geometry, worldX, worldY, threshold = 8) {
-  if (!geometry || geometry.trunkIndex < 0) return false;
-  const a = geometry.points[geometry.trunkIndex];
-  const b = geometry.points[geometry.trunkIndex + 1];
-  return distanceToSegment(worldX, worldY, a.x, a.y, b.x, b.y) <= threshold;
+// Which free piece (see model/wireRoute.js) the point is on, as its index,
+// or -1. Only free pieces are drag targets by their body — the two runs
+// pinned to a port redirect the wire when grabbed there instead (see
+// hitTestConnectionStubEnd), and move only through their own grip.
+// Selecting is a different question: see hitTestConnectionPath. Pieces
+// that overlap (the two halves of a fresh split) resolve to the nearer.
+export function hitTestConnectionPiece(geometry, worldX, worldY, threshold = 8) {
+  if (!geometry?.pieces) return -1;
+  let best = -1;
+  let bestDistance = threshold;
+  for (const piece of geometry.pieces) {
+    if (piece.anchor) continue;
+    if (piece.a.x === piece.b.x && piece.a.y === piece.b.y) continue;
+    const d = distanceToSegment(worldX, worldY, piece.a.x, piece.a.y, piece.b.x, piece.b.y);
+    if (d <= bestDistance) {
+      best = piece.index;
+      bestDistance = d;
+    }
+  }
+  return best;
+}
+
+// A selected wire's grips: one capsule at the middle of each piece long
+// enough to hold one, the two pinned end runs included (pulling one of
+// those grows a jog rather than moving the port — see
+// wireRoute.withEndJog). Sizes are screen pixels, divided by zoom wherever
+// they're used, so a grip is the same comfortable size at any zoom — the
+// same trick the block resize handles use.
+const GRIP_LENGTH = 22;
+const GRIP_THICKNESS = 8;
+// A piece shorter than this on screen gets no grip: one would cover the
+// whole piece and sit on the corners either side. It's still draggable
+// by its body.
+const GRIP_MIN_PIECE_LENGTH = 30;
+
+// Whether a pinned end run heads away from its port past the stub, the way
+// a run normally does. One that doubles back instead (its piece pulled back
+// over the block it leaves) runs straight over its own stub and connector
+// handle, so a grip at its middle would sit on the handle or inside the
+// block — unreachable, and reading as a stray handle. It gets none; the
+// free piece it doubles back from is what to drag to straighten it out.
+function pinnedRunLeavesPort(geometry, piece) {
+  const isSource = piece.anchor === 'source';
+  const port = isSource ? geometry.sourcePos : geometry.targetPos;
+  const stub = isSource ? geometry.stubA : geometry.stubB;
+  if (!port || !stub) return true;
+  const far = isSource ? piece.b : piece.a;
+  return (far.x - stub.x) * (stub.x - port.x) + (far.y - stub.y) * (stub.y - port.y) > 0;
+}
+
+export function getWireGrips(geometry, zoom = 1) {
+  if (!geometry?.pieces) return [];
+  const min = GRIP_MIN_PIECE_LENGTH / zoom;
+  return geometry.pieces
+    .filter((piece) => Math.hypot(piece.b.x - piece.a.x, piece.b.y - piece.a.y) >= min)
+    .filter((piece) => !piece.anchor || pinnedRunLeavesPort(geometry, piece))
+    .map((piece) => ({
+      index: piece.index,
+      o: piece.o,
+      anchor: piece.anchor,
+      x: (piece.a.x + piece.b.x) / 2,
+      y: (piece.a.y + piece.b.y) / 2,
+    }));
+}
+
+// The grip (if any) within `radius` screen pixels of the point, nearest
+// first — `radius` is the caller's call, bigger for a finger than a mouse.
+export function hitTestWireGrip(geometry, worldX, worldY, zoom = 1, radius = 12) {
+  let best = null;
+  const limit = radius / zoom;
+  for (const grip of getWireGrips(geometry, zoom)) {
+    const distance = Math.hypot(worldX - grip.x, worldY - grip.y);
+    if (distance <= limit && (!best || distance < best.distance)) best = { ...grip, distance };
+  }
+  return best;
+}
+
+// A capsule centered on (x, y), long along `o`. Built from arcs rather
+// than ctx.roundRect so the SVG export context (see svgContext.js) can
+// draw it as well as a real canvas can.
+function capsulePath(ctx, x, y, o, length, thickness) {
+  const r = thickness / 2;
+  const half = length / 2 - r;
+  ctx.beginPath();
+  if (o === 'h') {
+    ctx.moveTo(x - half, y - r);
+    ctx.lineTo(x + half, y - r);
+    ctx.arc(x + half, y, r, -Math.PI / 2, Math.PI / 2);
+    ctx.lineTo(x - half, y + r);
+    ctx.arc(x - half, y, r, Math.PI / 2, (Math.PI * 3) / 2);
+  } else {
+    ctx.moveTo(x + r, y - half);
+    ctx.lineTo(x + r, y + half);
+    ctx.arc(x, y + half, r, 0, Math.PI);
+    ctx.lineTo(x - r, y - half);
+    ctx.arc(x, y - half, r, Math.PI, Math.PI * 2);
+  }
+  ctx.closePath();
+}
+
+// `activeIndex` is the piece being dragged right now, filled solid so the
+// grip under a finger still reads as the thing that's moving.
+export function drawWireGrips(ctx, geometry, zoom, { fill, stroke, activeIndex = null } = {}) {
+  const grips = getWireGrips(geometry, zoom);
+  if (!grips.length) return;
+  ctx.save();
+  ctx.setLineDash([]);
+  ctx.lineWidth = 1.5 / zoom;
+  for (const grip of grips) {
+    capsulePath(ctx, grip.x, grip.y, grip.o, GRIP_LENGTH / zoom, GRIP_THICKNESS / zoom);
+    ctx.fillStyle = grip.index === activeIndex ? stroke : fill;
+    ctx.fill();
+    ctx.strokeStyle = stroke;
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // Which end's own stub (if either) the point is near — the short straight
@@ -405,8 +512,8 @@ export function hitTestConnectionTrunk(geometry, worldX, worldY, threshold = 8) 
 // last segment (see computeConnectionPath: source, its stub, ...bridge...,
 // target's stub, target) regardless of how many bridge points sit between
 // them. Distinct from hitTestConnectionPath (any part of the wire, for
-// selecting it) and hitTestConnectionTrunk (only the draggable middle
-// segment, for bending it) — this is what lets grabbing a stub redirect
+// selecting it) and hitTestConnectionPiece (a free piece, for moving
+// it) — this is what lets grabbing a stub redirect
 // that specific end (see DragStateMachine's wire-hit handling), the same
 // as grabbing its port's own tiny connector handle directly, just over a
 // much bigger, easier-to-hit target — especially useful once the wire is

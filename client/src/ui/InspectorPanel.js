@@ -93,6 +93,9 @@ export function mountInspector(
     deleteBlock,
     enterBlock,
     deleteConnection,
+    // Drops a wire's hand-drawn route (see main.js) — optional, so a caller
+    // that never supplies one just gets a button that does nothing.
+    resetConnectionRoute = () => {},
     toggleButton,
     extraTabs = [],
     // A host page's own veto over whether a given block may be entered at
@@ -193,6 +196,21 @@ export function mountInspector(
     });
     colorInput.addEventListener('change', persist);
     container.appendChild(field('Colour', colorInput));
+
+    // A wire's route is edited on the canvas, not here: its grips are the
+    // whole interface (see DragStateMachine's piece drag). This is the way
+    // back to automatic once it's been routed by hand, plus the one line
+    // of help that makes the grips findable in the first place.
+    const resetRouteButton = document.createElement('button');
+    resetRouteButton.type = 'button';
+    resetRouteButton.className = 'secondary-button';
+    resetRouteButton.textContent = 'Reset to automatic';
+    resetRouteButton.addEventListener('click', () => resetConnectionRoute(connection.id));
+    container.appendChild(field('Route', resetRouteButton));
+    const routeHint = document.createElement('p');
+    routeHint.className = 'hint-text';
+    routeHint.textContent = 'Drag a handle on the wire to move that piece. Tap a handle to split its piece in two. Drag a piece back into line to remove its bend.';
+    container.appendChild(routeHint);
 
     const deleteRow = document.createElement('div');
     deleteRow.className = 'delete-row';
