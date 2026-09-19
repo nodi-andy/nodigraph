@@ -52,6 +52,21 @@ export const BOUNDARY_PORT_THICKNESS = PORT_SLOT_SPACING / 2;
 const INPUT_PORT_COLOR = '#8b93a3';
 const DEFAULT_OUTPUT_PORT_COLOR = '#8b93a3';
 const PORT_LABEL_GAP = 6;
+// A port label is content, so it scales with the world the way a block's
+// own name does — but only up to a point. Past twice its resting size on
+// screen it stops growing: a label several times the height of the block
+// it annotates stops reading as a label and starts covering the thing it
+// points at, which is most obvious over a block big enough to be showing
+// its sub-architecture preview (see render/SubPreviewRenderer.js). The cap
+// is deliberately set at 2x rather than anything tighter so that nothing
+// at zoom <= 2 changes at all — that covers the whole ordinary zoom range
+// and both exporters, model/diagramImage.js oversampling at exactly 2x.
+const PORT_LABEL_FONT_SIZE = 10;
+const PORT_LABEL_MAX_SCREEN_SIZE = PORT_LABEL_FONT_SIZE * 2;
+
+function portLabelFontSize(zoom) {
+  return Math.min(PORT_LABEL_FONT_SIZE, PORT_LABEL_MAX_SCREEN_SIZE / zoom);
+}
 const SLOT_RING_RADIUS = PORT_LENGTH / 2 + 4;
 // Selected (clicked, ready to delete) uses the same blue as a selected
 // block; an in-progress wire's own source stays that same "active" blue;
@@ -549,10 +564,10 @@ function drawContainImage(ctx, img, x, y, width, height) {
   ctx.drawImage(img, x + width / 2 - w / 2, y + height / 2 - h / 2, w, h);
 }
 
-function drawPortLabel(ctx, port, pos, inverted = false, palette = DEFAULT_PALETTE) {
+function drawPortLabel(ctx, port, pos, inverted = false, palette = DEFAULT_PALETTE, zoom = 1) {
   if (!port.name) return;
   ctx.fillStyle = palette.portLabel;
-  ctx.font = '10px -apple-system, Segoe UI, Roboto, sans-serif';
+  ctx.font = `${portLabelFontSize(zoom)}px -apple-system, Segoe UI, Roboto, sans-serif`;
 
   const n = sideNormal(port.side);
   const sign = inverted ? 1 : -1;
@@ -762,6 +777,10 @@ function drawPorts(
     portHighlights = null,
     showEmptySlots = false,
     palette = DEFAULT_PALETTE,
+    // Only the port *labels* use this, to stop growing past a readable
+    // on-screen size (see portLabelFontSize) — every other measurement in
+    // here is world-space geometry that scales with the diagram.
+    zoom = 1,
     // Boundary-only: Map<portId, string[]> of the label (possibly '') on
     // each wire currently attached to that port from inside, in the same
     // order Project.listBoundaryWires returns them — one dot gets drawn
@@ -823,7 +842,7 @@ function drawPorts(
         drawPortResizeHandles(ctx, getPortResizeHandleRects(block, port, rectCount), palette);
       }
       const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-      drawPortLabel(ctx, { name: portName, side: effectiveSide }, center, inverted, palette);
+      drawPortLabel(ctx, { name: portName, side: effectiveSide }, center, inverted, palette, zoom);
 
       for (const entry of wireEntries) {
         const isMoving = wireMoveOverride && wireMoveOverride.portId === port.id && wireMoveOverride.connectionId === entry.id;
@@ -837,7 +856,7 @@ function drawPorts(
         // Every wire shows only its OWN (child-side) label here — the
         // port's own name/identity is the centered one drawn once above,
         // never repeated (or substituted in) at any individual wire.
-        if (entry.label) drawPortLabel(ctx, { name: entry.label, side: effectiveSide }, { x: px, y: py }, inverted, palette);
+        if (entry.label) drawPortLabel(ctx, { name: entry.label, side: effectiveSide }, { x: px, y: py }, inverted, palette, zoom);
       }
       continue;
     }
@@ -858,7 +877,7 @@ function drawPorts(
     if (inverted && ringColor === PORT_SELECTED_RING_COLOR) {
       drawPortResizeHandles(ctx, getPortResizeHandleRects(block, port, rectCount), palette);
     }
-    drawPortLabel(ctx, { name: portName, side: effectiveSide }, { x: px, y: py }, inverted, palette);
+    drawPortLabel(ctx, { name: portName, side: effectiveSide }, { x: px, y: py }, inverted, palette, zoom);
   }
 }
 
@@ -896,7 +915,22 @@ function readableTextColor(hex) {
 export function drawBlock(
   ctx,
   block,
-  { selected = false, portHighlights = null, requestRender = () => {}, palette = DEFAULT_PALETTE, zoom = 1 } = {},
+  {
+    selected = false,
+    portHighlights = null,
+    requestRender = () => {},
+    palette = DEFAULT_PALETTE,
+    zoom = 1,
+    // The opacity of everything on this face that the sub-architecture
+    // miniature is about to replace — the big centered name, the corner
+    // badge. SceneRenderer derives it from the miniature's own alpha (see
+    // SubPreviewRenderer.contentAlphaFor) and draws the miniature straight
+    // after this call, so the two halves are one crossfade rather than two
+    // things stacked on top of each other. 1 for every block with no
+    // internals to show, which leaves this drawing precisely what it
+    // always drew.
+    contentAlpha = 1,
+  } = {},
 ) {
   const { x, y, width, height } = block.geometry;
   const accentColor = block.style?.color || DEFAULT_BLOCK_COLOR;
@@ -943,6 +977,7 @@ export function drawBlock(
   // truthful about what's there) until the image has actually loaded, or
   // if it never does.
   const image = isImageUrl(block.name) ? getCachedImage(block.name, requestRender) : null;
+  if (contentAlpha < 1) ctx.globalAlpha = contentAlpha;
   if (image) {
     drawContainImage(ctx, image, x, y, width, height);
   } else {
@@ -967,8 +1002,16 @@ export function drawBlock(
   // A text block has no ports and can't gain one (see addPort's kind
   // guard) — showing the discoverable empty-slot squares on it would
   // advertise an affordance that doesn't work.
-  drawPorts(ctx, block, { portHighlights, showEmptySlots: selected && block.kind !== 'text', palette });
-  if (hasSubArchitecture(block)) drawSubArchitectureBadge(ctx, block.geometry, palette, zoom);
+  drawPorts(ctx, block, { portHighlights, showEmptySlots: selected && block.kind !== 'text', palette, zoom });
+  // The badge exists to say "there's something inside this" from across a
+  // zoomed-out diagram; once the inside is actually on show it's the same
+  // fact told twice, so it goes with the name.
+  if (hasSubArchitecture(block) && contentAlpha > 0) {
+    ctx.save();
+    ctx.globalAlpha = contentAlpha;
+    drawSubArchitectureBadge(ctx, block.geometry, palette, zoom);
+    ctx.restore();
+  }
   if (selected) drawResizeHandles(ctx, block.geometry, palette, zoom);
 }
 
@@ -1017,7 +1060,7 @@ export function drawBoundary(
   // reads as a wall of faint circles rather than a helpful preview — the
   // hover ghost already shows exactly one, right where you're about to
   // click, which is the affordance that actually matters.
-  drawPorts(ctx, { ...block, geometry }, { inverted: true, portHighlights, palette, boundaryWireLabels, wireMoveOverride });
+  drawPorts(ctx, { ...block, geometry }, { inverted: true, portHighlights, palette, boundaryWireLabels, wireMoveOverride, zoom });
   // Gated on `selected` exactly like an ordinary block: clicking the
   // dashed line itself now selects the boundary (see HitTest's
   // 'boundaryLine' hit and DragStateMachine's handling of it), so there's

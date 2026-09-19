@@ -1,5 +1,6 @@
 import { createBlock, hydrateBlockTree, serializeBlockTree } from './Block.js';
 import { createDefaultBoundaryGeometry } from './grid.js';
+import { boundaryPortGroupOf, boundaryPortsOf, boundaryWiresOf, boundsOf } from './levelView.js';
 
 /**
  * The whole product is itself a Block (`rootBlock`) — you're always inside
@@ -304,9 +305,7 @@ export class Project {
   // this, since two DIFFERENT logical ports are never allowed to share one
   // (see BlockDescription.uniqueLogicalPortName).
   boundaryPortGroup(block, pinId) {
-    const pin = block?.ports.find((p) => p.id === pinId);
-    if (!pin) return [pinId];
-    return block.ports.filter((p) => p.logicalId === pin.logicalId).map((p) => p.id);
+    return boundaryPortGroupOf(block, pinId);
   }
 
   // The container's own pins as they should actually be shown/interacted
@@ -317,11 +316,7 @@ export class Project {
   // block's raw `ports` array instead, since cloned sibling pins are
   // genuinely separate, independently wireable attachment points out there.
   listBoundaryPorts(block) {
-    const seen = new Map();
-    for (const pin of block?.ports || []) {
-      if (!seen.has(pin.logicalId)) seen.set(pin.logicalId, pin);
-    }
-    return [...seen.values()];
+    return boundaryPortsOf(block);
   }
 
   // Every current-level connection that attaches to `portId` — or any port
@@ -334,13 +329,7 @@ export class Project {
   // port (the common case) still resolves to exactly one entry, same as
   // always.
   listBoundaryWires(containerBlockId, portId) {
-    const groupIds = new Set(this.boundaryPortGroup(this.getContainerBlock(), portId));
-    const ids = [];
-    for (const connection of this.listConnections()) {
-      if (connection.sourceBlockId === containerBlockId && groupIds.has(connection.sourcePortId)) ids.push(connection.id);
-      if (connection.targetBlockId === containerBlockId && groupIds.has(connection.targetPortId)) ids.push(connection.id);
-    }
-    return ids;
+    return boundaryWiresOf(this, containerBlockId, portId);
   }
 
   removeConnectionsForPort(portId) {
@@ -356,42 +345,7 @@ export class Project {
   // when you navigate into it, and to crop exported diagram images.
   // Returns null when there's genuinely nothing to frame.
   getLevelBounds() {
-    const container = this.getContainerBlock();
-    const rects = this.listBlocks().map((b) => b.geometry);
-    if (container?.boundaryGeometry) rects.push(container.boundaryGeometry);
-    if (!rects.length) return null;
-
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    for (const r of rects) {
-      minX = Math.min(minX, r.x);
-      minY = Math.min(minY, r.y);
-      maxX = Math.max(maxX, r.x + r.width);
-      maxY = Math.max(maxY, r.y + r.height);
-    }
-    // A hand-routed wire (see model/wireRoute.js) can run well clear of
-    // every block — a detour around the outside of the diagram — and an
-    // export sized to the blocks alone would cut it off. Every corner of a
-    // route sits on one of its own coordinates or on a port, so widening
-    // the box by the coordinates on each axis is enough.
-    for (const connection of this.listConnections()) {
-      const route = connection.route;
-      if (!Array.isArray(route?.coords)) continue;
-      const other = route.first === 'x' ? 'y' : 'x';
-      route.coords.forEach((value, i) => {
-        if (!Number.isFinite(value)) return;
-        if ((i % 2 === 0 ? route.first : other) === 'x') {
-          minX = Math.min(minX, value);
-          maxX = Math.max(maxX, value);
-        } else {
-          minY = Math.min(minY, value);
-          maxY = Math.max(maxY, value);
-        }
-      });
-    }
-    return { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+    return boundsOf(this);
   }
 
   // --- Hierarchy navigation ---

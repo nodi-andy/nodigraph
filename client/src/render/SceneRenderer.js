@@ -17,6 +17,7 @@ import {
   FLOW_DASH,
   PREVIEW_DASH,
 } from './ConnectionRenderer.js';
+import { contentAlphaFor, drawSubPreview, subPreviewProgress } from './SubPreviewRenderer.js';
 import { GRID_SIZE } from '../model/grid.js';
 import { getCanvasPalette } from './canvasPalette.js';
 import { getTheme } from '../theme.js';
@@ -248,6 +249,14 @@ export function renderScene(
     // exported PNG's background genuinely transparent instead of a faint
     // lattice of grid lines on a light Doc page.
     showGrid = true,
+    // Whether a block zoomed in far enough to have room for it shows a
+    // miniature of its own sub-architecture (see
+    // render/SubPreviewRenderer.js). On for the live canvas; off for both
+    // exporters, whose "zoom" is a resolution/scale choice rather than
+    // someone actually leaning in — the PNG path in particular oversamples
+    // at 2x, which would otherwise crack every container block open in a
+    // figure meant to read at one level.
+    showSubPreviews = true,
     // Lets a block whose name is an image URL (see render/imageCache.js)
     // ask for a redraw once that image finishes loading — a no-op by
     // default so one-shot renders (the diagram-image exporter) don't need
@@ -356,13 +365,19 @@ export function renderScene(
       continue;
     }
     const block = item.block;
+    // One number positions both halves of the crossfade: drawSubPreview
+    // paints the miniature from it, and drawBlock fades the name and badge
+    // it displaces back out (see SubPreviewRenderer.contentAlphaFor).
+    const previewT = showSubPreviews ? subPreviewProgress(block, camera.zoom) : 0;
     drawBlock(ctx, block, {
       selected: selectedBlockIds.has(block.id),
       portHighlights,
       requestRender,
       palette,
       zoom: camera.zoom,
+      contentAlpha: contentAlphaFor(previewT),
     });
+    if (previewT > 0) drawSubPreview(ctx, block, { zoom: camera.zoom, t: previewT, palette });
     onDrawBlock(ctx, block);
   }
 

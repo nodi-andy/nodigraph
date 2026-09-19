@@ -36,6 +36,10 @@ export function renderCurrentLevelSvgString(project) {
     connectionTarget: null,
     wireSelection: null,
     showGrid: false,
+    // An exported figure reads at one level, whatever size it's later
+    // dropped in at — the same reason the PNG path opts out (see
+    // render/SubPreviewRenderer.js).
+    showSubPreviews: false,
     palette: getExportPalette(),
   });
   return serialize();

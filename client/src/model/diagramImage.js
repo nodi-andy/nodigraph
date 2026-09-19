@@ -50,6 +50,11 @@ export function renderCurrentLevelCanvas(project) {
     connectionTarget: null,
     wireSelection: null,
     showGrid: false,
+    // The 2x oversampling above is a sharpness choice, not someone zooming
+    // in — a container block must not crack open and show its internals in
+    // a figure that's meant to read at one level (see
+    // render/SubPreviewRenderer.js).
+    showSubPreviews: false,
     palette: getExportPalette(),
   });
   return canvas;

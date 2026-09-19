@@ -57,6 +57,12 @@ own client architecture, drawn and kept up to date this way.
 - **Recursive decomposition** — drill into any block to model its internals;
   breadcrumbs to navigate back out, and a button to wrap the whole product
   in a new parent when the scope grows.
+- **See inside without going inside** — zoom in until a block has room to
+  spare and its internals draw themselves on its face, to scale and framed
+  the way drilling in would frame them; zoom back out and it's a plain
+  named box again. A block inside a preview opens up too, once you're in
+  far enough. Exported figures always read at one level, whatever size
+  they're dropped in at.
 - **Ports on a grid** — connectors snap to fixed slots on every edge, so
   wires between blocks line up instead of almost lining up. A new port
   starts undecided — no name, no in/out direction — until you set one in

@@ -30,10 +30,11 @@ which the dialog asks for and keeps only in your own browser.
   visible control outside the canvas itself.
 - **`interaction/`** — `DragStateMachine`, hit-testing, and input routing.
   Turns pointer and keyboard events into edits.
-- **`render/`** — `SceneRenderer`, `BlockRenderer`, `ConnectionRenderer`.
-  Draws the current `Project` to a canvas, or — via `svgContext`, the same
-  drawing calls recorded into SVG instead of pixels — to a file like this
-  one.
+- **`render/`** — `SceneRenderer`, `BlockRenderer`, `ConnectionRenderer`,
+  and `SubPreviewRenderer` for the miniature a block shows of its own
+  internals once it's big enough on screen. Draws the current `Project` to
+  a canvas, or — via `svgContext`, the same drawing calls recorded into
+  SVG instead of pixels — to a file like this one.
 - **`model/`** — `Project`, `Block`, `Connection`, and the grid they snap
   to. The one shared source of truth everything else reads or mutates.
 - **`server/`** — a small Node server that persists the project to disk and
