@@ -21,6 +21,11 @@ export const DEFAULT_BLOCK_COLOR = '#3b6fa0';
 // single label line rather than the boxy default block footprint.
 export const DEFAULT_TEXT_WIDTH = GRID_SIZE * 4;
 export const DEFAULT_TEXT_HEIGHT = GRID_SIZE * 1;
+// Where a block's text stack sits and how its rows align — the accepted
+// values of `style.titlePos` / `style.titleAlign` (see
+// BlockRenderer.drawBlockText). Anything else falls back to the default.
+export const TITLE_POSITIONS = ['top', 'center', 'bottom'];
+export const TITLE_ALIGNMENTS = ['left', 'center', 'right'];
 
 export function createBlock({ x, y, name, kind = 'block' } = {}) {
   const isText = kind === 'text';
@@ -112,7 +117,7 @@ export function hydrateBlock(raw) {
   const { logicalPorts, ports } = Array.isArray(raw.logicalPorts)
     ? { logicalPorts: raw.logicalPorts, ports: rawPorts }
     : migrateLegacyPorts(rawPorts);
-  return {
+  const block = {
     ...raw,
     kind: raw.kind || 'block',
     logicalPorts,
@@ -121,6 +126,13 @@ export function hydrateBlock(raw) {
     description: raw.description || `Block: ${raw.name || 'Block'}`,
     boundaryGeometry: raw.hasChildren ? raw.boundaryGeometry || createDefaultBoundaryGeometry() : raw.boundaryGeometry || null,
   };
+  // `subtitle` and `lines` (see BlockRenderer.blockTextRows) are optional
+  // and stay absent rather than becoming `''`/`[]` on every block, so a
+  // save from before they existed serializes byte-for-byte as it did.
+  if (!(typeof block.subtitle === 'string' && block.subtitle !== '')) delete block.subtitle;
+  if (Array.isArray(block.lines) && block.lines.length) block.lines = block.lines.map(String);
+  else delete block.lines;
+  return block;
 }
 
 // Recursively hydrates a block and, if it has a saved sub-architecture,

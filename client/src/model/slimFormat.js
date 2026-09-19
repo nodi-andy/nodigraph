@@ -16,7 +16,7 @@
 //   - block.description's text-editor view — it's a computed cache of
 //     logicalPorts/props/name (see BlockDescription.serializeBlockDescription)
 //     and gets rebuilt from those after import, never stored twice.
-import { generateId, hydrateBlockTree, DEFAULT_BLOCK_WIDTH, DEFAULT_BLOCK_HEIGHT, DEFAULT_TEXT_WIDTH, DEFAULT_TEXT_HEIGHT, DEFAULT_BLOCK_COLOR } from './Block.js';
+import { generateId, hydrateBlockTree, DEFAULT_BLOCK_WIDTH, DEFAULT_BLOCK_HEIGHT, DEFAULT_TEXT_WIDTH, DEFAULT_TEXT_HEIGHT, DEFAULT_BLOCK_COLOR, TITLE_POSITIONS, TITLE_ALIGNMENTS } from './Block.js';
 
 // A block's own `props` are host-defined data this module has no opinion
 // about (see Block.js's own doc) — most of it (a pin number, a toggle
@@ -35,6 +35,16 @@ import { generateId, hydrateBlockTree, DEFAULT_BLOCK_WIDTH, DEFAULT_BLOCK_HEIGHT
 const CODE_PROP_NAMES = new Set(['fn', 'render', 'html', 'dialog']);
 import { createDefaultBoundaryGeometry, GRID_SIZE } from './grid.js';
 import { createConnection } from './Connection.js';
+
+// `lines:` is written as a block sequence of scalars; a single scalar
+// (`lines: 250 kbit`) is the same thing with one row, and a number the
+// reader parsed as a number is still a row of text.
+function normalizeLines(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const arr = Array.isArray(value) ? value : [value];
+  const lines = arr.filter((l) => l !== null && l !== undefined && l !== '').map(String);
+  return lines.length ? lines : null;
+}
 import { flow, stringifyYaml, parseYaml } from './yaml.js';
 
 // ---------- project data (project.toJSON() shape) -> slim plain object ----------
@@ -130,6 +140,10 @@ function levelToSlim(blocksArray, connectionsArray, selfBlock, selfPinKeys) {
 function blockToSlim(block) {
   const isText = block.kind === 'text';
   const slim = { name: block.name };
+  // The rest of the card's own text, right under the name where a reader
+  // of the YAML expects it (see BlockRenderer.blockTextRows).
+  if (typeof block.subtitle === 'string' && block.subtitle !== '') slim.subtitle = block.subtitle;
+  if (Array.isArray(block.lines) && block.lines.length) slim.lines = block.lines.map(String);
   if (isText) slim.kind = 'text';
   slim.x = block.geometry.x;
   slim.y = block.geometry.y;
@@ -151,6 +165,8 @@ function blockToSlim(block) {
   if (block.style?.fontSize) slim.size = block.style.fontSize;
   if (block.style?.bold) slim.bold = true;
   if (block.style?.italic) slim.italic = true;
+  if (block.style?.titlePos) slim.title_pos = block.style.titlePos;
+  if (block.style?.titleAlign) slim.title_align = block.style.titleAlign;
 
   const { portsSlim, pinKeys } = computePortsSlim(block);
   if (Object.keys(portsSlim).length) slim.ports = portsSlim;
@@ -306,7 +322,11 @@ function slimBlockToData(slimBlock) {
       ...(slimBlock.size ? { fontSize: slimBlock.size } : {}),
       ...(slimBlock.bold ? { bold: true } : {}),
       ...(slimBlock.italic ? { italic: true } : {}),
+      ...(TITLE_POSITIONS.includes(slimBlock.title_pos) ? { titlePos: slimBlock.title_pos } : {}),
+      ...(TITLE_ALIGNMENTS.includes(slimBlock.title_align) ? { titleAlign: slimBlock.title_align } : {}),
     },
+    ...(typeof slimBlock.subtitle === 'string' && slimBlock.subtitle !== '' ? { subtitle: slimBlock.subtitle } : {}),
+    ...(normalizeLines(slimBlock.lines) ? { lines: normalizeLines(slimBlock.lines) } : {}),
     logicalPorts,
     ports: pins,
     props: Object.entries(slimBlock.props || {}).map(([name, value]) => ({ id: generateId('prp'), name, kind: 'value', value })),

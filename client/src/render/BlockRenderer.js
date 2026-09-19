@@ -10,7 +10,7 @@ import {
   SIDES,
 } from '../model/grid.js';
 import { getStateColor, logicalPortOf } from '../model/BlockDescription.js';
-import { DEFAULT_BLOCK_COLOR } from '../model/Block.js';
+import { DEFAULT_BLOCK_COLOR, TITLE_POSITIONS, TITLE_ALIGNMENTS } from '../model/Block.js';
 import { isImageUrl, getCachedImage } from './imageCache.js';
 import { getCanvasPalette } from './canvasPalette.js';
 import { getFontFamily, ensureFontLoaded } from './fonts.js';
@@ -908,6 +908,73 @@ function readableTextColor(hex) {
   return luminance > 0.55 ? '#1c2431' : '#ffffff';
 }
 
+// The text a block carries besides its ports: the name, an optional
+// smaller `subtitle` under it, and optional monospace detail `lines`
+// (a bus address, a rate, a package name). Before these existed a card
+// with a heading and two detail rows needed an empty block plus three
+// `kind: text` blocks stacked on top of it (see the old recipe in
+// docs/LLM-AUTHORING.md) — four blocks that did not move together and
+// collided with the sub-architecture miniature a container draws on its
+// own face. This draws the whole stack as one block's own content.
+//
+// `style.titlePos` (top / center / bottom) places the stack; it defaults to
+// `center` for a bare name — exactly where the name was always drawn — and
+// to `top` once a subtitle or lines are present, so a card reads
+// heading-first. `style.titleAlign` (left / center / right) aligns every
+// row the same way. Rows are squeezed to the block width like the name
+// always was, never wrapped.
+const TEXT_PAD_X = 10;
+const TEXT_PAD_Y = 8;
+const SUBTITLE_SCALE = 0.85;
+const LINE_SCALE = 0.8;
+const SUBTITLE_ALPHA = 0.72;
+const LINE_ALPHA = 0.85;
+
+export function blockTextRows(block) {
+  const style = block.style || {};
+  const fontFamily = getFontFamily(style.font);
+  const fontSize = style.fontSize || 13;
+  const fontWeight = style.bold ? 'bold ' : '';
+  const fontStyle = style.italic ? 'italic ' : '';
+  const subtitle = typeof block.subtitle === 'string' && block.subtitle !== '' ? block.subtitle : null;
+  const lines = Array.isArray(block.lines) ? block.lines.map((l) => (l === null || l === undefined ? '' : String(l))).filter((l) => l !== '') : [];
+  const subtitleSize = Math.max(8, Math.round(fontSize * SUBTITLE_SCALE));
+  const lineSize = Math.max(8, Math.round(fontSize * LINE_SCALE));
+  const rows = [];
+  if (block.name) rows.push({ text: block.name, font: `${fontStyle}${fontWeight}${fontSize}px ${fontFamily}`, height: fontSize * 1.3, alpha: 1 });
+  if (subtitle) rows.push({ text: subtitle, font: `${fontStyle}${subtitleSize}px ${fontFamily}`, height: subtitleSize * 1.3, alpha: SUBTITLE_ALPHA });
+  for (const line of lines) rows.push({ text: line, font: `${lineSize}px ${getFontFamily('mono')}`, height: lineSize * 1.4, alpha: LINE_ALPHA });
+  return rows;
+}
+
+function drawBlockText(ctx, block, { x, y, width, height, textColor, requestRender }) {
+  const rows = blockTextRows(block);
+  if (rows.length === 0) return;
+  const style = block.style || {};
+  const hasExtra = rows.length > 1 || !block.name;
+  const titlePos = TITLE_POSITIONS.includes(style.titlePos) ? style.titlePos : hasExtra ? 'top' : 'center';
+  const titleAlign = TITLE_ALIGNMENTS.includes(style.titleAlign) ? style.titleAlign : 'center';
+  // Canvas text can't await a web font mid-render — draws with the
+  // fallback stack immediately and asks for a redraw once the real one
+  // is ready, the same pattern the image case uses.
+  for (const row of rows) ensureFontLoaded(row.font, requestRender);
+  const total = rows.reduce((sum, row) => sum + row.height, 0);
+  let cursor = titlePos === 'top' ? y + TEXT_PAD_Y : titlePos === 'bottom' ? y + height - TEXT_PAD_Y - total : y + height / 2 - total / 2;
+  const tx = titleAlign === 'left' ? x + TEXT_PAD_X : titleAlign === 'right' ? x + width - TEXT_PAD_X : x + width / 2;
+  const maxWidth = width - 16;
+  const baseAlpha = ctx.globalAlpha;
+  ctx.fillStyle = textColor;
+  ctx.textAlign = titleAlign;
+  ctx.textBaseline = 'middle';
+  for (const row of rows) {
+    ctx.font = row.font;
+    ctx.globalAlpha = baseAlpha * row.alpha;
+    ctx.fillText(row.text, tx, cursor + row.height / 2, maxWidth);
+    cursor += row.height;
+  }
+  ctx.globalAlpha = baseAlpha;
+}
+
 // A block is a plain titled box with its name centered — no header band.
 // Its Input/Output ports are handles on the border, on any of the four
 // sides. When you drill into a block, its own border becomes the frame
@@ -981,20 +1048,7 @@ export function drawBlock(
   if (image) {
     drawContainImage(ctx, image, x, y, width, height);
   } else {
-    const fontFamily = getFontFamily(block.style?.font);
-    const fontSize = block.style?.fontSize || 13;
-    const fontWeight = block.style?.bold ? 'bold ' : '';
-    const fontStyle = block.style?.italic ? 'italic ' : '';
-    const cssFont = `${fontStyle}${fontWeight}${fontSize}px ${fontFamily}`;
-    // Canvas text can't await a web font mid-render — draws with the
-    // fallback stack immediately and asks for a redraw once the real one
-    // is ready, the same pattern the image case above uses.
-    if (block.style?.font) ensureFontLoaded(cssFont, requestRender);
-    ctx.fillStyle = textColor;
-    ctx.font = cssFont;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(block.name, x + width / 2, y + height / 2, width - 16);
+    drawBlockText(ctx, block, { x, y, width, height, textColor, requestRender });
   }
 
   ctx.restore();

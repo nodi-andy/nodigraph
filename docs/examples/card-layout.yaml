@@ -1,0 +1,74 @@
+# Native card layout — the worked example for `subtitle`, `lines`, `title_pos` and `title_align`
+# (see docs/LLM-AUTHORING.md, "A card with detail lines under its title").
+# Menu > Open this file, or select all of this text and paste it onto the canvas.
+name: Card layout test
+boundary: { x: 0, y: 0, w: 1000, h: 480 }
+blocks:
+  b1:
+    name: Motion unit
+    subtitle: Compute Node A
+    lines:
+      - motion_controller
+      - 20 ms cycle
+      - "3 frames / 20 ms"
+    x: 80
+    y: 80
+    w: 240
+    h: 120
+    fill: "#eaf4ec"
+    color: "#4a8c5c"
+    bold: true
+    title_align: left
+    ports:
+      p1: { dir: in, offset: 60 }
+      p2: { dir: out, offset: 60 }
+  b2:
+    name: Safety Unit
+    subtitle: Safety Controller · SIL2 · PLd
+    x: 440
+    y: 80
+    w: 200
+    h: 120
+    fill: "#fde8dd"
+    color: "#c2410c"
+    bold: true
+    ports:
+      p1: { dir: in, offset: 60 }
+  b3:
+    name: Plain block unchanged
+    x: 720
+    y: 80
+    w: 200
+    h: 120
+    ports:
+      p1: { dir: in, offset: 60 }
+  b4:
+    name: Bottom title
+    lines:
+      - one
+      - 250 kbit
+    title_pos: bottom
+    title_align: right
+    x: 80
+    y: 280
+    w: 240
+    h: 120
+    fill: "#e3ecf6"
+  b5:
+    name: ""
+    x: 440
+    y: 280
+    w: 480
+    h: 120
+    fill: "#f7f8fa"
+    color: "#ccd2dc"
+  b6:
+    name: Panel title still a text block
+    kind: text
+    x: 480
+    y: 280
+    w: 320
+    bold: true
+    size: 11
+wires:
+  - { from: b1.p2, to: b2.p1, label: CAN 250 kbit }

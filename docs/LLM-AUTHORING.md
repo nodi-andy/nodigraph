@@ -17,6 +17,9 @@ boundary: { x: 0, y: 0, w: 1200, h: 600 }   # dashed frame around the top level
 blocks:                               # a mapping, NOT a list. Key = local id.
   b1:                                 # first key = drawn furthest back
     name: Probe Array
+    subtitle: 3 lidars · cameras      # optional smaller line under the title
+    lines:                            # optional monospace detail rows
+      - 192.0.2.20..23
     x: 80                             # multiples of 40 (the grid)
     y: 80
     w: 200                            # default 120
@@ -99,7 +102,11 @@ are all safe unquoted.
 
 | Key | Default | Notes |
 | --- | --- | --- |
-| `name` | `New Block` | drawn centred. `name: ""` draws nothing — use it for panels. |
+| `name` | `New Block` | the title. `name: ""` draws nothing — use it for panels. |
+| `subtitle` | — | one smaller, muted line under the title |
+| `lines` | — | a block sequence of short monospace detail rows under the title (see the card recipe) |
+| `title_pos` | `center`, or `top` once `subtitle`/`lines` are set | `top`, `center`, `bottom` — where the text stack sits |
+| `title_align` | `center` | `left`, `center`, `right` — how every row aligns |
 | `kind` | `block` | `text` = a bare label: no border, no fill, no ports. |
 | `x`, `y` | `0` | top-left, multiples of 40 |
 | `w`, `h` | `120`×`80` (text: `160`×`40`) | multiples of 40; minimum 40 |
@@ -160,42 +167,38 @@ will overlap them.
 
 ### A card with detail lines under its title
 
-A block draws its `name` as one centred line — there is no wrapping and no
-multi-line name. For a card with a heading and detail lines, use an **empty
-block as the card** and stack `kind: text` blocks inside it. Text blocks are
-transparent, so the card's fill shows through.
+A block carries its own text stack: the `name` as title, an optional
+`subtitle`, and `lines` — short monospace rows for the things a system
+diagram actually needs to say (a bus, a rate, a package). Rows are squeezed
+to the block width, never wrapped, so keep them short and size the block to
+hold them: title + subtitle + three lines need about `h: 120`.
 
 ```yaml
-  b1:                    # the card itself
-    name: ""
+  b1:
+    name: Motion unit
+    subtitle: Compute Node A
+    lines:
+      - motion_controller
+      - 20 ms cycle
+      - "3 frames / 20 ms"           # quote a row that has a `: ` or `#`
     x: 560
     y: 240
     w: 200
     h: 120
     fill: "#eaf4ec"
     color: "#4a8c5c"
+    bold: true                        # applies to the title
+    title_align: left                 # optional; default centred
     ports:
       p1: { dir: in,  offset: 60 }
       p2: { dir: out, offset: 60 }
-  b2:                    # heading
-    name: Motion unit
-    kind: text
-    x: 580
-    y: 240
-    w: 160
-    bold: true
-  b3:                    # detail line (40px tall, so stack at +40)
-    name: motion_
-    kind: text
-    x: 580
-    y: 280
-    w: 160
-    font: mono
-    size: 8
 ```
 
-Each text row is 40 tall, so a 120-tall card holds exactly three: `y`, `y+40`,
-`y+80`.
+`title_pos` moves the stack (`top` is the default as soon as a subtitle or
+lines exist; a bare `name` stays centred as before). The older way — an
+empty block as the card plus stacked `kind: text` blocks — still loads, but
+those text blocks do not move with the card and fight the sub-architecture
+miniature a container draws on its face, so prefer the fields above.
 
 ### A lane / group panel
 
