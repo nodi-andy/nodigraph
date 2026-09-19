@@ -11,6 +11,7 @@ import {
 } from '../model/grid.js';
 import { getStateColor, logicalPortOf } from '../model/BlockDescription.js';
 import { DEFAULT_BLOCK_COLOR, TITLE_POSITIONS, TITLE_ALIGNMENTS } from '../model/Block.js';
+import { boundaryPlacementFor, exteriorPlacementFor } from '../model/levelGeometry.js';
 import { isImageUrl, getCachedImage } from './imageCache.js';
 import { getCanvasPalette } from './canvasPalette.js';
 import { getFontFamily, ensureFontLoaded } from './fonts.js';
@@ -124,16 +125,48 @@ export function findPortPosition(block, portId) {
   return port ? getPortPosition(block, port) : null;
 }
 
-// A port's placement *as a wire container on the boundary* — its own
-// side/offset/width, independent of `port.side`/`port.offset` (which is
-// only ever the outer face's attachment point). Absent until the user
-// actually drags or resizes it from inside, at which point it's written
-// once (see DragStateMachine) and from then on wins over the outer-face
-// placement for every boundary computation below. `width` is in slot
-// units (see PORT_SLOT_SPACING) — how many wire-slots this port reserves
-// on the boundary, independent of how many wires currently fill it.
-export function getPortBoundaryPlacement(port) {
-  return port.boundary || { side: port.side, offset: port.offset, width: 1 };
+// A port's placement on the boundary frame — where the wires inside the
+// container attach to it. Derived, not stored: the frame is a scaled
+// picture of the block's face (see model/levelGeometry.js), so the pin
+// sits on the same side, at the proportional position, snapped to the
+// frame's slot grid. Only `width` (how many wire slots the pin reserves,
+// in PORT_SLOT_SPACING units) and `wireSlots` (which wire sits in which
+// of them) are still the pin's own data.
+//
+// `block` is either the real container (its `geometry` is the face and
+// `boundaryGeometry` the frame) or a boundary view made by asBoundaryView
+// below — the `{ ...block, geometry: frame }` substitute every inverted
+// drawing/hit-testing path works on, which carries the face along as
+// `outerGeometry` so the mapping still has both rectangles.
+export function getPortBoundaryPlacement(port, block) {
+  const face = block?.outerGeometry || (block?.boundaryGeometry ? block.geometry : null);
+  const frame = block?.outerGeometry ? block.geometry : block?.boundaryGeometry;
+  return boundaryPlacementFor(port, face, frame);
+}
+
+// The block as its own boundary frame: geometry swapped for the frame so
+// every border/slot computation below resolves against the dashed
+// rectangle, with the face kept as `outerGeometry` for the placement
+// mapping. `ports` (optional) narrows the pins drawn/hit-tested to one
+// per logical port (see Project.listBoundaryPorts).
+export function asBoundaryView(block, frameGeometry, ports) {
+  return { ...block, geometry: frameGeometry, outerGeometry: block.geometry, ...(ports ? { ports } : {}) };
+}
+
+// The exterior pin placement an edit made *inside* a container writes
+// back — a pin dragged along or added on the dashed frame at
+// `frameOffset` on `side` lands on the face at the corresponding slot,
+// avoiding the slots the block's other pins already occupy there. This
+// is what keeps the two views one geometry: moving a pin from inside
+// moves it outside by exactly the same amount.
+export function exteriorPlacementFromBoundary(block, side, frameOffset, excludePortId = null) {
+  const face = block.geometry;
+  const frame = block.boundaryGeometry;
+  const faceLength = sideLength(block, side);
+  const occupied = (block.ports || [])
+    .filter((p) => p.id !== excludePortId && p.side === side)
+    .map((p) => nearestPortSlot(faceLength, p.offset));
+  return exteriorPlacementFor(side, frameOffset, face, frame, occupied);
 }
 
 // Only meaningful on the boundary/inverted face: a port that has more than
@@ -153,7 +186,7 @@ export function getPortBoundaryPlacement(port) {
 // first/last-index bounds), where there's no specific wire to resolve at
 // all.
 export function getBoundaryWirePosition(block, port, index, connectionId) {
-  const placement = getPortBoundaryPlacement(port);
+  const placement = getPortBoundaryPlacement(port, block);
   const slotOffset = getBoundaryWireSlotOffset(block, port, index, connectionId);
   return borderPointForOffset(block.geometry, placement.side, slotOffset);
 }
@@ -198,7 +231,7 @@ export function getOccupiedWireIndicesExcluding(port, wireIds, excludeId) {
 // updateHoverGhost), since drawPortGhost/getEdgeZoneOffset both work in
 // terms of a bare offset rather than an already-resolved point.
 export function getBoundaryWireSlotOffset(block, port, index, connectionId) {
-  const placement = getPortBoundaryPlacement(port);
+  const placement = getPortBoundaryPlacement(port, block);
   const length = sideLength(block, placement.side);
   const bounds = getPortOffsetBounds(length);
   const baseOffset = clamp(placement.offset ?? bounds.min, bounds.min, bounds.max);
@@ -229,7 +262,7 @@ const PORT_CELL_MARGIN = 2;
 // same way an ordinary port straddles its own block's border, just sized
 // to actually read as a small block rather than a sliver.
 export function getBoundaryPortBlockRect(block, port, count) {
-  const placement = getPortBoundaryPlacement(port);
+  const placement = getPortBoundaryPlacement(port, block);
   const width = Math.max(placement.width || 1, count, 1);
   const first = getBoundaryWirePosition(block, port, 0);
   const last = getBoundaryWirePosition(block, port, width - 1);
@@ -264,7 +297,7 @@ export function getBoundaryPortBlockRect(block, port, count) {
 export const PORT_RESIZE_HANDLE_LENGTH = 10;
 export function getPortResizeHandleRects(block, port, count) {
   const rect = getBoundaryPortBlockRect(block, port, count);
-  const placement = getPortBoundaryPlacement(port);
+  const placement = getPortBoundaryPlacement(port, block);
   // Never wider than half the block, so on a single-wire (narrowest) port
   // the two handles still leave a sliver of body between them rather than
   // overlapping each other.
@@ -315,7 +348,7 @@ export function findConnectorPosition(block, portId, inverted = false, slot = nu
   // getPortBoundaryPlacement), which can differ from `port.side` — the
   // whole point of letting a port be redocked to a different edge once
   // you're inside its container.
-  const side = slot ? getPortBoundaryPlacement(port).side : port.side;
+  const side = slot ? getPortBoundaryPlacement(port, block).side : port.side;
   const basePos = slot ? getBoundaryWirePosition(block, port, slot.index, slot.connectionId) : getPortPosition(block, port);
   return getConnectorHandlePosition(basePos, side, inverted);
 }
@@ -509,7 +542,10 @@ function drawSubArchitectureBadge(ctx, geometry, palette, zoom) {
 // a widened port's *entire* reserved span reads as occupied — checking
 // only its anchor slot let the "add a port here" ghost (and a click
 // through it) land right on top of one of its other wires.
-export function getEdgeZoneOffset(geometry, ports, worldX, worldY, useBoundaryPlacement = false, wireCountFor = () => 1) {
+// `boundaryBlock` (the container, when `geometry`/`ports` are its frame's)
+// resolves each pin's boundary placement; null checks exterior pins.
+export function getEdgeZoneOffset(geometry, ports, worldX, worldY, boundaryBlock = null, wireCountFor = () => 1) {
+  const useBoundaryPlacement = Boolean(boundaryBlock);
   const { x, y, width, height } = geometry;
   const margin = PORT_LENGTH / 2;
   if (worldX < x - margin || worldX > x + width + margin || worldY < y - margin || worldY > y + height + margin) return null;
@@ -535,7 +571,7 @@ export function getEdgeZoneOffset(geometry, ports, worldX, worldY, useBoundaryPl
   const slot = nearestPortSlot(length, best.offset);
   const slotIndex = slots.indexOf(slot);
   const occupied = (ports || []).some((p) => {
-    const placement = useBoundaryPlacement ? getPortBoundaryPlacement(p) : p;
+    const placement = useBoundaryPlacement ? getPortBoundaryPlacement(p, boundaryBlock) : p;
     if (placement.side !== best.side) return false;
     const baseIndex = slots.indexOf(nearestPortSlot(length, placement.offset));
     const span = useBoundaryPlacement ? Math.max(placement.width || 1, wireCountFor(p.id), 1) : 1;
@@ -817,9 +853,9 @@ function drawPorts(
     // whichever of them hasn't been individually pinned to a slot yet
     // (see getBoundaryWireRelativeIndex).
     const wireEntries = inverted ? boundaryWireLabels?.get(port.id) || [] : [];
-    const reservedWidth = inverted ? getPortBoundaryPlacement(port).width || 1 : 1;
+    const reservedWidth = inverted ? getPortBoundaryPlacement(port, block).width || 1 : 1;
     const rectCount = Math.max(1, wireEntries.length, reservedWidth);
-    const effectiveSide = inverted ? getPortBoundaryPlacement(port).side : port.side;
+    const effectiveSide = inverted ? getPortBoundaryPlacement(port, block).side : port.side;
     const isEffectivelyOutput0 = portDirection === null ? null : inverted ? portDirection === 'in' : portDirection === 'out';
     const color0 = isEffectivelyOutput0 ? outputColor : INPUT_PORT_COLOR;
 
@@ -1114,7 +1150,7 @@ export function drawBoundary(
   // reads as a wall of faint circles rather than a helpful preview — the
   // hover ghost already shows exactly one, right where you're about to
   // click, which is the affordance that actually matters.
-  drawPorts(ctx, { ...block, geometry }, { inverted: true, portHighlights, palette, boundaryWireLabels, wireMoveOverride, zoom });
+  drawPorts(ctx, asBoundaryView(block, geometry), { inverted: true, portHighlights, palette, boundaryWireLabels, wireMoveOverride, zoom });
   // Gated on `selected` exactly like an ordinary block: clicking the
   // dashed line itself now selects the boundary (see HitTest's
   // 'boundaryLine' hit and DragStateMachine's handling of it), so there's

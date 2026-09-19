@@ -98,6 +98,12 @@ export function nearestPortSlot(sideLength, offset, occupied = []) {
 // has to enclose its children — this is its starting size/position the
 // first time a block is entered; from then on it's whatever the user has
 // dragged it to (see DragStateMachine's boundary-edge splitter drag).
-export function createDefaultBoundaryGeometry() {
-  return { x: 0, y: 0, width: GRID_SIZE * 10, height: GRID_SIZE * 6 };
+// `geometry` is the block's own face: the frame is that face scaled by
+// DEFAULT_FRAME_FACTOR (see model/levelGeometry.js for why), so entering a
+// block shows the same picture as zooming into it. Without a face, the
+// historical 10 x 6 cells.
+export function createDefaultBoundaryGeometry(geometry) {
+  if (!geometry) return { x: 0, y: 0, width: GRID_SIZE * 10, height: GRID_SIZE * 6 };
+  return { x: 0, y: 0, width: geometry.width * DEFAULT_FRAME_FACTOR, height: geometry.height * DEFAULT_FRAME_FACTOR };
 }
+export const DEFAULT_FRAME_FACTOR = 3;

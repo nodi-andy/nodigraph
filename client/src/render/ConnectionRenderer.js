@@ -1,6 +1,6 @@
 import { WIRE_STUB_LENGTH, sideNormal, sideAxis } from '../model/grid.js';
 import { resolveRouteCoords, buildRouteLines, routePieces } from '../model/wireRoute.js';
-import { findConnectorPosition, getPortBoundaryPlacement } from './BlockRenderer.js';
+import { asBoundaryView, findConnectorPosition, getPortBoundaryPlacement } from './BlockRenderer.js';
 import { getCanvasPalette } from './canvasPalette.js';
 
 const DEFAULT_PALETTE = getCanvasPalette('light');
@@ -103,7 +103,7 @@ export function getConnectionGeometry(project, connection, boundary, wireMoveOve
     const block = project.getBlock(blockId);
     if (!block) return null;
     const isBoundary = Boolean(boundary) && blockId === boundary.block.id;
-    return { block: isBoundary ? { ...block, geometry: boundary.geometry } : block, isBoundary };
+    return { block: isBoundary ? asBoundaryView(block, boundary.geometry) : block, isBoundary };
   };
 
   const source = resolve(connection.sourceBlockId);
@@ -157,8 +157,8 @@ export function getConnectionGeometry(project, connection, boundary, wireMoveOve
   // BlockRenderer.getPortBoundaryPlacement) can differ from its
   // outer-face `side` once it's been redocked from inside — the stub
   // direction has to follow whichever one actually applies here.
-  const sourceSide = source.isBoundary ? getPortBoundaryPlacement(sourcePort).side : sourcePort.side;
-  const targetSide = target.isBoundary ? getPortBoundaryPlacement(targetPort).side : targetPort.side;
+  const sourceSide = source.isBoundary ? getPortBoundaryPlacement(sourcePort, source.block).side : sourcePort.side;
+  const targetSide = target.isBoundary ? getPortBoundaryPlacement(targetPort, target.block).side : targetPort.side;
 
   const routed = computeConnectionPath(
     sourcePos,

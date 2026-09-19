@@ -96,7 +96,7 @@ are all safe unquoted.
 | `blocks` | mapping of local id → block (**required**) |
 | `wires` | sequence of wires between those blocks |
 | `ports` | the product's *own* interface, same shape as a block's `ports` |
-| `boundary` | `{ x, y, w, h }` of the dashed frame. Default `{0,0,400,240}` — set it to wrap your content or it sits as a small box in the corner. |
+| `boundary` | `{ x, y, w, h }` of the dashed frame. Default: the block's own size × 3 at the origin (the top level: `{0,0,360,240}`) — set it to wrap your content. Keep it 3× the block (or another odd multiple) so the block's pins line up exactly with the frame's, see Nesting. |
 
 ### Block
 
@@ -271,8 +271,22 @@ own ports through `self`:
 ```
 
 Child keys are scoped to their own level, so reusing `c1` in another block is
-fine. Double-click the block in the editor to go inside it — and zoomed in far
-enough, the block draws its interior on its own face without being entered.
+fine.
+
+**The frame is a scaled picture of the block.** `self` ports sit on the frame
+where the block's own ports sit on its face — same side, proportional
+position, snapped to the frame's slot grid. You do not place them separately
+(an older `inSide`/`inOffset` on a port is read and ignored). To wire a child
+straight to a `self` port, put the child's port at 3× the parent port's offset
+when the frame is the default 3× size: a parent pin at `offset: 60` on the top
+edge is at `x: 180` inside a 3× frame. Sizing the frame to another odd multiple
+of the block keeps that exact; any other size still works, the frame pins just
+snap to the nearest slot.
+
+Zooming into a block draws its level on its face through that same mapping,
+and once the block fills the view the editor crosses into the level without
+anything on screen moving; zooming back out crosses back. Double-clicking
+still enters a block directly.
 
 ---
 
@@ -287,7 +301,7 @@ enough, the block draws its interior on its own face without being entered.
 - [ ] Every `wires` endpoint names a block key and a port key that exist at that level.
 - [ ] Background panels listed before what sits on them.
 - [ ] Gaps between wired blocks wide enough for their labels.
-- [ ] `boundary` set to wrap the content.
+- [ ] `boundary` set to wrap the content, ideally 3× the block's `w`/`h`.
 
 ---
 

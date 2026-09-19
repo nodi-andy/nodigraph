@@ -1,86 +1,79 @@
 /**
- * The miniature of a block's own internals, drawn inside the block once
- * there's enough room on screen to read it.
+ * A block's own level, drawn in place on its face.
  *
- * A block with sub-architecture otherwise says nothing about what's in it
- * beyond the small corner badge (see BlockRenderer.drawSubArchitectureBadge)
- * — you have to drill in and come back out to answer "what's in there?".
- * Zoomed in far enough that the block has real estate to spare, that
- * answer can just be shown: the level's own blocks and wires, drawn to
- * scale inside the face and sized to fill it.
+ * This is the rendering half of the endless zoom. A container block's
+ * frame is a scaled picture of its face (see model/levelGeometry.js), so
+ * the level inside it can be drawn straight onto the face through one
+ * transform — the children land where they sit inside, and every
+ * boundary pin lands exactly on the block's own exterior pin. Zoom in and
+ * the level grows with the block; zoom far enough and the camera crosses
+ * into it (see main.js's crossLevelsForZoom) with nothing on screen
+ * moving, because the picture you were looking at IS the level.
  *
- * What it draws is the *contents* of the level, not the editing surface
- * the contents sit on — no dashed boundary frame, and the fit is to where
- * the blocks and wires actually are rather than to the frame's own rect
- * (which is a draggable container for the block's interface, routinely far
- * bigger than anything inside it — fitting to that is what leaves a
- * miniature stranded in the middle of its own face).
+ * Two levels of detail, crossfaded on the effective zoom (screen pixels
+ * per child world unit): silhouettes while the level is small — fills,
+ * borders, port dots, a caption with the block's name — and the real
+ * drawBlock/wire rendering once there is room to read it, so what you see
+ * a moment before crossing in is identical to what you see after.
  *
- * The gate is the block's *on-screen* size, not the zoom level alone — a
- * large block earns a preview sooner than a small one, which is what
- * "enough room to read it" actually means. Zoom is only how world units
- * become screen pixels here.
- *
- * Nothing in this file is interactive: hit-testing, selection and drag all
- * still see a plain block. It is a picture of the inside, not the inside.
+ * Nothing in this file is interactive: hit-testing, selection and drag
+ * still see a plain block until the camera has crossed into the level.
+ * Culling is by the visible world rect handed down from SceneRenderer, so
+ * a level whose block is off screen, or a child off the visible part of
+ * its level, costs nothing.
  */
-import { drawPath, getConnectionGeometry } from './ConnectionRenderer.js';
-import { getPortPosition, hasSubArchitecture } from './BlockRenderer.js';
+import { drawConnectionLabel, drawPath, getConnectionGeometry, getDashPattern } from './ConnectionRenderer.js';
+import { drawBlock, getPortPosition, hasSubArchitecture } from './BlockRenderer.js';
 import { LevelView } from '../model/levelView.js';
+import { frameToFace } from '../model/levelGeometry.js';
 import { getCanvasPalette } from './canvasPalette.js';
 
 // The block's smaller on-screen dimension, in CSS pixels, where the
-// transition starts and where it's complete. Below FADE_IN the miniature
-// is a smudge that costs more attention than it repays — a level of three
-// or four blocks only has room to say anything from about FULL up. The
-// span between the two is what keeps it from popping into existence
-// mid-zoom-gesture. A default block (120x80 world units) reaches FULL at
-// roughly 2.9x zoom; a large one, drawn four grid cells tall, at 1.4x.
+// transition starts and where it's complete. Below FADE_IN the level is a
+// smudge that costs more attention than it repays. The span between the
+// two keeps it from popping into existence mid-zoom-gesture. A default
+// block (120x80 world units) reaches FULL at roughly 2.9x zoom; a large
+// one, drawn four grid cells tall, at 1.4x.
 const FADE_IN_SIZE = 130;
 const FULL_SIZE = 230;
 
 // The crossfade fades *through* rather than dissolving one image into the
-// other: the centered name leaves over NAME_OUT and the miniature only
-// starts arriving at PREVIEW_IN, so the two barely coexist. Dissolving
-// them straight across instead leaves a stretch of zooming where a
-// half-strength label sits on a half-strength schematic, which reads as a
-// rendering fault rather than as a transition; the brief moment with
-// neither is what makes it read as one thing replacing another. The name
-// also holds at full strength for the first fifth, so a block still short
-// of showing anything looks exactly as it always did.
+// other: the centered name leaves over NAME_OUT and the level only starts
+// arriving at PREVIEW_IN, so the two barely coexist.
 const NAME_OUT = [0.2, 0.55];
 const PREVIEW_IN = [0.45, 1];
+
+// Effective zoom (screen px per child world unit) over which the drawing
+// goes from silhouettes to the real block and wire rendering. At 0.5 a
+// default block is 60 px wide — the silhouette's caption is still the
+// only legible text; by 0.9 its own name and port labels read fine.
+const DETAIL_IN = [0.5, 0.9];
 
 // Position within a [start, end] window, clamped to 0..1 at both ends.
 function ramp(t, [start, end]) {
   return Math.min(1, Math.max(0, (t - start) / (end - start)));
 }
 
-// How deep the nesting is allowed to draw. One level of recursion (a
-// previewed child showing its own internals) is a real payoff when you're
-// zoomed right in; past that the marks are smaller than a wire is thick,
-// so it's cost without information.
-const MAX_DEPTH = 2;
+// A hard stop on recursion, well past anything a real diagram nests. The
+// working bound is the size gate: a level only opens once its block has
+// FADE_IN_SIZE pixels on screen, and every level down is smaller by its
+// frame's scale, so how deep the drawing goes follows the zoom.
+const MAX_DEPTH = 12;
 
-// Screen-constant paddings and type sizes, divided by the effective scale
-// before use — the same trick this renderer already uses for grid dots,
-// resize handles and the corner badge.
-const PREVIEW_PADDING = 9;
-const CAPTION_HEIGHT = 13;
+// Screen-constant type sizes, divided by the effective scale before use.
+const CAPTION_INSET = 9;
 const CAPTION_FONT_SIZE = 10;
 const MINI_FONT_SIZE = 9;
 const MINI_CORNER_RADIUS = 2.5;
 
 // How thick a previewed wire and a previewed block's border are drawn, in
-// screen pixels. Deliberately thinner than the real thing (3 and 1.5): a
-// miniature drawn at full weights reads as a dense blot, and the point of
-// it is the shape of the network, not its line quality.
+// screen pixels, while the level is a silhouette.
 const MINI_WIRE_WIDTH = 1.3;
 const MINI_BORDER_WIDTH = 0.9;
 
-// The preview is a quieter register than the block's own face — reference
-// material inside something else, not the drawing being worked on — so
-// everything in it is drawn under this.
+// The silhouette is a quieter register than the block's own face, so it
+// is drawn under this; the full-detail rendering is the real thing and
+// paints at full strength.
 const PREVIEW_ALPHA = 0.85;
 
 const MINI_FONT_STACK = '-apple-system, Segoe UI, Roboto, sans-serif';
@@ -91,12 +84,12 @@ const DEFAULT_ACCENT_COLOR = '#3b6fa0';
  * How far along the crossfade `block` is at this zoom: 0 (an ordinary
  * block, nothing to show) to 1 (fully opened up). Deliberately not an
  * opacity — it's the one position both halves are read off, by
- * drawSubPreview for the miniature and by contentAlphaFor for the name
- * and badge it displaces, so the two can never disagree about where in
- * the transition they are.
+ * drawSubPreview for the level and by contentAlphaFor for the name and
+ * badge it displaces, so the two can never disagree about where in the
+ * transition they are.
  */
 export function subPreviewProgress(block, zoom) {
-  if (block.kind === 'text' || !hasSubArchitecture(block)) return 0;
+  if (block.kind === 'text' || !hasSubArchitecture(block) || !block.boundaryGeometry) return 0;
   const screenSize = Math.min(block.geometry.width, block.geometry.height) * zoom;
   if (screenSize <= FADE_IN_SIZE) return 0;
   if (screenSize >= FULL_SIZE) return 1;
@@ -113,65 +106,16 @@ export function contentAlphaFor(t) {
   return 1 - ramp(t, NAME_OUT);
 }
 
-// The other half: how solidly the miniature itself paints at that same
-// point. PREVIEW_ALPHA is the ceiling it settles at, never full strength.
 function previewInkFor(t) {
-  return ramp(t, PREVIEW_IN) * PREVIEW_ALPHA;
+  return ramp(t, PREVIEW_IN);
 }
 
-// The extent of what's actually drawn: every child block, plus every point
-// the routed wires pass through. The wires matter because one running out
-// to the container's interface ends on the boundary frame, which can sit
-// well outside the blocks — fitting to the blocks alone would clip it.
-function contentBounds(blocks, routed) {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  const include = (px, py) => {
-    if (px < minX) minX = px;
-    if (py < minY) minY = py;
-    if (px > maxX) maxX = px;
-    if (py > maxY) maxY = py;
-  };
-  for (const b of blocks) {
-    include(b.geometry.x, b.geometry.y);
-    include(b.geometry.x + b.geometry.width, b.geometry.y + b.geometry.height);
-  }
-  for (const entry of routed) for (const point of entry.geometry.points) include(point.x, point.y);
-  if (!Number.isFinite(minX)) return null;
-  return { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+function intersects(a, b) {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 }
 
-// Where the miniature goes inside the block's face, and what maps the
-// child level's own world coordinates onto it. `scale` composes with the
-// camera's zoom, so `zoom * scale` is how many screen pixels one child
-// world unit ends up being — that product is what every screen-constant
-// size inside the miniature is divided by.
-function previewLayout(geometry, bounds, zoom) {
-  const padding = PREVIEW_PADDING / zoom;
-  const caption = CAPTION_HEIGHT / zoom;
-  const inner = {
-    x: geometry.x + padding,
-    y: geometry.y + padding + caption,
-    width: geometry.width - padding * 2,
-    height: geometry.height - padding * 2 - caption,
-  };
-  if (inner.width <= 0 || inner.height <= 0) return null;
-  const scale = Math.min(inner.width / bounds.width, inner.height / bounds.height);
-  return {
-    scale,
-    // Centered in whichever axis has slack left over after fitting.
-    offsetX: inner.x + (inner.width - bounds.width * scale) / 2 - bounds.x * scale,
-    offsetY: inner.y + (inner.height - bounds.height * scale) / 2 - bounds.y * scale,
-  };
-}
-
-// A block reduced to its silhouette: fill, accent border, and its name if
-// there's a legible amount of room for it. Ports are single dots — at this
-// size the pipe-shaped real thing (see BlockRenderer's PORT_LENGTH) is
-// indistinguishable from a blob, but *where* wires attach is still worth
-// showing, since that's half of what a diagram says.
+// A block reduced to its silhouette: fill, accent border, port dots and
+// its name if there's a legible amount of room for it.
 function drawMiniBlock(ctx, block, palette, effectiveZoom, ownPreviewT) {
   const { x, y, width, height } = block.geometry;
   const accent = block.style?.color || DEFAULT_ACCENT_COLOR;
@@ -202,12 +146,6 @@ function drawMiniBlock(ctx, block, palette, effectiveZoom, ownPreviewT) {
     ctx.fill();
   }
 
-  // Under roughly this much room a name is a grey smear that reads as
-  // dirt on the glass, so the silhouette goes unlabelled rather than
-  // mislabelled. A silhouette about to be opened up in turn (see
-  // drawSubPreview's recursion) drops its centered name by exactly as
-  // much, for the same reason a full-size block does — its own nested
-  // caption is taking that job over.
   const fontSize = MINI_FONT_SIZE / effectiveZoom;
   const nameAlpha = contentAlphaFor(ownPreviewT);
   if (height < fontSize * 1.6 || width < fontSize * 2.5 || nameAlpha <= 0) return;
@@ -220,10 +158,8 @@ function drawMiniBlock(ctx, block, palette, effectiveZoom, ownPreviewT) {
 }
 
 // The terminal a wire runs out to when it leaves for the container's own
-// interface — where the full-size interior view would draw a boundary
-// port. Without it such a wire just stops in mid-air and reads as broken.
-// Muted rather than coloured like a child's port: it belongs to the
-// container, not to anything inside it.
+// interface — on the frame's edge, which the transform puts on the face's
+// edge, right under the block's own exterior pin.
 function drawEdgeTerminal(ctx, position, palette, effectiveZoom) {
   if (!position) return;
   ctx.beginPath();
@@ -233,57 +169,63 @@ function drawEdgeTerminal(ctx, position, palette, effectiveZoom) {
 }
 
 /**
- * Draws `block`'s internals inside its own face. Call it after drawBlock
- * has painted that block, passing the `t` subPreviewProgress returned
- * for the same block and zoom — early enough in the ramp (or 0) draws
- * nothing at all.
+ * Draws `block`'s level inside its own face. Call it after drawBlock has
+ * painted that block, passing the `t` subPreviewProgress returned for the
+ * same block and zoom — early enough in the ramp (or 0) draws nothing.
+ * `visible` (optional) is the visible world rect in this level's own
+ * coordinates; anything outside it is skipped.
  */
-export function drawSubPreview(ctx, block, { zoom = 1, t = 1, palette = getCanvasPalette('light'), depth = 0 } = {}) {
+export function drawSubPreview(ctx, block, { zoom = 1, t = 1, palette = getCanvasPalette('light'), depth = 0, visible = null } = {}) {
   const ink = previewInkFor(t);
-  if (ink <= 0 || depth >= MAX_DEPTH || !hasSubArchitecture(block)) return;
+  const frame = block.boundaryGeometry;
+  if (ink <= 0 || depth >= MAX_DEPTH || !hasSubArchitecture(block) || !frame) return;
+  if (visible && !intersects(block.geometry, visible)) return;
 
   const view = new LevelView(block);
-  // Routed up front, because the miniature is fitted to where the wires
-  // actually run (see contentBounds) — the routing itself is in the child
-  // level's own coordinates and is unaffected by that fit, so there's no
-  // circularity in doing it first. The boundary geometry still takes part
-  // *here*, as the thing that says where this block's own interface pins
-  // sit for a wire to reach; it just isn't drawn, and no longer decides
-  // how the miniature is framed.
-  const boundaryGeometry = block.boundaryGeometry;
-  const boundary = boundaryGeometry ? { block, geometry: boundaryGeometry } : null;
+  const layout = frameToFace(block.geometry, frame);
+  const effectiveZoom = zoom * layout.scale;
+  const detail = ramp(effectiveZoom, DETAIL_IN);
+  const { x, y, width, height } = block.geometry;
+
+  const boundary = { block, geometry: frame };
   const routed = [];
   for (const connection of view.listConnections()) {
     const geometry = getConnectionGeometry(view, connection, boundary);
     if (geometry) routed.push({ connection, geometry });
   }
 
-  const bounds = contentBounds(view.listBlocks(), routed);
-  if (!bounds) return;
-  const layout = previewLayout(block.geometry, bounds, zoom);
-  if (!layout) return;
-
-  const effectiveZoom = zoom * layout.scale;
-  const { x, y, width, height } = block.geometry;
+  // What the level sees of the viewport, in its own coordinates.
+  const childVisible = visible
+    ? {
+        x: (visible.x - layout.offsetX) / layout.scale,
+        y: (visible.y - layout.offsetY) / layout.scale,
+        width: visible.width / layout.scale,
+        height: visible.height / layout.scale,
+      }
+    : null;
 
   ctx.save();
   ctx.globalAlpha = ink;
 
-  // The caption carries the block's name once the miniature has the
-  // middle of the face. It arrives on the same curve as the rest of the
-  // miniature, just after drawBlock's centered name has gone (see
-  // NAME_OUT/PREVIEW_IN) — the block reads as briefly unlabelled between
-  // the two, which is the transition, rather than as doubly labelled.
-  const captionSize = CAPTION_FONT_SIZE / zoom;
-  const captionInset = PREVIEW_PADDING / zoom;
-  ctx.fillStyle = palette.blockText;
-  ctx.font = `${captionSize}px ${MINI_FONT_STACK}`;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  ctx.fillText(block.name || '', x + captionInset, y + captionInset * 0.6, width - captionInset * 2);
+  // The caption carries the block's name while the level is a silhouette
+  // whose own names are too small to read; it fades out as the real
+  // rendering, names included, fades in.
+  if (detail < 1) {
+    const captionSize = CAPTION_FONT_SIZE / zoom;
+    const captionInset = CAPTION_INSET / zoom;
+    ctx.save();
+    ctx.globalAlpha = ink * (1 - detail);
+    ctx.fillStyle = palette.blockText;
+    ctx.font = `${captionSize}px ${MINI_FONT_STACK}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(block.name || '', x + captionInset, y + captionInset * 0.6, width - captionInset * 2);
+    ctx.restore();
+  }
 
-  // Clipped to the face so anything reaching past the fitted bounds — a
-  // hand-routed wire's detour, say — can't spill onto the canvas.
+  // Clipped to the face so anything reaching past the frame — a child
+  // placed outside it, a hand-routed wire's detour — can't spill onto the
+  // parent level.
   ctx.beginPath();
   ctx.rect(x, y, width, height);
   ctx.clip();
@@ -291,35 +233,48 @@ export function drawSubPreview(ctx, block, { zoom = 1, t = 1, palette = getCanva
   ctx.translate(layout.offsetX, layout.offsetY);
   ctx.scale(layout.scale, layout.scale);
 
-  // Wires first, so every silhouette paints over its own endpoints — the
-  // same relationship a wire has with its frontmost block in the real
-  // scene. No hop bows and no labels: both are legibility devices sized
-  // for a full-size diagram, and at this scale they only add noise.
-  for (const { connection, geometry } of routed) {
-    drawPath(ctx, geometry.points, {
-      color: connection.color || DEFAULT_WIRE_COLOR,
-      width: MINI_WIRE_WIDTH / effectiveZoom,
-    });
-    // Only the interface pins actually carrying a wire get a terminal: an
-    // unwired one has nothing to leave dangling, and marking every pin
-    // would put a second set of port marks on a face that already carries
-    // this block's real ones.
-    if (connection.sourceBlockId === block.id) drawEdgeTerminal(ctx, geometry.sourcePos, palette, effectiveZoom);
-    if (connection.targetBlockId === block.id) drawEdgeTerminal(ctx, geometry.targetPos, palette, effectiveZoom);
+  const children = view.listBlocks().filter((child) => !childVisible || intersects(child.geometry, childVisible));
+
+  // Silhouette pass — fades out as detail comes in.
+  if (detail < 1) {
+    ctx.save();
+    ctx.globalAlpha = ink * PREVIEW_ALPHA * (1 - detail);
+    for (const { connection, geometry } of routed) {
+      drawPath(ctx, geometry.points, { color: connection.color || DEFAULT_WIRE_COLOR, width: MINI_WIRE_WIDTH / effectiveZoom });
+      if (connection.sourceBlockId === block.id) drawEdgeTerminal(ctx, geometry.sourcePos, palette, effectiveZoom);
+      if (connection.targetBlockId === block.id) drawEdgeTerminal(ctx, geometry.targetPos, palette, effectiveZoom);
+    }
+    for (const child of children) {
+      const childT = subPreviewProgress(child, effectiveZoom);
+      ctx.save();
+      drawMiniBlock(ctx, child, palette, effectiveZoom, childT);
+      ctx.restore();
+    }
+    ctx.restore();
   }
 
-  for (const child of view.listBlocks()) {
-    // A child with its own internals gets the same treatment recursively,
-    // gated on its own on-screen size under the combined scale — so it
-    // opens up only once you've zoomed far enough that it, too, has room.
-    // Its alpha drives the same crossfade one level down that this one's
-    // does up here: the silhouette's centered name out, the nested
-    // miniature and its caption in.
-    const childT = depth + 1 < MAX_DEPTH ? subPreviewProgress(child, effectiveZoom) : 0;
+  // Full-detail pass — the level drawn exactly as it is drawn once the
+  // camera has crossed into it (same drawBlock, same wire renderer), so
+  // the crossing changes nothing on screen.
+  if (detail > 0) {
     ctx.save();
-    drawMiniBlock(ctx, child, palette, effectiveZoom, childT);
+    ctx.globalAlpha = ink * detail;
+    for (const { connection, geometry } of routed) {
+      drawPath(ctx, geometry.points, { color: connection.color || DEFAULT_WIRE_COLOR, dash: getDashPattern(connection.dashStyle) });
+      if (connection.label) drawConnectionLabel(ctx, geometry, connection.label, palette);
+    }
+    for (const child of children) {
+      const childT = subPreviewProgress(child, effectiveZoom);
+      drawBlock(ctx, child, { palette, zoom: effectiveZoom, contentAlpha: contentAlphaFor(childT) });
+    }
     ctx.restore();
-    drawSubPreview(ctx, child, { zoom: effectiveZoom, t: childT, palette, depth: depth + 1 });
+  }
+
+  // A child with its own level gets the same treatment recursively, gated
+  // on its own on-screen size under the combined scale.
+  for (const child of children) {
+    const childT = subPreviewProgress(child, effectiveZoom);
+    if (childT > 0) drawSubPreview(ctx, child, { zoom: effectiveZoom, t: childT, palette, depth: depth + 1, visible: childVisible });
   }
 
   ctx.restore();

@@ -6,6 +6,8 @@ import {
   projectPointToPerimeter,
   getEdgeZoneOffset,
   getPortBoundaryPlacement,
+  asBoundaryView,
+  exteriorPlacementFromBoundary,
   getBoundaryPortBlockRect,
   getPortResizeHandleRects,
   getOccupiedWireIndicesExcluding,
@@ -149,7 +151,7 @@ function invertDirection(direction) {
  * a wire" vs "drag a piece of a wire" vs "pan background" unambiguous.
  */
 export class DragStateMachine {
-  constructor({ camera, project, selection, wireSelection, requestRender, persist, onEnterBlock, onRequestRename, onRequestWireLabel, onLiveUpdate }) {
+  constructor({ camera, project, selection, wireSelection, requestRender, persist, onEnterBlock, onRequestRename, onRequestWireLabel, onLiveUpdate, onZoomChanged }) {
     this.camera = camera;
     this.project = project;
     this.selection = selection;
@@ -176,6 +178,9 @@ export class DragStateMachine {
     // another open client see the move as it happens instead of only once
     // you release and it's actually saved to disk (see main.js/liveSync.js).
     this.onLiveUpdate = onLiveUpdate;
+    // Fired after every user zoom (wheel or pinch) with the camera already
+    // moved — main.js's endless-zoom level crossing hangs off it.
+    this.onZoomChanged = onZoomChanged;
     this.state = STATES.IDLE;
     this.context = null;
     // { blockId, geometry, ports, side, offset, ready } while the cursor is
@@ -244,7 +249,7 @@ export class DragStateMachine {
         ghost.ports,
         world.x,
         world.y,
-        ghost.isBoundary,
+        ghost.isBoundary ? this.project.getBlock(ghost.blockId) : null,
         (portId) => this.wireCountFor(ghost.blockId, portId),
       );
       this.clearHoverGhost();
@@ -338,7 +343,7 @@ export class DragStateMachine {
       // exceeds its stored width would resize from the wrong far edge:
       // the handle you can see and grab sits at the effective width, but
       // the drag math would still measure from the smaller stored one.
-      const placement = getPortBoundaryPlacement(port);
+      const placement = getPortBoundaryPlacement(port, block);
       const wireIds = this.project.listBoundaryWires(hit.blockId, hit.portId);
       const wireCount = wireIds.length;
       // Every real wire's own CURRENT relative index, snapshotted — the
@@ -483,7 +488,7 @@ export class DragStateMachine {
       // whole-port move exactly as before.
       if (isBoundary && hit.wireIndex !== undefined) {
         const port = block.ports.find((p) => p.id === hit.portId);
-        const width = getPortBoundaryPlacement(port).width || 1;
+        const width = getPortBoundaryPlacement(port, block).width || 1;
         if (width > 1) {
           this.state = STATES.MOVING_PORT_WIRE;
           this.context = {
@@ -978,31 +983,19 @@ export class DragStateMachine {
         const projected = projectPointToPerimeter({ geometry }, world.x, world.y);
         const sideLength = sideAxis(projected.side) === 'x' ? geometry.height : geometry.width;
         if (this.context.isBoundary) {
-          // A boundary drag only ever moves the port's *boundary*
-          // placement (see BlockRenderer.getPortBoundaryPlacement) — its
-          // outer-face side/offset is a completely separate fact, and
-          // stays exactly where it was, this is what lets a port be
-          // redocked to a different edge from inside without moving
-          // where it sits from outside.
-          const width = getPortBoundaryPlacement(port).width || 1;
-          const occupied = block.ports
-            .filter((p) => p.id !== port.id)
-            .map((p) => getPortBoundaryPlacement(p))
-            .filter((placement) => placement.side === projected.side)
-            .map((placement) => nearestPortSlot(sideLength, placement.offset));
-          port.boundary = {
-            side: projected.side,
-            offset: nearestPortSlot(sideLength, projected.offset, occupied),
-            width,
-            // Carried over untouched — moving the whole port relocates
-            // every wire on it together (each one's position is relative
-            // to this same anchor), so none of their own individual
-            // pinned slots (see getBoundaryWireRelativeIndex) needs to
-            // change, only where the anchor itself now sits.
-            wireSlots: port.boundary?.wireSlots,
-          };
+          // The frame is a scaled picture of the face (see
+          // model/levelGeometry.js), so dragging a pin along the dashed
+          // frame IS dragging the block's own pin: the position is mapped
+          // back onto the face and written to the one place it lives.
+          // Its reserved width and per-wire slots ride along untouched —
+          // every wire's position is relative to the pin's anchor, so
+          // moving the anchor moves them all together.
+          const placement = exteriorPlacementFromBoundary(block, projected.side, projected.offset, port.id);
+          port.side = placement.side;
+          port.offset = placement.offset;
+          port.manualOffset = true;
           this.requestRender();
-          this.onLiveUpdate?.({ kind: 'portBoundary', blockId: block.id, portId: port.id, boundary: port.boundary });
+          this.onLiveUpdate?.({ kind: 'port', blockId: block.id, portId: port.id, side: port.side, offset: port.offset });
           break;
         }
         // Compared as each sibling's *resolved* slot (nearestPortSlot), not
@@ -1031,7 +1024,7 @@ export class DragStateMachine {
         // width, not just however many real wires exist — an independent
         // wire slot (see getBoundaryWireRelativeIndex) can land on any of
         // them, empty or not.
-        const placement = getPortBoundaryPlacement(port);
+        const placement = getPortBoundaryPlacement(port, block);
         const side = placement.side;
         const geometry = boundary.geometry;
         const alongY = sideAxis(side) === 'x';
@@ -1185,7 +1178,7 @@ export class DragStateMachine {
         boundary.block.ports,
         world.x,
         world.y,
-        true,
+        boundary.block,
         (portId) => this.wireCountFor(boundary.block.id, portId),
       );
       if (zone) return { blockId: boundary.block.id, geometry: boundary.geometry, ports: boundary.block.ports, isBoundary: true, ...zone };
@@ -1361,7 +1354,7 @@ export class DragStateMachine {
     if (hit?.type === 'portResizeHandle') {
       const block = this.project.getBlock(hit.blockId);
       const port = block?.ports.find((p) => p.id === hit.portId);
-      const axis = port ? sideAxis(getPortBoundaryPlacement(port).side) : 'x';
+      const axis = port ? sideAxis(getPortBoundaryPlacement(port, block).side) : 'x';
       return axis === 'y' ? 'ew-resize' : 'ns-resize';
     }
     // Any port's own body — as opposed to one of its resize handles, or
@@ -1414,7 +1407,7 @@ export class DragStateMachine {
     const block = this.project.getBlock(blockId);
     const port = block?.ports.find((p) => p.id === portId);
     if (!port) return;
-    const width = getPortBoundaryPlacement(port).width || 1;
+    const width = getPortBoundaryPlacement(port, block).width || 1;
     if (width <= 1) return;
     const wireIds = this.project.listBoundaryWires(blockId, portId);
     const occupied = new Set(getOccupiedWireIndicesExcluding(port, wireIds, connectionId));
@@ -1423,7 +1416,7 @@ export class DragStateMachine {
       index = 0;
       while (occupied.has(index)) index += 1;
     }
-    if (!port.boundary) port.boundary = { side: port.side, offset: port.offset, width: 1 };
+    if (!port.boundary) port.boundary = { width };
     if (!port.boundary.wireSlots) port.boundary.wireSlots = {};
     port.boundary.wireSlots[connectionId] = index;
   }
@@ -1459,7 +1452,7 @@ export class DragStateMachine {
       // it reaches does — existing wires' relative indices are pinned
       // exactly as they were, completely untouched by this.
       const width = Math.max(1, maxExistingRel + 1, cursorIndex - anchorIndex + 1);
-      port.boundary = { side, offset: startPlacement.offset, width, wireSlots: { ...startWireSlots } };
+      port.boundary = { width, wireSlots: { ...startWireSlots } };
     } else {
       // The far end stays fixed at its original world position (same
       // idea as resizing a block from its left/top edge — see
@@ -1480,7 +1473,15 @@ export class DragStateMachine {
       for (const [id, rel] of Object.entries(startWireSlots)) {
         wireSlots[id] = rel + compensation;
       }
-      port.boundary = { side, offset: slots[newAnchorIndex], width, wireSlots };
+      port.boundary = { width, wireSlots };
+      // The anchor is the block's own pin seen through the frame (see
+      // BlockRenderer.getPortBoundaryPlacement), so sliding it is written
+      // back to the exterior pin — the same edit dragging the pin makes.
+      const exterior = exteriorPlacementFromBoundary(block, side, slots[newAnchorIndex], port.id);
+      port.side = exterior.side;
+      port.offset = exterior.offset;
+      port.manualOffset = true;
+      this.onLiveUpdate?.({ kind: 'port', blockId: block.id, portId: port.id, side: port.side, offset: port.offset });
     }
     this.requestRender();
     this.onLiveUpdate?.({ kind: 'portBoundary', blockId: block.id, portId: port.id, boundary: port.boundary });
@@ -1538,17 +1539,12 @@ export class DragStateMachine {
     // note); side is just where it visually sits.
     let port;
     if (isBoundary) {
-      // Clicking a bare spot on the boundary gives the new port its
-      // *boundary* placement right there — its outer-face side/offset is
-      // a separate, auto-placed fact (see addPort), the same as any other
-      // port only ever gets from the Inspector's own "+ Add port".
-      const occupied = block.ports
-        .map((p) => getPortBoundaryPlacement(p))
-        .filter((placement) => placement.side === side)
-        .map((placement) => nearestPortSlot(sideLength, placement.offset));
-      const slotOffset = nearestPortSlot(sideLength, offset, occupied);
-      port = addPort(block, {});
-      port.boundary = { side, offset: slotOffset, width: 1 };
+      // Clicking a bare spot on the frame adds the block's own pin at the
+      // corresponding spot on its face (see model/levelGeometry.js) — the
+      // frame shows exactly what the face shows, so there is one placement
+      // to decide, not two.
+      const exterior = exteriorPlacementFromBoundary(block, side, offset);
+      port = addPort(block, { side: exterior.side, offset: exterior.offset });
     } else {
       // Resolved slot, not raw offset — see the same note in the
       // DRAGGING_PORT case above.
@@ -1943,10 +1939,10 @@ export class DragStateMachine {
     if (!block || !port) return null;
 
     const boundary = this.getBoundaryInfo();
-    const geomBlock = sourceInverted && boundary ? { ...block, geometry: boundary.geometry } : block;
+    const geomBlock = sourceInverted && boundary ? asBoundaryView(block, boundary.geometry) : block;
     const sourcePos = findConnectorPosition(geomBlock, sourcePortId, sourceInverted, sourceInverted ? { index: this.getDragSourceSlotIndex(), connectionId: this.context.redirectingConnectionId } : null);
     if (!sourcePos) return null;
-    const side = sourceInverted ? getPortBoundaryPlacement(port).side : port.side;
+    const side = sourceInverted ? getPortBoundaryPlacement(port, geomBlock).side : port.side;
     return previewPathToCursor(sourcePos, side, currentWorld, sourceInverted);
   }
 
@@ -1971,6 +1967,7 @@ export class DragStateMachine {
 
   onWheelZoom(screen, factor) {
     this.camera.zoomAt(screen.x, screen.y, factor);
+    this.onZoomChanged?.();
     this.requestRender();
   }
 
@@ -1982,6 +1979,7 @@ export class DragStateMachine {
   onPinchZoom(pivot, factor, panDx, panDy) {
     this.camera.zoomAt(pivot.x, pivot.y, factor);
     this.camera.pan(panDx, panDy);
+    this.onZoomChanged?.();
     this.requestRender();
   }
 

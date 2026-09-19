@@ -39,7 +39,7 @@ export class Project {
     } else {
       this.rootBlock = createBlock({ name });
       this.rootBlock.hasChildren = true;
-      this.rootBlock.boundaryGeometry = createDefaultBoundaryGeometry();
+      this.rootBlock.boundaryGeometry = createDefaultBoundaryGeometry(this.rootBlock.geometry);
       this.rootBlock.children = {
         blocks: new Map(blocks.map((block) => [block.id, hydrateBlockTree(block)])),
         connections: new Map(connections.map((connection) => [connection.id, connection])),
@@ -88,7 +88,7 @@ export class Project {
       if (!block.children) {
         block.children = { blocks: new Map(), connections: new Map() };
         block.hasChildren = true;
-        block.boundaryGeometry = block.boundaryGeometry || createDefaultBoundaryGeometry();
+        block.boundaryGeometry = block.boundaryGeometry || createDefaultBoundaryGeometry(block.geometry);
       }
       level = block.children;
     }
@@ -359,7 +359,7 @@ export class Project {
     const oldRoot = this.rootBlock;
     const newRoot = createBlock({ name });
     newRoot.hasChildren = true;
-    newRoot.boundaryGeometry = createDefaultBoundaryGeometry();
+    newRoot.boundaryGeometry = createDefaultBoundaryGeometry(newRoot.geometry);
     newRoot.children = { blocks: new Map([[oldRoot.id, oldRoot]]), connections: new Map() };
     this.rootBlock = newRoot;
     this.path = [oldRoot.id, ...this.path];
@@ -381,7 +381,7 @@ export class Project {
     if (!block.children) {
       block.children = { blocks: new Map(), connections: new Map() };
       block.hasChildren = true;
-      block.boundaryGeometry = block.boundaryGeometry || createDefaultBoundaryGeometry();
+      block.boundaryGeometry = block.boundaryGeometry || createDefaultBoundaryGeometry(block.geometry);
     }
     this.path = [...this.path, blockId];
     return true;

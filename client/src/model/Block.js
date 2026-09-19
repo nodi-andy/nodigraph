@@ -124,7 +124,7 @@ export function hydrateBlock(raw) {
     ports,
     props: raw.props || [],
     description: raw.description || `Block: ${raw.name || 'Block'}`,
-    boundaryGeometry: raw.hasChildren ? raw.boundaryGeometry || createDefaultBoundaryGeometry() : raw.boundaryGeometry || null,
+    boundaryGeometry: raw.hasChildren ? raw.boundaryGeometry || createDefaultBoundaryGeometry(raw.geometry) : raw.boundaryGeometry || null,
   };
   // `subtitle` and `lines` (see BlockRenderer.blockTextRows) are optional
   // and stay absent rather than becoming `''`/`[]` on every block, so a
@@ -132,6 +132,19 @@ export function hydrateBlock(raw) {
   if (!(typeof block.subtitle === 'string' && block.subtitle !== '')) delete block.subtitle;
   if (Array.isArray(block.lines) && block.lines.length) block.lines = block.lines.map(String);
   else delete block.lines;
+  // A pin's interior side/offset used to be stored (dragged from inside,
+  // independent of the exterior pin). It is derived now — see
+  // model/levelGeometry.js — so only the two facts that are still data
+  // survive: how many wire slots the pin reserves on the frame, and which
+  // of its wires sits in which slot.
+  for (const pin of block.ports) {
+    if (!pin.boundary) continue;
+    const kept = {};
+    if (pin.boundary.width && pin.boundary.width > 1) kept.width = pin.boundary.width;
+    if (pin.boundary.wireSlots && Object.keys(pin.boundary.wireSlots).length) kept.wireSlots = pin.boundary.wireSlots;
+    if (Object.keys(kept).length) pin.boundary = kept;
+    else delete pin.boundary;
+  }
   return block;
 }
 

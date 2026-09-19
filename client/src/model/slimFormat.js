@@ -73,19 +73,18 @@ function computePortsSlim(block) {
     // one spot. Only written when it's ever actually been set (dragged
     // from inside at least once) and only the parts that differ from just
     // mirroring the exterior placement — the ordinary default before that.
-    if (pin.boundary) {
-      if (pin.boundary.side !== pin.side) rec.inSide = pin.boundary.side;
-      if (pin.boundary.offset !== pin.offset) rec.inOffset = pin.boundary.offset;
-      if (pin.boundary.width && pin.boundary.width > 1) rec.inWidth = pin.boundary.width;
-    }
+    // A pin's interior placement is derived from its exterior one (see
+    // model/levelGeometry.js), so the only interior fact worth writing is
+    // how many wire slots it reserves on the frame.
+    if (pin.boundary?.width && pin.boundary.width > 1) rec.inWidth = pin.boundary.width;
     portsSlim[key] = flow(rec);
   });
   return { portsSlim, pinKeys };
 }
 
-function boundaryToSlim(boundaryGeometry) {
+function boundaryToSlim(boundaryGeometry, faceGeometry) {
   if (!boundaryGeometry) return undefined;
-  const d = createDefaultBoundaryGeometry();
+  const d = createDefaultBoundaryGeometry(faceGeometry);
   if (boundaryGeometry.x === d.x && boundaryGeometry.y === d.y && boundaryGeometry.width === d.width && boundaryGeometry.height === d.height) {
     return undefined;
   }
@@ -182,7 +181,7 @@ function blockToSlim(block) {
     const { blocksSlim, wiresSlim } = levelToSlim(block.children?.blocks || [], block.children?.connections || [], block, pinKeys);
     slim.blocks = blocksSlim;
     if (wiresSlim.length) slim.wires = wiresSlim;
-    const boundary = boundaryToSlim(block.boundaryGeometry);
+    const boundary = boundaryToSlim(block.boundaryGeometry, block.geometry);
     if (boundary) slim.boundary = boundary;
   }
 
@@ -198,7 +197,7 @@ export function projectDataToSlim(data) {
   if (Object.keys(portsSlim).length) slim.ports = portsSlim;
   slim.blocks = blocksSlim;
   if (wiresSlim.length) slim.wires = wiresSlim;
-  const boundary = boundaryToSlim(root.boundaryGeometry);
+  const boundary = boundaryToSlim(root.boundaryGeometry, root.geometry);
   if (boundary) slim.boundary = boundary;
   return slim;
 }
@@ -237,13 +236,10 @@ function slimPortsToArrays(portsSlim) {
     // repositioned from inside gets no `.boundary` at all, same as a
     // freshly-created one, and falls back to mirroring side/offset above
     // (see BlockRenderer.getPortBoundaryPlacement).
-    if (rec.inSide !== undefined || rec.inOffset !== undefined || rec.inWidth !== undefined) {
-      pin.boundary = {
-        side: rec.inSide || side,
-        offset: rec.inOffset !== undefined ? rec.inOffset : pin.offset,
-        width: rec.inWidth || 1,
-      };
-    }
+    // `inSide`/`inOffset` from an older export are accepted and ignored:
+    // the interior placement is the exterior one seen through the frame
+    // (see model/levelGeometry.js). Only a reserved width is still data.
+    if (rec.inWidth && rec.inWidth > 1) pin.boundary = { width: rec.inWidth };
     pins.push(pin);
   }
   return { logicalPorts, pins, pinIdByKey };
@@ -337,7 +333,7 @@ function slimBlockToData(slimBlock) {
   if (hasChildren) {
     block.boundaryGeometry = slimBlock.boundary
       ? { x: slimBlock.boundary.x, y: slimBlock.boundary.y, width: slimBlock.boundary.w, height: slimBlock.boundary.h }
-      : createDefaultBoundaryGeometry();
+      : createDefaultBoundaryGeometry(block.geometry);
     const { blocksArray, connectionsArray } = slimLevelToData(slimBlock.blocks, slimBlock.wires, block.id, pinIdByKey);
     block.children = { blocks: blocksArray, connections: connectionsArray };
   }
@@ -348,16 +344,17 @@ function slimBlockToData(slimBlock) {
 export function slimToProjectData(slim) {
   const rootId = generateId('blk');
   const { logicalPorts, pins, pinIdByKey } = slimPortsToArrays(slim.ports);
+  const rootGeometry = { x: 0, y: 0, width: DEFAULT_BLOCK_WIDTH, height: DEFAULT_BLOCK_HEIGHT };
   const boundaryGeometry = slim.boundary
     ? { x: slim.boundary.x, y: slim.boundary.y, width: slim.boundary.w, height: slim.boundary.h }
-    : createDefaultBoundaryGeometry();
+    : createDefaultBoundaryGeometry(rootGeometry);
   const { blocksArray, connectionsArray } = slimLevelToData(slim.blocks || {}, slim.wires || [], rootId, pinIdByKey);
   const rootBlock = {
     id: rootId,
     name: slim.name || 'Untitled',
     type: 'block',
     kind: 'block',
-    geometry: { x: 0, y: 0, width: DEFAULT_BLOCK_WIDTH, height: DEFAULT_BLOCK_HEIGHT },
+    geometry: rootGeometry,
     style: { color: DEFAULT_BLOCK_COLOR },
     logicalPorts,
     ports: pins,

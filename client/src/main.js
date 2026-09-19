@@ -32,7 +32,8 @@ import { mountOnlineUsers } from './ui/OnlineUsers.js';
 import { showToast } from './ui/Toast.js';
 import { maybeShowOnboarding } from './ui/Onboarding.js';
 import { renderCurrentLevelDataUrl, renderCurrentLevelBlob } from './model/diagramImage.js';
-import { getBoundaryLabelRect } from './render/BlockRenderer.js';
+import { getBoundaryLabelRect, hasSubArchitecture } from './render/BlockRenderer.js';
+import { frameToFace } from './model/levelGeometry.js';
 import { getConnectionGeometry, getConnectionLabelPosition } from './render/ConnectionRenderer.js';
 import { downloadProjectFile, readProjectFile, safeFileStem } from './model/localFile.js';
 import { projectDataToYamlText, pasteSlimYamlText } from './model/slimFormat.js';
@@ -585,6 +586,71 @@ async function bootstrap() {
     return block;
   }
 
+  // The endless zoom. A container block's frame is a scaled picture of
+  // its face (see model/levelGeometry.js) and SubPreviewRenderer draws
+  // its level on the face through that same transform — so once you have
+  // zoomed until the block fills the view, the picture on screen already
+  // IS the level. This hands the camera over to it: the level becomes the
+  // one being edited and the camera is re-based through the transform,
+  // which leaves every pixel where it was. Zooming back out until the
+  // level's frame fits comfortably inside the view hands the camera back
+  // to the parent the same way. The two thresholds do not overlap (a
+  // frame that fills the view cannot also fit inside it with room to
+  // spare), so a zoom held at the boundary cannot flap between levels.
+  const ENTER_FRACTION = 0.85;
+  const EXIT_FRACTION = 0.5;
+
+  function crossLevelsForZoom() {
+    if (!stateMachine.isIdle()) return;
+    const viewWidth = canvas.clientWidth;
+    const viewHeight = canvas.clientHeight;
+    if (viewWidth <= 0 || viewHeight <= 0) return;
+    const viewMin = Math.min(viewWidth, viewHeight);
+
+    // In: the view's centre lies on a container whose face is (nearly)
+    // as big as the view.
+    const centre = camera.screenToWorld(viewWidth / 2, viewHeight / 2);
+    const blocks = project.listBlocks();
+    for (let i = blocks.length - 1; i >= 0; i -= 1) {
+      const block = blocks[i];
+      if (block.kind === 'text' || !hasSubArchitecture(block) || !block.boundaryGeometry || !canEnterBlock(block)) continue;
+      const { x, y, width, height } = block.geometry;
+      if (centre.x < x || centre.x > x + width || centre.y < y || centre.y > y + height) continue;
+      if (Math.min(width, height) * camera.zoom < ENTER_FRACTION * viewMin) continue;
+      const t = frameToFace(block.geometry, block.boundaryGeometry);
+      if (!project.enterBlock(block.id)) return;
+      // screen = zoom * (framePoint * scale + offset) + cameraOffset
+      //        = (zoom * scale) * framePoint + (zoom * offset + cameraOffset)
+      camera.offsetX += camera.zoom * t.offsetX;
+      camera.offsetY += camera.zoom * t.offsetY;
+      camera.zoom *= t.scale;
+      afterLevelCrossing();
+      return;
+    }
+
+    // Out: the level's own frame has shrunk to well inside the view.
+    const container = project.getContainerBlock();
+    if (project.path.length === 0 || !container?.boundaryGeometry) return;
+    const frame = container.boundaryGeometry;
+    if (Math.max(frame.width, frame.height) * camera.zoom > EXIT_FRACTION * viewMin) return;
+    const t = frameToFace(container.geometry, frame);
+    project.exitBlock();
+    camera.zoom /= t.scale;
+    camera.offsetX -= camera.zoom * t.offsetX;
+    camera.offsetY -= camera.zoom * t.offsetY;
+    afterLevelCrossing();
+  }
+
+  // Everything enterBlock/navigateToDepth do besides moving the camera —
+  // the camera has already been placed by the crossing itself.
+  function afterLevelCrossing() {
+    selection.clear();
+    wireSelection.clear();
+    updateNavigationUI();
+    persist();
+    renderLoop.requestRender();
+  }
+
   function navigateToDepth(depth) {
     project.exitToDepth(depth);
     selection.clear();
@@ -1068,9 +1134,9 @@ async function bootstrap() {
         port.offset = message.offset;
       }
     } else if (message.kind === 'portBoundary') {
-      // A port being dragged or resized *on the boundary* — its own
-      // placement there (see BlockRenderer.getPortBoundaryPlacement),
-      // separate from the outer-face 'port' case above.
+      // A port's reserved width / per-wire slots on the boundary (see
+      // BlockRenderer.getPortBoundaryPlacement) — its position there is
+      // derived from the 'port' case above, so only these two travel.
       const block = project.getBlock(message.blockId);
       const port = block?.ports.find((p) => p.id === message.portId);
       if (port) port.boundary = message.boundary;
@@ -1253,6 +1319,7 @@ async function bootstrap() {
       liveSync.sendLive(message);
       broadcastToPeers({ type: 'live', ...message });
     },
+    onZoomChanged: crossLevelsForZoom,
   });
 
   attachInputRouter(canvas, camera, stateMachine);

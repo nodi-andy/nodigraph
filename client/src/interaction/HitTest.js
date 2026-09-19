@@ -5,6 +5,7 @@ import {
   getBoundaryWireSlotOffset,
   getOccupiedWireIndices,
   getPortBoundaryPlacement,
+  asBoundaryView,
   getConnectorHandlePosition,
   getResizeHandleRects,
   getBoundaryLabelRect,
@@ -150,7 +151,7 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
         // spare capacity is reached through the port's own "add a wire"
         // ghost instead (see the portWireGhost check in hitTest below),
         // not by grabbing a phantom connector at some point along it.
-        const side = getPortBoundaryPlacement(port).side;
+        const side = getPortBoundaryPlacement(port, block).side;
         const wireIds = wireIdsFor(port.id);
         const count = Math.max(1, wireIds.length);
         for (let wireIndex = 0; wireIndex < count; wireIndex += 1) {
@@ -189,7 +190,7 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
       // port — a reserved-but-empty slot has nothing drawn here at all
       // (see the portWireGhost check above for reaching it instead).
       for (const port of block.ports || []) {
-        const side = getPortBoundaryPlacement(port).side;
+        const side = getPortBoundaryPlacement(port, block).side;
         const wireIds = wireIdsFor(port.id);
         // A totally unwired port still draws (and must hit-test) its one
         // default slot at index 0 — same Math.max(1, ...) drawPorts itself
@@ -213,7 +214,7 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
         // relocate it, `wireIndex` left undefined so DragStateMachine's
         // 'port' handling falls to its plain whole-port move rather than
         // MOVING_PORT_WIRE (which requires a specific wire).
-        const width = getPortBoundaryPlacement(port).width || 1;
+        const width = getPortBoundaryPlacement(port, block).width || 1;
         const rectCount = Math.max(1, wireIds.length, width);
         if (rectCount > 1) {
           const groupRect = getBoundaryPortBlockRect(block, port, rectCount);
@@ -276,7 +277,7 @@ export function hitTest(project, worldX, worldY, boundary, resizableBlockId, res
     // onto one entry here — same reasoning as SceneRenderer's own use of
     // listBoundaryPorts — so only the single logical pin they represent is
     // ever actually hit-testable from inside.
-    const boundaryView = { ...boundary.block, geometry: boundary.geometry, ports: project.listBoundaryPorts(boundary.block) };
+    const boundaryView = asBoundaryView(boundary.block, boundary.geometry, project.listBoundaryPorts(boundary.block));
     const wireIdsFor = (portId) => project.listBoundaryWires(boundary.block.id, portId);
 
     // A boundary port's own resize handles (its "resize its width" grips)
@@ -316,7 +317,7 @@ export function hitTest(project, worldX, worldY, boundary, resizableBlockId, res
         // gap, so without this the outer slivers of the very square you're
         // aiming at would resize instead of move. Each grip keeps all of
         // its own area that lies clear of the squares, which is most of it.
-        const side = getPortBoundaryPlacement(port).side;
+        const side = getPortBoundaryPlacement(port, boundaryView).side;
         const wireIds = wireIdsFor(port.id);
         let onPortBody = false;
         for (let wireIndex = 0; wireIndex < count && !onPortBody; wireIndex += 1) {
@@ -344,7 +345,7 @@ export function hitTest(project, worldX, worldY, boundary, resizableBlockId, res
         // its own single body/connector — that's still just the ordinary
         // "drag the tiny connector dot to wire it up" starting point (see
         // hitPortsAcrossBlocks' own connector loop above), not this ghost.
-        const width = getPortBoundaryPlacement(port).width || 1;
+        const width = getPortBoundaryPlacement(port, boundaryView).width || 1;
         if (wireCount >= 1 && wireCount < width) {
           // The first genuinely free relative index within the reserved
           // span, not just `wireCount` — a wire individually moved out of
@@ -356,7 +357,7 @@ export function hitTest(project, worldX, worldY, boundary, resizableBlockId, res
           for (let idx = 0; idx < width; idx += 1) {
             if (!occupied.has(idx)) { freeIndex = idx; break; }
           }
-          const side = getPortBoundaryPlacement(port).side;
+          const side = getPortBoundaryPlacement(port, boundaryView).side;
           const slotOffset = freeIndex >= 0 ? getBoundaryWireSlotOffset(boundaryView, port, freeIndex) : null;
           const ghostPoint = slotOffset !== null ? borderPointForOffset(boundary.geometry, side, slotOffset) : null;
           const ghostRect = ghostPoint ? getSlotRectFromBorderPoint(ghostPoint.x, ghostPoint.y, side) : null;

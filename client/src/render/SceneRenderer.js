@@ -295,6 +295,18 @@ export function renderScene(
 
   const routed = routeConnections(project, boundary, wireMoveOverride, hiddenConnectionId);
 
+  // The visible part of this level, in world units — nested levels are
+  // culled against it (see SubPreviewRenderer), and a level drawn on a
+  // block that is off screen is skipped outright.
+  const visibleTopLeft = camera.screenToWorld(0, 0);
+  const visibleBottomRight = camera.screenToWorld(canvasWidth, canvasHeight);
+  const visible = {
+    x: visibleTopLeft.x,
+    y: visibleTopLeft.y,
+    width: visibleBottomRight.x - visibleTopLeft.x,
+    height: visibleBottomRight.y - visibleTopLeft.y,
+  };
+
   // `blocks` is already this level's own z-order (see Project's
   // bringToFront/sendToBack — later in the list means drawn later, i.e. on
   // top), so a block's index here doubles as its z-index. A wire's own
@@ -377,7 +389,7 @@ export function renderScene(
       zoom: camera.zoom,
       contentAlpha: contentAlphaFor(previewT),
     });
-    if (previewT > 0) drawSubPreview(ctx, block, { zoom: camera.zoom, t: previewT, palette });
+    if (previewT > 0) drawSubPreview(ctx, block, { zoom: camera.zoom, t: previewT, palette, visible });
     onDrawBlock(ctx, block);
   }
 
