@@ -7,8 +7,14 @@
  * — you have to drill in and come back out to answer "what's in there?".
  * Zoomed in far enough that the block has real estate to spare, that
  * answer can just be shown: the level's own blocks and wires, drawn to
- * scale inside the face, framed exactly the way entering the block frames
- * them (see levelView.boundsOf, which is also what Camera.centerOn fits).
+ * scale inside the face and sized to fill it.
+ *
+ * What it draws is the *contents* of the level, not the editing surface
+ * the contents sit on — no dashed boundary frame, and the fit is to where
+ * the blocks and wires actually are rather than to the frame's own rect
+ * (which is a draggable container for the block's interface, routinely far
+ * bigger than anything inside it — fitting to that is what leaves a
+ * miniature stranded in the middle of its own face).
  *
  * The gate is the block's *on-screen* size, not the zoom level alone — a
  * large block earns a preview sooner than a small one, which is what
@@ -20,7 +26,7 @@
  */
 import { drawPath, getConnectionGeometry } from './ConnectionRenderer.js';
 import { getPortPosition, hasSubArchitecture } from './BlockRenderer.js';
-import { LevelView, boundsOf } from '../model/levelView.js';
+import { LevelView } from '../model/levelView.js';
 import { getCanvasPalette } from './canvasPalette.js';
 
 // The block's smaller on-screen dimension, in CSS pixels, where the
@@ -113,6 +119,30 @@ function previewInkFor(t) {
   return ramp(t, PREVIEW_IN) * PREVIEW_ALPHA;
 }
 
+// The extent of what's actually drawn: every child block, plus every point
+// the routed wires pass through. The wires matter because one running out
+// to the container's interface ends on the boundary frame, which can sit
+// well outside the blocks — fitting to the blocks alone would clip it.
+function contentBounds(blocks, routed) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const include = (px, py) => {
+    if (px < minX) minX = px;
+    if (py < minY) minY = py;
+    if (px > maxX) maxX = px;
+    if (py > maxY) maxY = py;
+  };
+  for (const b of blocks) {
+    include(b.geometry.x, b.geometry.y);
+    include(b.geometry.x + b.geometry.width, b.geometry.y + b.geometry.height);
+  }
+  for (const entry of routed) for (const point of entry.geometry.points) include(point.x, point.y);
+  if (!Number.isFinite(minX)) return null;
+  return { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+}
+
 // Where the miniature goes inside the block's face, and what maps the
 // child level's own world coordinates onto it. `scale` composes with the
 // camera's zoom, so `zoom * scale` is how many screen pixels one child
@@ -189,11 +219,12 @@ function drawMiniBlock(ctx, block, palette, effectiveZoom, ownPreviewT) {
   ctx.fillText(block.name || '', x + width / 2, y + height / 2, width - fontSize);
 }
 
-// Where a wire meets the dashed frame — the miniature's stand-in for the
-// boundary port the full-size interior view draws there. Muted like the
-// frame itself rather than coloured like a child's port: it belongs to the
+// The terminal a wire runs out to when it leaves for the container's own
+// interface — where the full-size interior view would draw a boundary
+// port. Without it such a wire just stops in mid-air and reads as broken.
+// Muted rather than coloured like a child's port: it belongs to the
 // container, not to anything inside it.
-function drawFramePort(ctx, position, palette, effectiveZoom) {
+function drawEdgeTerminal(ctx, position, palette, effectiveZoom) {
   if (!position) return;
   ctx.beginPath();
   ctx.arc(position.x, position.y, (MINI_WIRE_WIDTH * 1.4) / effectiveZoom, 0, Math.PI * 2);
@@ -212,7 +243,22 @@ export function drawSubPreview(ctx, block, { zoom = 1, t = 1, palette = getCanva
   if (ink <= 0 || depth >= MAX_DEPTH || !hasSubArchitecture(block)) return;
 
   const view = new LevelView(block);
-  const bounds = boundsOf(view);
+  // Routed up front, because the miniature is fitted to where the wires
+  // actually run (see contentBounds) — the routing itself is in the child
+  // level's own coordinates and is unaffected by that fit, so there's no
+  // circularity in doing it first. The boundary geometry still takes part
+  // *here*, as the thing that says where this block's own interface pins
+  // sit for a wire to reach; it just isn't drawn, and no longer decides
+  // how the miniature is framed.
+  const boundaryGeometry = block.boundaryGeometry;
+  const boundary = boundaryGeometry ? { block, geometry: boundaryGeometry } : null;
+  const routed = [];
+  for (const connection of view.listConnections()) {
+    const geometry = getConnectionGeometry(view, connection, boundary);
+    if (geometry) routed.push({ connection, geometry });
+  }
+
+  const bounds = contentBounds(view.listBlocks(), routed);
   if (!bounds) return;
   const layout = previewLayout(block.geometry, bounds, zoom);
   if (!layout) return;
@@ -245,42 +291,21 @@ export function drawSubPreview(ctx, block, { zoom = 1, t = 1, palette = getCanva
   ctx.translate(layout.offsetX, layout.offsetY);
   ctx.scale(layout.scale, layout.scale);
 
-  // The interior's own boundary frame, the dashed container its ports sit
-  // on — the same thing drawBoundary paints on entering, minus the ports
-  // themselves, which would land alongside this block's real ports and
-  // read as a second, contradictory set.
-  const boundaryGeometry = block.boundaryGeometry;
-  if (boundaryGeometry) {
-    ctx.save();
-    ctx.setLineDash([4 / effectiveZoom, 3 / effectiveZoom]);
-    ctx.strokeStyle = palette.boundaryDash;
-    ctx.lineWidth = MINI_BORDER_WIDTH / effectiveZoom;
-    ctx.strokeRect(boundaryGeometry.x, boundaryGeometry.y, boundaryGeometry.width, boundaryGeometry.height);
-    ctx.restore();
-  }
-
   // Wires first, so every silhouette paints over its own endpoints — the
   // same relationship a wire has with its frontmost block in the real
   // scene. No hop bows and no labels: both are legibility devices sized
   // for a full-size diagram, and at this scale they only add noise.
-  const boundary = boundaryGeometry ? { block, geometry: boundaryGeometry } : null;
-  for (const connection of view.listConnections()) {
-    const geometry = getConnectionGeometry(view, connection, boundary);
-    if (!geometry) continue;
+  for (const { connection, geometry } of routed) {
     drawPath(ctx, geometry.points, {
       color: connection.color || DEFAULT_WIRE_COLOR,
       width: MINI_WIRE_WIDTH / effectiveZoom,
     });
-    // A wire that runs out to the container's own interface ends on the
-    // dashed frame, where the full-size view draws a boundary port (see
-    // BlockRenderer.drawBoundary). Without something there the wire just
-    // stops in mid-air and reads as broken, so each such endpoint gets the
-    // same dot a child block's port gets. Only the ones actually in use:
-    // an unwired pin has no wire to leave dangling, and drawing every pin
+    // Only the interface pins actually carrying a wire get a terminal: an
+    // unwired one has nothing to leave dangling, and marking every pin
     // would put a second set of port marks on a face that already carries
     // this block's real ones.
-    if (connection.sourceBlockId === block.id) drawFramePort(ctx, geometry.sourcePos, palette, effectiveZoom);
-    if (connection.targetBlockId === block.id) drawFramePort(ctx, geometry.targetPos, palette, effectiveZoom);
+    if (connection.sourceBlockId === block.id) drawEdgeTerminal(ctx, geometry.sourcePos, palette, effectiveZoom);
+    if (connection.targetBlockId === block.id) drawEdgeTerminal(ctx, geometry.targetPos, palette, effectiveZoom);
   }
 
   for (const child of view.listBlocks()) {
