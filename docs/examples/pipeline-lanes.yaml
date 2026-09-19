@@ -1,0 +1,428 @@
+# A lane-and-cards system diagram — the worked example in docs/LLM-AUTHORING.md.
+# Menu > Open this file, or select all of this text and paste it onto the canvas.
+name: Machine control path
+boundary: { x: 0, y: 40, w: 3880, h: 600 }
+blocks:
+  b1:  # lane: SOURCES
+    name: ""
+    x: 40
+    y: 80
+    w: 280
+    h: 520
+    fill: "#f7f8fa"
+    color: "#ccd2dc"
+  b2:  # lane: COMPUTE NODE A · CONTAINER · 192.0.2.10
+    name: ""
+    x: 520
+    y: 80
+    w: 1480
+    h: 520
+    fill: "#f7f8fa"
+    color: "#ccd2dc"
+  b3:  # lane: GATEWAY NODE · 192.0.2.13
+    name: ""
+    x: 2200
+    y: 80
+    w: 680
+    h: 520
+    fill: "#f7f8fa"
+    color: "#ccd2dc"
+  b4:  # lane: SAFETY UNIT
+    name: ""
+    x: 3080
+    y: 80
+    w: 280
+    h: 520
+    fill: "#f7f8fa"
+    color: "#ccd2dc"
+  b5:  # lane: ACTUATOR BLOCK
+    name: ""
+    x: 3560
+    y: 80
+    w: 280
+    h: 520
+    fill: "#f7f8fa"
+    color: "#ccd2dc"
+  b6:  # lane header
+    name: SOURCES
+    kind: text
+    x: 60
+    y: 100
+    w: 160
+    bold: true
+    size: 11
+  b7:  # lane header
+    name: COMPUTE NODE A · CONTAINER · 192.0.2.10
+    kind: text
+    x: 540
+    y: 100
+    w: 520
+    bold: true
+    size: 11
+  b8:  # lane header
+    name: GATEWAY NODE · 192.0.2.13
+    kind: text
+    x: 2220
+    y: 100
+    w: 320
+    bold: true
+    size: 11
+  b9:  # lane header
+    name: SAFETY UNIT
+    kind: text
+    x: 3100
+    y: 100
+    w: 200
+    bold: true
+    size: 11
+  b10:  # lane header
+    name: ACTUATOR BLOCK
+    kind: text
+    x: 3580
+    y: 100
+    w: 200
+    bold: true
+    size: 11
+  b11:  # card: Task planner
+    name: ""
+    x: 80
+    y: 240
+    w: 200
+    h: 120
+    fill: "#fae0e4"
+    color: "#c2566a"
+    ports:
+      p1: { dir: out, offset: 60 }
+  b12:  # title
+    name: Task planner
+    kind: text
+    x: 100
+    y: 240
+    w: 160
+    bold: true
+  b13:  # detail
+    name: Compute Node B
+    kind: text
+    x: 100
+    y: 280
+    w: 160
+    font: mono
+    size: 8
+  b14:  # detail
+    name: behaviours · HLC
+    kind: text
+    x: 100
+    y: 320
+    w: 160
+    font: mono
+    size: 8
+  b15:  # card: Remote console
+    name: ""
+    x: 80
+    y: 440
+    w: 200
+    h: 80
+    fill: "#e3eaf7"
+    color: "#4a6fa5"
+    ports:
+      p1: { dir: out, offset: 60 }
+  b16:  # title
+    name: Remote console
+    kind: text
+    x: 100
+    y: 440
+    w: 160
+    bold: true
+  b17:  # detail
+    name: gRPC → Control API
+    kind: text
+    x: 100
+    y: 480
+    w: 160
+    font: mono
+    size: 8
+  b18:  # card: Motion unit
+    name: ""
+    x: 560
+    y: 240
+    w: 200
+    h: 120
+    fill: "#eaf4ec"
+    color: "#4a8c5c"
+    ports:
+      p1: { dir: in, offset: 60 }
+      p2: { dir: in, offset: 100 }
+      p3: { dir: out, offset: 60 }
+  b19:  # title
+    name: Motion unit
+    kind: text
+    x: 580
+    y: 240
+    w: 160
+    bold: true
+  b20:  # detail
+    name: motion_
+    kind: text
+    x: 580
+    y: 280
+    w: 160
+    font: mono
+    size: 8
+  b21:  # detail
+    name: controller · 20 ms
+    kind: text
+    x: 580
+    y: 320
+    w: 160
+    font: mono
+    size: 8
+  b22:  # card: Axis mapping
+    name: ""
+    x: 960
+    y: 240
+    w: 200
+    h: 120
+    fill: "#eaf4ec"
+    color: "#4a8c5c"
+    ports:
+      p1: { dir: in, offset: 60 }
+      p2: { dir: out, offset: 60 }
+  b23:  # title
+    name: Axis mapping
+    kind: text
+    x: 980
+    y: 240
+    w: 160
+    bold: true
+  b24:  # detail
+    name: axis_lowlevel_
+    kind: text
+    x: 980
+    y: 280
+    w: 160
+    font: mono
+    size: 8
+  b25:  # detail
+    name: controller
+    kind: text
+    x: 980
+    y: 320
+    w: 160
+    font: mono
+    size: 8
+  b26:  # card: Actuator driver
+    name: ""
+    x: 1360
+    y: 240
+    w: 200
+    h: 120
+    fill: "#eaf4ec"
+    color: "#4a8c5c"
+    ports:
+      p1: { dir: in, offset: 60 }
+      p2: { dir: out, offset: 60 }
+      p3: { dir: in, side: bottom, offset: 100 }
+  b27:  # title
+    name: Actuator driver
+    kind: text
+    x: 1380
+    y: 240
+    w: 160
+    bold: true
+  b28:  # detail
+    name: actuator_can
+    kind: text
+    x: 1380
+    y: 280
+    w: 160
+    font: mono
+    size: 8
+  b29:  # detail
+    name: ActuatorBus::send()
+    kind: text
+    x: 1380
+    y: 320
+    w: 160
+    font: mono
+    size: 8
+  b30:  # card: CAN tunnel
+    name: ""
+    x: 1760
+    y: 240
+    w: 200
+    h: 120
+    fill: "#eaf4ec"
+    color: "#4a8c5c"
+    ports:
+      p1: { dir: in, offset: 60 }
+      p2: { dir: out, offset: 60 }
+  b31:  # title
+    name: CAN tunnel
+    kind: text
+    x: 1780
+    y: 240
+    w: 160
+    bold: true
+  b32:  # detail
+    name: bus-tunnel -p
+    kind: text
+    x: 1780
+    y: 280
+    w: 160
+    font: mono
+    size: 8
+  b33:  # detail
+    name: vbusN → 192.0.2.13
+    kind: text
+    x: 1780
+    y: 320
+    w: 160
+    font: mono
+    size: 8
+  b34:  # card: CAN tunnel
+    name: ""
+    x: 2240
+    y: 240
+    w: 200
+    h: 120
+    fill: "#eaf4ec"
+    color: "#4a8c5c"
+    ports:
+      p1: { dir: in, offset: 60 }
+      p2: { dir: out, offset: 60 }
+  b35:  # title
+    name: CAN tunnel
+    kind: text
+    x: 2260
+    y: 240
+    w: 160
+    bold: true
+  b36:  # detail
+    name: bus-tunnel
+    kind: text
+    x: 2260
+    y: 280
+    w: 160
+    font: mono
+    size: 8
+  b37:  # detail
+    name: UDP → canN
+    kind: text
+    x: 2260
+    y: 320
+    w: 160
+    font: mono
+    size: 8
+  b38:  # card: Bus hub
+    name: ""
+    x: 2640
+    y: 240
+    w: 200
+    h: 120
+    fill: "#fdf3d8"
+    color: "#c1962f"
+    ports:
+      p1: { dir: in, offset: 60 }
+      p2: { dir: out, offset: 60 }
+  b39:  # title
+    name: Bus hub
+    kind: text
+    x: 2660
+    y: 240
+    w: 160
+    bold: true
+  b40:  # detail
+    name: usb-can · 4 ports
+    kind: text
+    x: 2660
+    y: 280
+    w: 160
+    font: mono
+    size: 8
+  b41:  # detail
+    name: USB
+    kind: text
+    x: 2660
+    y: 320
+    w: 160
+    font: mono
+    size: 8
+  b42:  # card: Safety Controller
+    name: ""
+    x: 3120
+    y: 240
+    w: 200
+    h: 120
+    fill: "#fdf3d8"
+    color: "#c1962f"
+    ports:
+      p1: { dir: in, offset: 60 }
+      p2: { dir: out, offset: 60 }
+  b43:  # title
+    name: Safety Controller
+    kind: text
+    x: 3140
+    y: 240
+    w: 160
+    bold: true
+  b44:  # detail
+    name: FW 28
+    kind: text
+    x: 3140
+    y: 280
+    w: 160
+    font: mono
+    size: 8
+  b45:  # detail
+    name: CAN1 → CAN2 in AUTO
+    kind: text
+    x: 3140
+    y: 320
+    w: 160
+    font: mono
+    size: 8
+  b46:  # card: Valve Manifold
+    name: ""
+    x: 3600
+    y: 240
+    w: 200
+    h: 120
+    fill: "#fdf3d8"
+    color: "#c1962f"
+    ports:
+      p1: { dir: in, offset: 60 }
+      p2: { dir: out, side: bottom, offset: 100 }
+  b47:  # title
+    name: Valve Manifold
+    kind: text
+    x: 3620
+    y: 240
+    w: 160
+    bold: true
+  b48:  # detail
+    name: primary 0x21
+    kind: text
+    x: 3620
+    y: 280
+    w: 160
+    font: mono
+    size: 8
+  b49:  # detail
+    name: secondary 0x22
+    kind: text
+    x: 3620
+    y: 320
+    w: 160
+    font: mono
+    size: 8
+wires:
+  - { from: b11.p1, to: b18.p1, label: actuator cmds · DDS }
+  - b15.p1 -> b18.p2
+  - { from: b18.p3, to: b22.p1, label: joint setpoints }
+  - { from: b22.p2, to: b26.p1, label: ActuatorBus::Command }
+  - { from: b26.p2, to: b30.p1, label: bar → mA · S1..S8 }
+  - { from: b30.p2, to: b34.p1, label: UDP:5000+N }
+  - { from: b34.p2, to: b38.p1, label: canN → USB }
+  - { from: b38.p2, to: b42.p1, label: CAN 250 kbit }
+  - { from: b42.p2, to: b46.p1, label: CAN2 · AUTO only }
+  - { from: b46.p2, to: b26.p3, label: Actuator status 0x1A2B3C4D · back over the same hops, color: "#c2410c" }

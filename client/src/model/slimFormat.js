@@ -140,6 +140,17 @@ function blockToSlim(block) {
   const defaultColor = isText ? 'transparent' : DEFAULT_BLOCK_COLOR;
   if (block.style?.color && block.style.color !== defaultColor) slim.color = block.style.color;
   if (block.style?.fill && block.style.fill !== 'transparent') slim.fill = block.style.fill;
+  // Typography, when it's been changed from the default the renderer
+  // assumes (see BlockRenderer.drawBlock's own fallbacks: the system font
+  // stack at 13px, upright and unbolded). It reads as cosmetic next to
+  // positions and wires, but on a diagram whose labels do real work — a
+  // monospace line under a title carrying an address or a rate — it *is*
+  // part of what the architecture says, and a format that drops it can't
+  // round-trip a diagram anyone actually styled.
+  if (block.style?.font) slim.font = block.style.font;
+  if (block.style?.fontSize) slim.size = block.style.fontSize;
+  if (block.style?.bold) slim.bold = true;
+  if (block.style?.italic) slim.italic = true;
 
   const { portsSlim, pinKeys } = computePortsSlim(block);
   if (Object.keys(portsSlim).length) slim.ports = portsSlim;
@@ -269,7 +280,14 @@ function slimBlockToData(slimBlock) {
   const hasChildren = slimBlock.blocks !== undefined;
   const block = {
     id: generateId('blk'),
-    name: slimBlock.name || (isText ? 'Text' : 'New Block'),
+    // `??`-style rather than `||`: a block deliberately left unnamed
+    // exports as `name: ""` (blockToSlim always writes the key), and
+    // falling back on falsiness turned that back into "New Block" on the
+    // way in — a visible round-trip bug for the one idiom that needs an
+    // empty name, a coloured panel other blocks and labels sit on top of.
+    // Still guarded on the type, since `name:` with nothing after it
+    // parses as an empty *mapping*, not an empty string.
+    name: typeof slimBlock.name === 'string' ? slimBlock.name : isText ? 'Text' : 'New Block',
     type: 'block',
     kind: isText ? 'text' : 'block',
     geometry: {
@@ -281,6 +299,13 @@ function slimBlockToData(slimBlock) {
     style: {
       color: slimBlock.color || (isText ? 'transparent' : DEFAULT_BLOCK_COLOR),
       ...(slimBlock.fill ? { fill: slimBlock.fill } : isText ? { fill: 'transparent' } : {}),
+      // Omitted entirely when absent rather than written as an explicit
+      // default, so an untouched block keeps falling through to
+      // drawBlock's own fallbacks instead of pinning them into the data.
+      ...(slimBlock.font ? { font: slimBlock.font } : {}),
+      ...(slimBlock.size ? { fontSize: slimBlock.size } : {}),
+      ...(slimBlock.bold ? { bold: true } : {}),
+      ...(slimBlock.italic ? { italic: true } : {}),
     },
     logicalPorts,
     ports: pins,

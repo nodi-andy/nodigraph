@@ -159,6 +159,17 @@ single-user and not publicly reachable.
 | Server | ~150 lines of Node, one dependency (`ws`) |
 | Build step | None. The browser loads ES modules directly. |
 
+### Generating a diagram with an LLM
+
+Export → YAML is a small, hand-editable text format, which also makes it the
+easiest thing to have a model write for you.
+[`docs/LLM-AUTHORING.md`](docs/LLM-AUTHORING.md) is a brief you can hand to an
+LLM — the schema, the grid and port rules, and recipes for the usual shapes —
+so that what comes back is a diagram you can paste straight onto the canvas and
+keep editing, rather than a flat picture.
+[`docs/examples/pipeline-lanes.yaml`](docs/examples/pipeline-lanes.yaml) is a
+worked example of a lane-and-cards system diagram in that format.
+
 ### Known limits
 
 - **Shared links are snapshots, not sessions.** Editing a link produces a
