@@ -1,0 +1,191 @@
+# Conceptual local document assistant; not a specific product implementation.
+name: Local AI assistant
+blocks:
+  b1:
+    name: Chat interface
+    subtitle: Ask a question
+    x: 80
+    y: 240
+    w: 240
+    h: 160
+    color: "#247e91"
+    fill: "#eaf7fa"
+    size: 22
+    ports:
+      p1: { dir: out, offset: 60 }
+      p2: { dir: in, side: top, offset: 100 }
+  b2:
+    name: Retrieval
+    subtitle: Find relevant passages
+    lines:
+      - Explore inside
+    x: 480
+    y: 240
+    w: 240
+    h: 160
+    color: "#16836e"
+    fill: "#e7f7ef"
+    size: 22
+    ports:
+      p1: { dir: in, offset: 60 }
+      p2: { dir: out, offset: 60 }
+      p3: { dir: in, side: bottom, offset: 100 }
+    blocks:
+      b1:
+        name: Embed query
+        subtitle: Query + embedding
+        x: 40
+        y: 160
+        w: 160
+        h: 120
+        color: "#16836e"
+        fill: "#e7f7ef"
+        size: 16
+        ports:
+          p1: { dir: in, offset: 20 }
+          p2: { dir: out, offset: 60 }
+        props:
+          output: Original query and its embedding
+      b2:
+        name: Similarity search
+        subtitle: Open for more detail
+        x: 280
+        y: 160
+        w: 160
+        h: 120
+        color: "#16836e"
+        fill: "#e7f7ef"
+        size: 16
+        ports:
+          p1: { dir: in, offset: 60 }
+          p2: { dir: out, offset: 60 }
+          p3: { dir: in, side: bottom, offset: 20 }
+        props:
+          output: Original query and matching passages
+        blocks:
+          b1:
+            name: Vector index
+            subtitle: Nearest neighbours
+            x: 40
+            y: 160
+            w: 160
+            h: 120
+            color: "#16836e"
+            fill: "#e7f7ef"
+            size: 16
+            ports:
+              p1: { dir: in, offset: 60 }
+              p2: { dir: in, side: bottom, offset: 20 }
+              p3: { dir: out, offset: 60 }
+          b2:
+            name: Rank matches
+            subtitle: Select top-k results
+            x: 280
+            y: 160
+            w: 160
+            h: 120
+            color: "#16836e"
+            fill: "#e7f7ef"
+            size: 16
+            ports:
+              p1: { dir: in, offset: 60 }
+              p2: { dir: out, offset: 60 }
+          b3:
+            name: Fetch passages
+            subtitle: Text and source IDs
+            x: 520
+            y: 160
+            w: 160
+            h: 120
+            color: "#16836e"
+            fill: "#e7f7ef"
+            size: 16
+            ports:
+              p1: { dir: in, offset: 60 }
+              p2: { dir: out, offset: 60 }
+        wires:
+          - self.p1 -> b1.p1
+          - self.p3 -> b1.p2
+          - b1.p3 -> b2.p1
+          - b2.p2 -> b3.p1
+          - b3.p2 -> self.p2
+        boundary:
+          x: 0
+          y: 80
+          w: 720
+          h: 320
+      b3:
+        name: Build context
+        subtitle: Passages + original query
+        x: 520
+        y: 160
+        w: 160
+        h: 120
+        color: "#16836e"
+        fill: "#e7f7ef"
+        size: 16
+        ports:
+          p1: { dir: in, offset: 60 }
+          p2: { dir: out, offset: 20 }
+    wires:
+      - self.p1 -> b1.p1
+      - { from: b1.p2, to: b2.p1, label: payload }
+      - self.p3 -> b2.p3
+      - { from: b2.p2, to: b3.p1, label: matches }
+      - b3.p2 -> self.p2
+    boundary:
+      x: 0
+      y: 80
+      w: 720
+      h: 320
+  b3:
+    name: Prompt builder
+    subtitle: Question + context
+    x: 880
+    y: 240
+    w: 240
+    h: 160
+    color: "#8160af"
+    fill: "#f3eefb"
+    size: 22
+    ports:
+      p1: { dir: in, offset: 60 }
+      p2: { dir: out, offset: 60 }
+  b4:
+    name: Local model
+    subtitle: Generate an answer
+    x: 1280
+    y: 240
+    w: 240
+    h: 160
+    color: "#b47621"
+    fill: "#fff5e5"
+    size: 22
+    ports:
+      p1: { dir: in, offset: 60 }
+      p2: { dir: out, side: top, offset: 100 }
+  b5:
+    name: Indexed documents
+    subtitle: Chunks + embeddings
+    lines:
+      - Prepared in advance
+    x: 480
+    y: 520
+    w: 240
+    h: 120
+    color: "#68798b"
+    fill: "#f0f4f8"
+    size: 22
+    ports:
+      p1: { dir: out, side: top, offset: 100 }
+wires:
+  - { from: b1.p1, to: b2.p1, label: question }
+  - { from: b2.p2, to: b3.p1, label: context + query }
+  - { from: b3.p2, to: b4.p1, label: prompt }
+  - { from: b4.p2, to: b1.p2, label: answer, color: "#b47621" }
+  - { from: b5.p1, to: b2.p3, label: lookup }
+boundary:
+  x: 40
+  y: 160
+  w: 1520
+  h: 520

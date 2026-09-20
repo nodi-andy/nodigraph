@@ -1,20 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="nodigraph">
-  <!-- The app's own vocabulary as a mark: a block with connector sockets
-       wired out to either side. Deliberately few, heavy shapes — this has
-       to stay readable as a 16px favicon, where anything finer turns to
-       mush. No background tile — transparent, so it sits on whatever
-       chrome (browser tab, OS dock) surrounds it. -->
-
-  <!-- wires, under the sockets so the sockets read as sitting on them -->
-  <g stroke="#2f6fed" stroke-width="4" stroke-linecap="butt">
-    <path d="M4 32 H16"/>
-    <path d="M48 32 H60"/>
-  </g>
-
-  <!-- the block -->
-  <rect x="16" y="14" width="32" height="36" rx="6" fill="#1c2431" stroke="#4f8cff" stroke-width="4"/>
-
-  <!-- its ports, straddling the border like the canvas draws them -->
-  <rect x="11" y="26" width="12" height="12" rx="2" fill="#aab2c0"/>
-  <rect x="41" y="26" width="12" height="12" rx="2" fill="#aab2c0"/>
+  <title>nodigraph — connected systems, nested detail</title>
+  <!-- A routed lowercase n, with a system inside a system. -->
+  <rect width="64" height="64" rx="16" fill="#102438"/>
+  <path d="M17 46V24a7 7 0 0 1 7-7h16a7 7 0 0 1 7 7v22" fill="none" stroke="#64e6cf" stroke-width="6" stroke-linecap="round"/>
+  <rect x="9" y="35" width="16" height="18" rx="4" fill="#64e6cf"/>
+  <rect x="36" y="32" width="22" height="22" rx="5" fill="#f4fafb"/>
+  <rect x="42" y="38" width="10" height="10" rx="2" fill="#102438"/>
 </svg>

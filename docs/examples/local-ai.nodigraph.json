@@ -1,0 +1,785 @@
+{
+  "rootBlock": {
+    "id": "blk_muacc1r21",
+    "name": "Local AI assistant",
+    "type": "block",
+    "kind": "block",
+    "geometry": {
+      "x": 0,
+      "y": 0,
+      "width": 120,
+      "height": 80
+    },
+    "style": {
+      "color": "#3b6fa0"
+    },
+    "logicalPorts": [],
+    "ports": [],
+    "props": [],
+    "hasChildren": true,
+    "boundaryGeometry": {
+      "x": 40,
+      "y": 160,
+      "width": 1520,
+      "height": 520
+    },
+    "children": {
+      "blocks": [
+        {
+          "id": "blk_muacc1r26",
+          "name": "Chat interface",
+          "type": "block",
+          "kind": "block",
+          "geometry": {
+            "x": 80,
+            "y": 240,
+            "width": 240,
+            "height": 160
+          },
+          "style": {
+            "color": "#247e91",
+            "fill": "#eaf7fa",
+            "fontSize": 22
+          },
+          "subtitle": "Ask a question",
+          "logicalPorts": [
+            {
+              "id": "io_muacc1r22",
+              "name": "",
+              "direction": "out",
+              "description": ""
+            },
+            {
+              "id": "io_muacc1r24",
+              "name": "",
+              "direction": "in",
+              "description": ""
+            }
+          ],
+          "ports": [
+            {
+              "id": "prt_muacc1r23",
+              "logicalId": "io_muacc1r22",
+              "side": "right",
+              "offset": 60,
+              "manualOffset": true
+            },
+            {
+              "id": "prt_muacc1r25",
+              "logicalId": "io_muacc1r24",
+              "side": "top",
+              "offset": 100,
+              "manualOffset": true
+            }
+          ],
+          "props": [],
+          "hasChildren": false,
+          "boundaryGeometry": null,
+          "children": null
+        },
+        {
+          "id": "blk_muacc1r3d",
+          "name": "Retrieval",
+          "type": "block",
+          "kind": "block",
+          "geometry": {
+            "x": 480,
+            "y": 240,
+            "width": 240,
+            "height": 160
+          },
+          "style": {
+            "color": "#16836e",
+            "fill": "#e7f7ef",
+            "fontSize": 22
+          },
+          "subtitle": "Find relevant passages",
+          "lines": [
+            "Explore inside"
+          ],
+          "logicalPorts": [
+            {
+              "id": "io_muacc1r27",
+              "name": "",
+              "direction": "in",
+              "description": ""
+            },
+            {
+              "id": "io_muacc1r29",
+              "name": "",
+              "direction": "out",
+              "description": ""
+            },
+            {
+              "id": "io_muacc1r2b",
+              "name": "",
+              "direction": "in",
+              "description": ""
+            }
+          ],
+          "ports": [
+            {
+              "id": "prt_muacc1r28",
+              "logicalId": "io_muacc1r27",
+              "side": "left",
+              "offset": 60,
+              "manualOffset": true
+            },
+            {
+              "id": "prt_muacc1r2a",
+              "logicalId": "io_muacc1r29",
+              "side": "right",
+              "offset": 60,
+              "manualOffset": true
+            },
+            {
+              "id": "prt_muacc1r3c",
+              "logicalId": "io_muacc1r2b",
+              "side": "bottom",
+              "offset": 100,
+              "manualOffset": true
+            }
+          ],
+          "props": [],
+          "hasChildren": true,
+          "boundaryGeometry": {
+            "x": 0,
+            "y": 80,
+            "width": 720,
+            "height": 320
+          },
+          "children": {
+            "blocks": [
+              {
+                "id": "blk_muacc1r3i",
+                "name": "Embed query",
+                "type": "block",
+                "kind": "block",
+                "geometry": {
+                  "x": 40,
+                  "y": 160,
+                  "width": 160,
+                  "height": 120
+                },
+                "style": {
+                  "color": "#16836e",
+                  "fill": "#e7f7ef",
+                  "fontSize": 16
+                },
+                "subtitle": "Query + embedding",
+                "logicalPorts": [
+                  {
+                    "id": "io_muacc1r3e",
+                    "name": "",
+                    "direction": "in",
+                    "description": ""
+                  },
+                  {
+                    "id": "io_muacc1r3g",
+                    "name": "",
+                    "direction": "out",
+                    "description": ""
+                  }
+                ],
+                "ports": [
+                  {
+                    "id": "prt_muacc1r3f",
+                    "logicalId": "io_muacc1r3e",
+                    "side": "left",
+                    "offset": 20,
+                    "manualOffset": true
+                  },
+                  {
+                    "id": "prt_muacc1r3h",
+                    "logicalId": "io_muacc1r3g",
+                    "side": "right",
+                    "offset": 60,
+                    "manualOffset": true
+                  }
+                ],
+                "props": [
+                  {
+                    "id": "prp_muacc1r3j",
+                    "name": "output",
+                    "kind": "value",
+                    "value": "Original query and its embedding"
+                  }
+                ],
+                "hasChildren": false,
+                "boundaryGeometry": null,
+                "children": null
+              },
+              {
+                "id": "blk_muacc1r3q",
+                "name": "Similarity search",
+                "type": "block",
+                "kind": "block",
+                "geometry": {
+                  "x": 280,
+                  "y": 160,
+                  "width": 160,
+                  "height": 120
+                },
+                "style": {
+                  "color": "#16836e",
+                  "fill": "#e7f7ef",
+                  "fontSize": 16
+                },
+                "subtitle": "Open for more detail",
+                "logicalPorts": [
+                  {
+                    "id": "io_muacc1r3k",
+                    "name": "",
+                    "direction": "in",
+                    "description": ""
+                  },
+                  {
+                    "id": "io_muacc1r3m",
+                    "name": "",
+                    "direction": "out",
+                    "description": ""
+                  },
+                  {
+                    "id": "io_muacc1r3o",
+                    "name": "",
+                    "direction": "in",
+                    "description": ""
+                  }
+                ],
+                "ports": [
+                  {
+                    "id": "prt_muacc1r3l",
+                    "logicalId": "io_muacc1r3k",
+                    "side": "left",
+                    "offset": 60,
+                    "manualOffset": true
+                  },
+                  {
+                    "id": "prt_muacc1r3n",
+                    "logicalId": "io_muacc1r3m",
+                    "side": "right",
+                    "offset": 60,
+                    "manualOffset": true
+                  },
+                  {
+                    "id": "prt_muacc1r3p",
+                    "logicalId": "io_muacc1r3o",
+                    "side": "bottom",
+                    "offset": 20,
+                    "manualOffset": true
+                  }
+                ],
+                "props": [
+                  {
+                    "id": "prp_muacc1r3r",
+                    "name": "output",
+                    "kind": "value",
+                    "value": "Original query and matching passages"
+                  }
+                ],
+                "hasChildren": true,
+                "boundaryGeometry": {
+                  "x": 0,
+                  "y": 80,
+                  "width": 720,
+                  "height": 320
+                },
+                "children": {
+                  "blocks": [
+                    {
+                      "id": "blk_muacc1r3y",
+                      "name": "Vector index",
+                      "type": "block",
+                      "kind": "block",
+                      "geometry": {
+                        "x": 40,
+                        "y": 160,
+                        "width": 160,
+                        "height": 120
+                      },
+                      "style": {
+                        "color": "#16836e",
+                        "fill": "#e7f7ef",
+                        "fontSize": 16
+                      },
+                      "subtitle": "Nearest neighbours",
+                      "logicalPorts": [
+                        {
+                          "id": "io_muacc1r3s",
+                          "name": "",
+                          "direction": "in",
+                          "description": ""
+                        },
+                        {
+                          "id": "io_muacc1r3u",
+                          "name": "",
+                          "direction": "in",
+                          "description": ""
+                        },
+                        {
+                          "id": "io_muacc1r3w",
+                          "name": "",
+                          "direction": "out",
+                          "description": ""
+                        }
+                      ],
+                      "ports": [
+                        {
+                          "id": "prt_muacc1r3t",
+                          "logicalId": "io_muacc1r3s",
+                          "side": "left",
+                          "offset": 60,
+                          "manualOffset": true
+                        },
+                        {
+                          "id": "prt_muacc1r3v",
+                          "logicalId": "io_muacc1r3u",
+                          "side": "bottom",
+                          "offset": 20,
+                          "manualOffset": true
+                        },
+                        {
+                          "id": "prt_muacc1r3x",
+                          "logicalId": "io_muacc1r3w",
+                          "side": "right",
+                          "offset": 60,
+                          "manualOffset": true
+                        }
+                      ],
+                      "props": [],
+                      "hasChildren": false,
+                      "boundaryGeometry": null,
+                      "children": null
+                    },
+                    {
+                      "id": "blk_muacc1r313",
+                      "name": "Rank matches",
+                      "type": "block",
+                      "kind": "block",
+                      "geometry": {
+                        "x": 280,
+                        "y": 160,
+                        "width": 160,
+                        "height": 120
+                      },
+                      "style": {
+                        "color": "#16836e",
+                        "fill": "#e7f7ef",
+                        "fontSize": 16
+                      },
+                      "subtitle": "Select top-k results",
+                      "logicalPorts": [
+                        {
+                          "id": "io_muacc1r3z",
+                          "name": "",
+                          "direction": "in",
+                          "description": ""
+                        },
+                        {
+                          "id": "io_muacc1r311",
+                          "name": "",
+                          "direction": "out",
+                          "description": ""
+                        }
+                      ],
+                      "ports": [
+                        {
+                          "id": "prt_muacc1r310",
+                          "logicalId": "io_muacc1r3z",
+                          "side": "left",
+                          "offset": 60,
+                          "manualOffset": true
+                        },
+                        {
+                          "id": "prt_muacc1r312",
+                          "logicalId": "io_muacc1r311",
+                          "side": "right",
+                          "offset": 60,
+                          "manualOffset": true
+                        }
+                      ],
+                      "props": [],
+                      "hasChildren": false,
+                      "boundaryGeometry": null,
+                      "children": null
+                    },
+                    {
+                      "id": "blk_muacc1r318",
+                      "name": "Fetch passages",
+                      "type": "block",
+                      "kind": "block",
+                      "geometry": {
+                        "x": 520,
+                        "y": 160,
+                        "width": 160,
+                        "height": 120
+                      },
+                      "style": {
+                        "color": "#16836e",
+                        "fill": "#e7f7ef",
+                        "fontSize": 16
+                      },
+                      "subtitle": "Text and source IDs",
+                      "logicalPorts": [
+                        {
+                          "id": "io_muacc1r314",
+                          "name": "",
+                          "direction": "in",
+                          "description": ""
+                        },
+                        {
+                          "id": "io_muacc1r316",
+                          "name": "",
+                          "direction": "out",
+                          "description": ""
+                        }
+                      ],
+                      "ports": [
+                        {
+                          "id": "prt_muacc1r315",
+                          "logicalId": "io_muacc1r314",
+                          "side": "left",
+                          "offset": 60,
+                          "manualOffset": true
+                        },
+                        {
+                          "id": "prt_muacc1r317",
+                          "logicalId": "io_muacc1r316",
+                          "side": "right",
+                          "offset": 60,
+                          "manualOffset": true
+                        }
+                      ],
+                      "props": [],
+                      "hasChildren": false,
+                      "boundaryGeometry": null,
+                      "children": null
+                    }
+                  ],
+                  "connections": [
+                    {
+                      "id": "conn_muacc1r319",
+                      "sourceBlockId": "blk_muacc1r3q",
+                      "sourcePortId": "prt_muacc1r3l",
+                      "targetBlockId": "blk_muacc1r3y",
+                      "targetPortId": "prt_muacc1r3t"
+                    },
+                    {
+                      "id": "conn_muacc1r31a",
+                      "sourceBlockId": "blk_muacc1r3q",
+                      "sourcePortId": "prt_muacc1r3p",
+                      "targetBlockId": "blk_muacc1r3y",
+                      "targetPortId": "prt_muacc1r3v"
+                    },
+                    {
+                      "id": "conn_muacc1r31b",
+                      "sourceBlockId": "blk_muacc1r3y",
+                      "sourcePortId": "prt_muacc1r3x",
+                      "targetBlockId": "blk_muacc1r313",
+                      "targetPortId": "prt_muacc1r310"
+                    },
+                    {
+                      "id": "conn_muacc1r31c",
+                      "sourceBlockId": "blk_muacc1r313",
+                      "sourcePortId": "prt_muacc1r312",
+                      "targetBlockId": "blk_muacc1r318",
+                      "targetPortId": "prt_muacc1r315"
+                    },
+                    {
+                      "id": "conn_muacc1r31d",
+                      "sourceBlockId": "blk_muacc1r318",
+                      "sourcePortId": "prt_muacc1r317",
+                      "targetBlockId": "blk_muacc1r3q",
+                      "targetPortId": "prt_muacc1r3n"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "blk_muacc1r31i",
+                "name": "Build context",
+                "type": "block",
+                "kind": "block",
+                "geometry": {
+                  "x": 520,
+                  "y": 160,
+                  "width": 160,
+                  "height": 120
+                },
+                "style": {
+                  "color": "#16836e",
+                  "fill": "#e7f7ef",
+                  "fontSize": 16
+                },
+                "subtitle": "Passages + original query",
+                "logicalPorts": [
+                  {
+                    "id": "io_muacc1r31e",
+                    "name": "",
+                    "direction": "in",
+                    "description": ""
+                  },
+                  {
+                    "id": "io_muacc1r31g",
+                    "name": "",
+                    "direction": "out",
+                    "description": ""
+                  }
+                ],
+                "ports": [
+                  {
+                    "id": "prt_muacc1r31f",
+                    "logicalId": "io_muacc1r31e",
+                    "side": "left",
+                    "offset": 60,
+                    "manualOffset": true
+                  },
+                  {
+                    "id": "prt_muacc1r31h",
+                    "logicalId": "io_muacc1r31g",
+                    "side": "right",
+                    "offset": 20,
+                    "manualOffset": true
+                  }
+                ],
+                "props": [],
+                "hasChildren": false,
+                "boundaryGeometry": null,
+                "children": null
+              }
+            ],
+            "connections": [
+              {
+                "id": "conn_muacc1r31j",
+                "sourceBlockId": "blk_muacc1r3d",
+                "sourcePortId": "prt_muacc1r28",
+                "targetBlockId": "blk_muacc1r3i",
+                "targetPortId": "prt_muacc1r3f"
+              },
+              {
+                "id": "conn_muacc1r31k",
+                "sourceBlockId": "blk_muacc1r3i",
+                "sourcePortId": "prt_muacc1r3h",
+                "targetBlockId": "blk_muacc1r3q",
+                "targetPortId": "prt_muacc1r3l",
+                "label": "payload"
+              },
+              {
+                "id": "conn_muacc1r31l",
+                "sourceBlockId": "blk_muacc1r3d",
+                "sourcePortId": "prt_muacc1r3c",
+                "targetBlockId": "blk_muacc1r3q",
+                "targetPortId": "prt_muacc1r3p"
+              },
+              {
+                "id": "conn_muacc1r31m",
+                "sourceBlockId": "blk_muacc1r3q",
+                "sourcePortId": "prt_muacc1r3n",
+                "targetBlockId": "blk_muacc1r31i",
+                "targetPortId": "prt_muacc1r31f",
+                "label": "matches"
+              },
+              {
+                "id": "conn_muacc1r31n",
+                "sourceBlockId": "blk_muacc1r31i",
+                "sourcePortId": "prt_muacc1r31h",
+                "targetBlockId": "blk_muacc1r3d",
+                "targetPortId": "prt_muacc1r2a"
+              }
+            ]
+          }
+        },
+        {
+          "id": "blk_muacc1r31s",
+          "name": "Prompt builder",
+          "type": "block",
+          "kind": "block",
+          "geometry": {
+            "x": 880,
+            "y": 240,
+            "width": 240,
+            "height": 160
+          },
+          "style": {
+            "color": "#8160af",
+            "fill": "#f3eefb",
+            "fontSize": 22
+          },
+          "subtitle": "Question + context",
+          "logicalPorts": [
+            {
+              "id": "io_muacc1r31o",
+              "name": "",
+              "direction": "in",
+              "description": ""
+            },
+            {
+              "id": "io_muacc1r31q",
+              "name": "",
+              "direction": "out",
+              "description": ""
+            }
+          ],
+          "ports": [
+            {
+              "id": "prt_muacc1r31p",
+              "logicalId": "io_muacc1r31o",
+              "side": "left",
+              "offset": 60,
+              "manualOffset": true
+            },
+            {
+              "id": "prt_muacc1r31r",
+              "logicalId": "io_muacc1r31q",
+              "side": "right",
+              "offset": 60,
+              "manualOffset": true
+            }
+          ],
+          "props": [],
+          "hasChildren": false,
+          "boundaryGeometry": null,
+          "children": null
+        },
+        {
+          "id": "blk_muacc1r31x",
+          "name": "Local model",
+          "type": "block",
+          "kind": "block",
+          "geometry": {
+            "x": 1280,
+            "y": 240,
+            "width": 240,
+            "height": 160
+          },
+          "style": {
+            "color": "#b47621",
+            "fill": "#fff5e5",
+            "fontSize": 22
+          },
+          "subtitle": "Generate an answer",
+          "logicalPorts": [
+            {
+              "id": "io_muacc1r31t",
+              "name": "",
+              "direction": "in",
+              "description": ""
+            },
+            {
+              "id": "io_muacc1r31v",
+              "name": "",
+              "direction": "out",
+              "description": ""
+            }
+          ],
+          "ports": [
+            {
+              "id": "prt_muacc1r31u",
+              "logicalId": "io_muacc1r31t",
+              "side": "left",
+              "offset": 60,
+              "manualOffset": true
+            },
+            {
+              "id": "prt_muacc1r31w",
+              "logicalId": "io_muacc1r31v",
+              "side": "top",
+              "offset": 100,
+              "manualOffset": true
+            }
+          ],
+          "props": [],
+          "hasChildren": false,
+          "boundaryGeometry": null,
+          "children": null
+        },
+        {
+          "id": "blk_muacc1r320",
+          "name": "Indexed documents",
+          "type": "block",
+          "kind": "block",
+          "geometry": {
+            "x": 480,
+            "y": 520,
+            "width": 240,
+            "height": 120
+          },
+          "style": {
+            "color": "#68798b",
+            "fill": "#f0f4f8",
+            "fontSize": 22
+          },
+          "subtitle": "Chunks + embeddings",
+          "lines": [
+            "Prepared in advance"
+          ],
+          "logicalPorts": [
+            {
+              "id": "io_muacc1r31y",
+              "name": "",
+              "direction": "out",
+              "description": ""
+            }
+          ],
+          "ports": [
+            {
+              "id": "prt_muacc1r31z",
+              "logicalId": "io_muacc1r31y",
+              "side": "top",
+              "offset": 100,
+              "manualOffset": true
+            }
+          ],
+          "props": [],
+          "hasChildren": false,
+          "boundaryGeometry": null,
+          "children": null
+        }
+      ],
+      "connections": [
+        {
+          "id": "conn_muacc1r321",
+          "sourceBlockId": "blk_muacc1r26",
+          "sourcePortId": "prt_muacc1r23",
+          "targetBlockId": "blk_muacc1r3d",
+          "targetPortId": "prt_muacc1r28",
+          "label": "question"
+        },
+        {
+          "id": "conn_muacc1r322",
+          "sourceBlockId": "blk_muacc1r3d",
+          "sourcePortId": "prt_muacc1r2a",
+          "targetBlockId": "blk_muacc1r31s",
+          "targetPortId": "prt_muacc1r31p",
+          "label": "context + query"
+        },
+        {
+          "id": "conn_muacc1r323",
+          "sourceBlockId": "blk_muacc1r31s",
+          "sourcePortId": "prt_muacc1r31r",
+          "targetBlockId": "blk_muacc1r31x",
+          "targetPortId": "prt_muacc1r31u",
+          "label": "prompt"
+        },
+        {
+          "id": "conn_muacc1r324",
+          "sourceBlockId": "blk_muacc1r31x",
+          "sourcePortId": "prt_muacc1r31w",
+          "targetBlockId": "blk_muacc1r26",
+          "targetPortId": "prt_muacc1r25",
+          "label": "answer",
+          "color": "#b47621"
+        },
+        {
+          "id": "conn_muacc1r325",
+          "sourceBlockId": "blk_muacc1r320",
+          "sourcePortId": "prt_muacc1r31z",
+          "targetBlockId": "blk_muacc1r3d",
+          "targetPortId": "prt_muacc1r3c",
+          "label": "lookup"
+        }
+      ]
+    }
+  },
+  "path": []
+}

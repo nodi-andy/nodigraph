@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="client/icon.svg" width="72" height="72" alt="">
+  <img src="client/icon.svg" width="72" height="72" alt="nodigraph — connected systems, nested detail">
 </p>
 
 <h1 align="center">nodigraph</h1>
 
 <p align="center">
-  <strong>Block diagrams that live in the URL.</strong><br>
-  No account, no database, nothing stored on a server — the link <em>is</em> the file.
+  <strong>Understand the system. Explore what is inside.</strong><br>
+  Editable block diagrams with nested detail. No account needed — share the whole system in a link.
 </p>
 
 <p align="center">
@@ -14,7 +14,15 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshot.png" width="900" alt="A Beacon Unit system: Power Supply, MCU, LED Driver and Probe Array blocks wired together through named ports">
+  <a href="https://nodigraph.com/?github=nodi-andy/nodigraph/docs/examples/local-ai.nodigraph.json">
+    <img src="docs/examples/local-ai-walkthrough.gif" width="1000" alt="Animated walkthrough of a local AI assistant: the complete system, inside Retrieval, then inside Similarity search. Click to open the editable diagram.">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://nodigraph.com/?github=nodi-andy/nodigraph/docs/examples/local-ai.nodigraph.json"><strong>Explore this diagram ↗</strong></a><br>
+  Open <strong>Retrieval</strong>, then <strong>Similarity search</strong>. Every block can contain another system.<br>
+  <sub>Conceptual local AI assistant · <a href="docs/examples/local-ai-overview.svg">Static overview</a> · <a href="docs/examples/local-ai.yaml">YAML source</a> · <a href="docs/examples/local-ai.md">Walkthrough and all three views</a></sub>
 </p>
 
 ---
