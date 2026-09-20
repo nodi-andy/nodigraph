@@ -11,7 +11,7 @@ import {
 } from '../model/grid.js';
 import { getStateColor, logicalPortOf } from '../model/BlockDescription.js';
 import { DEFAULT_BLOCK_COLOR, TITLE_POSITIONS, TITLE_ALIGNMENTS } from '../model/Block.js';
-import { boundaryPlacementFor, exteriorPlacementFor } from '../model/levelGeometry.js';
+import { boundaryPlacementFor, exteriorPlacementFor, frameToFace } from '../model/levelGeometry.js';
 import { isImageUrl, getCachedImage } from './imageCache.js';
 import { getCanvasPalette } from './canvasPalette.js';
 import { getFontFamily, ensureFontLoaded } from './fonts.js';
@@ -685,7 +685,7 @@ function drawPortLabel(ctx, port, pos, inverted = false, palette = DEFAULT_PALET
 // data actually flows, not just "here's a handle." `side`/`inverted` give
 // the handle's own outward-facing axis; isOutput then decides whether the
 // arrow points along that axis or against it.
-function drawConnectorArrow(ctx, handlePos, side, inverted, isOutput, palette = DEFAULT_PALETTE) {
+function drawConnectorArrow(ctx, handlePos, side, inverted, isOutput, palette = DEFAULT_PALETTE, color = null) {
   const n = sideNormal(side);
   const outwardSign = inverted ? -1 : 1;
   const directionSign = isOutput ? 1 : -1;
@@ -705,7 +705,7 @@ function drawConnectorArrow(ctx, handlePos, side, inverted, isOutput, palette = 
   ctx.lineTo(backX + perpX * half, backY + perpY * half);
   ctx.lineTo(backX - perpX * half, backY - perpY * half);
   ctx.closePath();
-  ctx.fillStyle = palette.connectorHandle;
+  ctx.fillStyle = color || palette.connectorHandle;
   ctx.fill();
 }
 
@@ -719,7 +719,7 @@ function drawConnectorArrow(ctx, handlePos, side, inverted, isOutput, palette = 
 // handle — on the boundary, a circular handle sitting right next to the
 // port's own (now rectangular) slot read as just another plain wire
 // endpoint rather than as part of a deliberately port-shaped thing.
-function drawConnectorHandleDot(ctx, handlePos, inverted = false, palette = DEFAULT_PALETTE) {
+function drawConnectorHandleDot(ctx, handlePos, inverted = false, palette = DEFAULT_PALETTE, color = null) {
   ctx.beginPath();
   if (inverted) {
     const half = CONNECTOR_ARROW_SIZE / 2;
@@ -727,7 +727,7 @@ function drawConnectorHandleDot(ctx, handlePos, inverted = false, palette = DEFA
   } else {
     ctx.arc(handlePos.x, handlePos.y, CONNECTOR_ARROW_SIZE / 2, 0, Math.PI * 2);
   }
-  ctx.fillStyle = palette.connectorHandle;
+  ctx.fillStyle = color || palette.connectorHandle;
   ctx.fill();
 }
 
@@ -758,11 +758,15 @@ export function getPortSlotRect(block, port) {
   return getSlotRectFromBorderPoint(x, y, port.side);
 }
 
-function drawSlotSquare(ctx, rect, fill, stroke) {
-  ctx.beginPath();
-  ctx.rect(rect.x, rect.y, rect.width, rect.height);
+// A pin is a small rounded pill in one colour, no outline: the pale halo
+// that used to ring it read as a gap between the pin and its block. A
+// stroke is drawn only when one is asked for (the add-port ghost).
+const SLOT_CORNER_RADIUS = 1.5;
+function drawSlotSquare(ctx, rect, fill, stroke = null) {
+  roundRectPath(ctx, rect.x, rect.y, rect.width, rect.height, Math.min(SLOT_CORNER_RADIUS, rect.width / 2, rect.height / 2));
   ctx.fillStyle = fill;
   ctx.fill();
+  if (!stroke) return;
   ctx.strokeStyle = stroke;
   ctx.lineWidth = 1;
   ctx.stroke();
@@ -819,20 +823,23 @@ function drawEmptySlots(ctx, block, palette = DEFAULT_PALETTE) {
 // Shared by both the container's per-wire loop and the plain single-wire
 // case below — the stub line + slot square + arrowhead/dot every wire
 // gets, wherever its own position resolves to.
+// Stub, pill and arrowhead in one colour — the block's own accent — so a
+// pin reads as part of its block rather than as three grey parts sitting
+// on the border.
 function drawWireStubAndDot(ctx, { px, py, handle, side, inverted, isEffectivelyOutput, color, palette }) {
   // Drawn before the arrowhead/handle so it paints over its endpoint —
   // the stub reads as attached to the handle, not the other way around.
-  ctx.strokeStyle = '#4a5568';
+  ctx.strokeStyle = color;
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.moveTo(px, py);
   ctx.lineTo(handle.x, handle.y);
   ctx.stroke();
 
-  drawSlotSquare(ctx, getSlotRectFromBorderPoint(px, py, side), color, palette.portStroke);
+  drawSlotSquare(ctx, getSlotRectFromBorderPoint(px, py, side), color);
 
-  if (isEffectivelyOutput !== null) drawConnectorArrow(ctx, handle, side, inverted, isEffectivelyOutput, palette);
-  else drawConnectorHandleDot(ctx, handle, inverted, palette);
+  if (isEffectivelyOutput !== null) drawConnectorArrow(ctx, handle, side, inverted, isEffectivelyOutput, palette, color);
+  else drawConnectorHandleDot(ctx, handle, inverted, palette, color);
 }
 
 // A light, always-visible outline (never gated on selection — see
@@ -885,7 +892,13 @@ function drawPorts(
     wireMoveOverride = null,
   } = {},
 ) {
-  const outputColor = getStateColor(block) || DEFAULT_OUTPUT_PORT_COLOR;
+  // A host's state colour (see BlockDescription.getStateColor) still wins;
+  // otherwise every pin takes the block's accent, the colour its border
+  // already has, and a block with no accent of its own keeps the neutral
+  // pin grey.
+  const accent = block.style?.color && block.style.color !== 'transparent' ? block.style.color : null;
+  const outputColor = getStateColor(block) || accent || DEFAULT_OUTPUT_PORT_COLOR;
+  const inputColor = accent || INPUT_PORT_COLOR;
 
   // Shown while selected (about to add or drag a port there) — showing
   // them all the time, on every block, cluttered ones you weren't
@@ -911,7 +924,7 @@ function drawPorts(
     const rectCount = Math.max(1, wireEntries.length, reservedWidth);
     const effectiveSide = inverted ? getPortBoundaryPlacement(port, block).side : port.side;
     const isEffectivelyOutput0 = portDirection === null ? null : inverted ? portDirection === 'in' : portDirection === 'out';
-    const color0 = isEffectivelyOutput0 ? outputColor : INPUT_PORT_COLOR;
+    const color0 = isEffectivelyOutput0 ? outputColor : inputColor;
 
     // A widened (or already multi-wire) boundary port reads as one visible
     // group — a light, *always-shown* outline (not gated on selection, so
@@ -1163,6 +1176,63 @@ export function drawBlock(
   }
   if (isOpenableLink(block.link)) drawLinkGlyph(ctx, block.geometry, palette, zoom);
   if (selected) drawResizeHandles(ctx, block.geometry, palette, zoom);
+}
+
+// A block's pins alone, drawn again over the wires of its level (see
+// SubPreviewRenderer.drawLevel): a wire's z-index is that of its front
+// endpoint, so it would otherwise cover the arrowhead of the pin it
+// leaves from on the other block.
+export function drawBlockPorts(ctx, block, { portHighlights = null, palette = DEFAULT_PALETTE, zoom = 1 } = {}) {
+  drawPorts(ctx, block, { portHighlights, palette, zoom });
+}
+
+// The sub-slots of a container's multi-wire pins, drawn at the exterior
+// pin's own size, next to it: the plug outside is one connector, and once
+// the level inside is open its wires attach to individual pins (see
+// getBoundaryWirePosition). `wireCounts` maps port id → number of wires
+// on it from inside; a pin with one wire has nothing to add. Each extra
+// pin is one more pill of the same colour along the same edge, the whole
+// row tied together by a light outline, so the connector reads as "one
+// plug, n pins" without the level's own tiny frame glyphs having to.
+export function drawExteriorSubSlots(ctx, block, wireCounts, { palette = DEFAULT_PALETTE, alpha = 1 } = {}) {
+  const frame = block.boundaryGeometry;
+  if (!frame || !wireCounts?.size) return;
+  const accent = block.style?.color && block.style.color !== 'transparent' ? block.style.color : null;
+  const color = getStateColor(block) || accent || DEFAULT_OUTPUT_PORT_COLOR;
+  const t = frameToFace(block.geometry, frame);
+  const toFace = (p) => ({ x: p.x * t.scale + t.offsetX, y: p.y * t.scale + t.offsetY });
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  for (const port of block.ports || []) {
+    const count = wireCounts.get(port.id) || 0;
+    if (count < 2) continue;
+    const view = asBoundaryView(block, frame, [port]);
+    const side = getPortBoundaryPlacement(port, view).side;
+    for (let i = 1; i < count; i += 1) {
+      const pos = toFace(getBoundaryWirePosition(view, port, i));
+      drawSlotSquare(ctx, getSlotRectFromBorderPoint(pos.x, pos.y, side), color);
+    }
+    const group = getBoundaryPortBlockRect(view, port, count);
+    const a = toFace({ x: group.x, y: group.y });
+    const b = toFace({ x: group.x + group.width, y: group.y + group.height });
+    const horizontal = side === 'left' || side === 'right';
+    // The outline follows the pins' own footprint on the face: the group's
+    // extent along the edge, the pin's length across it.
+    const rect = horizontal
+      ? { x: a.x - PORT_LENGTH / 2 + (b.x - a.x) / 2, y: Math.min(a.y, b.y), width: PORT_LENGTH, height: Math.abs(b.y - a.y) }
+      : { x: Math.min(a.x, b.x), y: a.y - PORT_LENGTH / 2 + (b.y - a.y) / 2, width: Math.abs(b.x - a.x), height: PORT_LENGTH };
+    drawContainerGroupOutline(ctx, { x: rect.x - 2, y: rect.y - 2, width: rect.width + 4, height: rect.height + 4 }, palette);
+  }
+  ctx.restore();
+}
+
+// A container's pins as seen from inside its own level, drawn on the
+// frame — the same glyphs drawBoundary draws, without the frame or its
+// label. A pin that carries several wires from inside shows one sub-slot
+// per wire (see getBoundaryWirePosition): the plug outside is one
+// connector, the level inside sees its individual pins.
+export function drawBoundaryPins(ctx, block, geometry, ports, { portHighlights = null, palette = DEFAULT_PALETTE, boundaryWireLabels = null, wireMoveOverride = null, zoom = 1 } = {}) {
+  drawPorts(ctx, asBoundaryView(block, geometry, ports), { inverted: true, portHighlights, palette, boundaryWireLabels, wireMoveOverride, zoom });
 }
 
 // The frame representing "the current system" — the block you're inside,

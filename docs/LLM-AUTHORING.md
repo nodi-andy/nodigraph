@@ -285,9 +285,11 @@ of the block keeps that exact; any other size still works, the frame pins just
 snap to the nearest slot.
 
 Every level is drawn in place: zooming into a block draws its level on its
-face through that same mapping, at full detail once there is room to read it,
+face through that same mapping as soon as the block is big enough on screen,
 and its children can then be selected, dragged and wired right there — the
-click decides which level it edits, nothing on screen changes. Grabbing a
+click decides which level it edits, nothing on screen changes. A `self` pin
+that carries several wires inside shows one sub-slot per wire on the frame:
+one plug outside, its individual pins inside. Grabbing a
 container's empty space still moves the container as a whole until it fills
 the view. Double-clicking a container zooms the view to its level; the
 breadcrumb goes back up.

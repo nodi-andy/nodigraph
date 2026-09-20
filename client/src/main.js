@@ -34,7 +34,7 @@ import { maybeShowOnboarding } from './ui/Onboarding.js';
 import { renderCurrentLevelDataUrl, renderCurrentLevelBlob } from './model/diagramImage.js';
 import { getBoundaryLabelRect, hasSubArchitecture, isOpenableLink } from './render/BlockRenderer.js';
 import { chainToRoot, childCameraFor, rootCameraFor } from './render/levelTransform.js';
-import { isLevelEditable, DETAIL_FULL_ZOOM } from './render/SubPreviewRenderer.js';
+import { isLevelEditable, MIN_EDIT_ZOOM } from './render/SubPreviewRenderer.js';
 import { resolveFocus } from './interaction/LevelFocus.js';
 import { getConnectionGeometry, getConnectionLabelPosition } from './render/ConnectionRenderer.js';
 import { downloadProjectFile, readProjectFile, safeFileStem } from './model/localFile.js';
@@ -636,11 +636,11 @@ async function bootstrap() {
 
   // Zooming moves the focus too, so the zoom range always has room. In:
   // the view's centre lies on a container that fills the view and whose
-  // level is drawn at full detail. Out: the level being edited has
-  // dropped below full detail, or its frame has shrunk to well inside
-  // the view. The two cannot both hold at once (entering needs full
-  // detail, which is exactly what leaving needs to have gone), so a zoom
-  // held at the threshold cannot flap between levels.
+  // level is shown at an editable zoom. Out: the level being edited has
+  // dropped below that zoom, or its frame has shrunk to well inside the
+  // view. The two cannot both hold at once (entering needs the zoom that
+  // leaving needs to have gone), so a zoom held at the threshold cannot
+  // flap between levels.
   const ENTER_FRACTION = 0.85;
   const EXIT_FRACTION = 0.5;
 
@@ -669,7 +669,7 @@ async function bootstrap() {
       const frame = container?.boundaryGeometry;
       if (!frame) return;
       const tooSmall = Math.max(frame.width, frame.height) * camera.zoom <= EXIT_FRACTION * viewMin;
-      if (camera.zoom >= DETAIL_FULL_ZOOM && !tooSmall) return;
+      if (camera.zoom >= MIN_EDIT_ZOOM && !tooSmall) return;
       const parentCamera = rootCameraFor(camera, chainToRoot([container]));
       if (!focusLevel(project.path.slice(0, -1), parentCamera)) return;
     }

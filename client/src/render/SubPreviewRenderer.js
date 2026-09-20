@@ -15,13 +15,13 @@
  * on screen ever changes when the editing focus moves from one level to
  * another: the picture you were looking at IS the level.
  *
- * Two levels of detail, crossfaded on the effective zoom (screen pixels
- * per child world unit): silhouettes while the level is small — fills,
- * borders, port dots, a caption with the block's name — and the real
- * drawBlock/wire rendering once there is room to read it. A level is
- * editable exactly when it is drawn at full detail (see isLevelEditable
- * and interaction/LevelFocus.js), and the levels on the way down to the
- * one being edited are always drawn at full detail, whatever the zoom.
+ * A level is shown as soon as its block is big enough on screen to hold
+ * it (OPEN_SIZE), eased in over a fraction of a second; there is no
+ * intermediate rendering, what appears is the level exactly as it is
+ * drawn when edited. A level is editable once it is shown at a readable
+ * zoom (see isLevelEditable and interaction/LevelFocus.js), and the
+ * levels on the way down to the one being edited are always drawn open,
+ * whatever the zoom.
  *
  * Culling is by the visible world rect handed down from SceneRenderer, so
  * a level whose block is off screen, or a child off the visible part of
@@ -35,34 +35,24 @@ import {
   verticalSegmentsOf,
   FLOW_DASH,
 } from './ConnectionRenderer.js';
-import { drawBlock, drawBoundary, drawResizeHandles, getPortPosition, hasSubArchitecture } from './BlockRenderer.js';
+import { drawBlock, drawBoundary, drawBoundaryPins, drawBlockPorts, drawExteriorSubSlots, drawResizeHandles, hasSubArchitecture } from './BlockRenderer.js';
 import { LevelView } from '../model/levelView.js';
 import { frameToFace } from '../model/levelGeometry.js';
 import { GRID_SIZE } from '../model/grid.js';
 import { getCanvasPalette } from './canvasPalette.js';
 
-// The block's smaller on-screen dimension, in CSS pixels, where the
-// transition starts and where it's complete. Below FADE_IN the level is a
-// smudge that costs more attention than it repays. The span between the
-// two keeps it from popping into existence mid-zoom-gesture. A default
-// block (120x80 world units) reaches FULL at roughly 2.9x zoom; a large
-// one, drawn four grid cells tall, at 1.4x.
-const FADE_IN_SIZE = 130;
-const FULL_SIZE = 230;
+// A block's level opens once the block's smaller on-screen dimension
+// reaches this many CSS pixels: below it the level would be a smudge
+// that costs more attention than it repays. No crossfade over the zoom —
+// the level is either shown or not — but the flip is eased over
+// FADE_MS so it reads as the level arriving rather than popping.
+const OPEN_SIZE = 200;
+const FADE_MS = 160;
 
-// The crossfade fades *through* rather than dissolving one image into the
-// other: the centered name leaves over NAME_OUT and the level only starts
-// arriving at PREVIEW_IN, so the two barely coexist.
-const NAME_OUT = [0.2, 0.55];
-const PREVIEW_IN = [0.45, 1];
-
-// Effective zoom (screen px per child world unit) over which the drawing
-// goes from silhouettes to the real block and wire rendering. At 0.3 a
-// default block is 36 px wide — the silhouette's caption is still the
-// only legible text; by 0.55 its own name reads, and the level can be
-// edited (see isLevelEditable).
-const DETAIL_IN = [0.3, 0.55];
-export const DETAIL_FULL_ZOOM = DETAIL_IN[1];
+// The least zoom (screen px per world unit of the level) at which a
+// level is edited in place; below it, it is only shown. Also the zoom
+// under which main.js hands the editing focus back to the parent.
+export const MIN_EDIT_ZOOM = 0.35;
 
 // Position within a [start, end] window, clamped to 0..1 at both ends.
 function ramp(t, [start, end]) {
@@ -75,26 +65,7 @@ function ramp(t, [start, end]) {
 // frame's scale, so how deep the drawing goes follows the zoom.
 export const MAX_DEPTH = 12;
 
-// Screen-constant type sizes, divided by the effective scale before use.
-const CAPTION_INSET = 9;
-const CAPTION_FONT_SIZE = 10;
-const MINI_FONT_SIZE = 9;
-const MINI_CORNER_RADIUS = 2.5;
-
-// How thick a previewed wire and a previewed block's border are drawn, in
-// screen pixels, while the level is a silhouette.
-const MINI_WIRE_WIDTH = 1.3;
-const MINI_BORDER_WIDTH = 0.9;
-
-// The silhouette is a quieter register than the block's own face, so it
-// is drawn under this; the full-detail rendering is the real thing and
-// paints at full strength.
-const PREVIEW_ALPHA = 0.85;
-
-const MINI_FONT_STACK = '-apple-system, Segoe UI, Roboto, sans-serif';
-const DEFAULT_WIRE_COLOR = '#4f8cff';
-const DEFAULT_ACCENT_COLOR = '#3b6fa0';
-const WIRE_COLOR = DEFAULT_WIRE_COLOR;
+const WIRE_COLOR = '#4f8cff';
 const WIRE_SELECTED_HALO = 'rgba(255, 180, 84, 0.55)';
 
 // A dot at every grid intersection rather than a lattice of lines — the
@@ -132,46 +103,70 @@ export function drawGridDots(ctx, rect, zoom, palette, alpha = 1) {
   ctx.restore();
 }
 
-/**
- * How far along the crossfade `block` is at this zoom: 0 (an ordinary
- * block, nothing to show) to 1 (fully opened up). Deliberately not an
- * opacity — it's the one position both halves are read off, by
- * drawSubPreview for the level and by contentAlphaFor for the name and
- * badge it displaces, so the two can never disagree about where in the
- * transition they are.
- */
+function now() {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
+
+// Whether `block`'s level is shown on its face at this zoom (the zoom of
+// the level `block` sits in).
+export function isLevelOpen(block, zoom) {
+  if (block.kind === 'text' || !hasSubArchitecture(block) || !block.boundaryGeometry) return false;
+  return Math.min(block.geometry.width, block.geometry.height) * zoom >= OPEN_SIZE;
+}
+
+// Kept for callers that only need the target state: 1 when the level is
+// shown, 0 when the block is closed.
 export function subPreviewProgress(block, zoom) {
-  if (block.kind === 'text' || !hasSubArchitecture(block) || !block.boundaryGeometry) return 0;
-  const screenSize = Math.min(block.geometry.width, block.geometry.height) * zoom;
-  if (screenSize <= FADE_IN_SIZE) return 0;
-  if (screenSize >= FULL_SIZE) return 1;
-  return (screenSize - FADE_IN_SIZE) / (FULL_SIZE - FADE_IN_SIZE);
+  return isLevelOpen(block, zoom) ? 1 : 0;
 }
 
 /**
- * Whether `block`'s level, drawn on its face at this zoom (the zoom of
- * the level `block` sits in), is at full detail — the level is exactly
- * as it would be drawn when edited, so it can be edited in place (see
- * interaction/LevelFocus.js).
+ * Whether `block`'s level is drawn on its face at a zoom where it can be
+ * edited in place (see interaction/LevelFocus.js).
  */
 export function isLevelEditable(block, zoom) {
-  if (subPreviewProgress(block, zoom) < 1) return false;
+  if (!isLevelOpen(block, zoom)) return false;
   const t = frameToFace(block.geometry, block.boundaryGeometry);
-  return zoom * t.scale >= DETAIL_FULL_ZOOM;
+  return zoom * t.scale >= MIN_EDIT_ZOOM;
+}
+
+// The eased opening of each level, keyed by block id: when the shown/
+// closed state flips, the alpha runs from the old state to the new one
+// over FADE_MS, asking for a redraw until it arrives. Ids of blocks that
+// are gone linger here harmlessly; the map is small.
+const openings = new Map();
+
+/**
+ * How far open `block`'s level is drawn right now, 0..1 — the animated
+ * version of subPreviewProgress. drawBlock fades the name and badge it
+ * displaces by the same number (see contentAlphaFor), so the two halves
+ * never disagree.
+ */
+export function previewAlphaFor(block, zoom, requestRender = () => {}) {
+  const open = isLevelOpen(block, zoom);
+  const t = now();
+  let state = openings.get(block.id);
+  if (!state) {
+    state = { open, since: t - FADE_MS };
+    openings.set(block.id, state);
+  } else if (state.open !== open) {
+    // Reverse mid-fade from where it is, not from the far end.
+    const progress = Math.min(1, (t - state.since) / FADE_MS);
+    state.open = open;
+    state.since = t - (1 - progress) * FADE_MS;
+  }
+  const progress = Math.min(1, Math.max(0, (t - state.since) / FADE_MS));
+  if (progress < 1) requestRender();
+  return open ? progress : 1 - progress;
 }
 
 /**
- * The opacity everything a preview displaces should be drawn at, at the
- * given point along the crossfade — used by drawBlock for a full-size
- * block's name and badge, and by drawMiniBlock for a silhouette about to
- * be opened up in turn.
+ * The opacity everything an open level displaces should be drawn at —
+ * the block's own centred name and its corner badge — at the given point
+ * of the opening. The name fades where it stands; nothing moves.
  */
 export function contentAlphaFor(t) {
-  return 1 - ramp(t, NAME_OUT);
-}
-
-function previewInkFor(t) {
-  return ramp(t, PREVIEW_IN);
+  return 1 - t;
 }
 
 function intersects(a, b) {
@@ -384,7 +379,7 @@ export function drawLevel(
     // paints the level from it, and drawBlock fades the name and badge
     // it displaces back out (see contentAlphaFor). A block on the way
     // down to the level being edited is always fully open.
-    let previewT = showSubPreviews ? subPreviewProgress(block, zoom) : 0;
+    let previewT = showSubPreviews ? previewAlphaFor(block, zoom, requestRender) : 0;
     if (showSubPreviews && focus?.pathIds?.has(block.id) && hasSubArchitecture(block) && block.boundaryGeometry) previewT = 1;
     drawBlock(ctx, block, {
       selected: selectedBlockIds.has(block.id),
@@ -401,71 +396,60 @@ export function drawLevel(
     // fires for the level being edited only — what it always drew on.
     if (focused) onDrawBlock(ctx, block);
   }
-}
 
-// A block reduced to its silhouette: fill, accent border, port dots and
-// its name if there's a legible amount of room for it.
-function drawMiniBlock(ctx, block, palette, effectiveZoom, ownPreviewT) {
-  const { x, y, width, height } = block.geometry;
-  const accent = block.style?.color || DEFAULT_ACCENT_COLOR;
-  const fill = block.style?.fill || palette.blockFill;
-  const radius = Math.min(MINI_CORNER_RADIUS / effectiveZoom, width / 2, height / 2);
-
-  ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.arcTo(x + width, y, x + width, y + height, radius);
-  ctx.arcTo(x + width, y + height, x, y + height, radius);
-  ctx.arcTo(x, y + height, x, y, radius);
-  ctx.arcTo(x, y, x + width, y, radius);
-  ctx.closePath();
-  ctx.fillStyle = fill;
-  ctx.fill();
-  if (accent !== 'transparent') {
-    ctx.lineWidth = MINI_BORDER_WIDTH / effectiveZoom;
-    ctx.strokeStyle = accent;
-    ctx.stroke();
+  // Pins over wires. A wire's z-index is its front endpoint's, so it paints
+  // over the other endpoint's arrowhead; and a level drawn inside a block
+  // paints its wires over the block's own pins where they meet the frame.
+  // Every block that has a wire in this level, or a level of its own,
+  // gets its pins drawn once more on top.
+  const wiredIds = new Set();
+  for (const { connection } of routed) {
+    wiredIds.add(connection.sourceBlockId);
+    wiredIds.add(connection.targetBlockId);
+  }
+  for (const block of blocks) {
+    if (!wiredIds.has(block.id) && !hasSubArchitecture(block)) continue;
+    if (cullRect && !intersects(block.geometry, cullRect)) continue;
+    drawBlockPorts(ctx, block, { portHighlights, palette, zoom });
+    // An open container's multi-wire pins split into sub-slots at this
+    // level's scale (see BlockRenderer.drawExteriorSubSlots), arriving
+    // with the level.
+    const openAlpha = showSubPreviews && hasSubArchitecture(block) && block.boundaryGeometry ? (focus?.pathIds?.has(block.id) ? 1 : previewAlphaFor(block, zoom, requestRender)) : 0;
+    if (openAlpha > 0) {
+      const inner = new LevelView(block);
+      const counts = new Map(inner.listBoundaryPorts(block).map((port) => [port.id, inner.listBoundaryWires(block.id, port.id).length]));
+      drawExteriorSubSlots(ctx, block, counts, { palette, alpha: openAlpha });
+    }
   }
 
-  ctx.fillStyle = accent === 'transparent' ? palette.portLabel : accent;
-  for (const port of block.ports || []) {
-    const position = getPortPosition(block, port);
-    if (!position) continue;
-    ctx.beginPath();
-    ctx.arc(position.x, position.y, (MINI_WIRE_WIDTH * 1.1) / effectiveZoom, 0, Math.PI * 2);
-    ctx.fill();
+  // A nested level's own pins on the frame, for the pins that carry wires
+  // from inside: the plug outside is one connector, and this is where it
+  // splits into the sub-slots the wires inside attach to (see
+  // BlockRenderer.drawBoundaryPins). The container's exterior pin is drawn
+  // over the first of them again by the level above.
+  if (!boundary && routingBoundary) {
+    const wiredPins = view.listBoundaryPorts(container).filter((port) => view.listBoundaryWires(container.id, port.id).length > 0);
+    if (wiredPins.length) {
+      const boundaryWireLabels = new Map(
+        wiredPins.map((port) => {
+          const ids = view.listBoundaryWires(container.id, port.id);
+          return [port.id, ids.map((id, rank) => ({ id, rank, label: view.getConnection(id)?.label || '' }))];
+        }),
+      );
+      drawBoundaryPins(ctx, container, routingBoundary.geometry, wiredPins, { portHighlights, palette, boundaryWireLabels, wireMoveOverride, zoom });
+    }
   }
-
-  const fontSize = MINI_FONT_SIZE / effectiveZoom;
-  const nameAlpha = contentAlphaFor(ownPreviewT);
-  if (height < fontSize * 1.6 || width < fontSize * 2.5 || nameAlpha <= 0) return;
-  if (nameAlpha < 1) ctx.globalAlpha *= nameAlpha;
-  ctx.fillStyle = palette.blockText;
-  ctx.font = `${fontSize}px ${MINI_FONT_STACK}`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(block.name || '', x + width / 2, y + height / 2, width - fontSize);
-}
-
-// The terminal a wire runs out to when it leaves for the container's own
-// interface — on the frame's edge, which the transform puts on the face's
-// edge, right under the block's own exterior pin.
-function drawEdgeTerminal(ctx, position, palette, effectiveZoom) {
-  if (!position) return;
-  ctx.beginPath();
-  ctx.arc(position.x, position.y, (MINI_WIRE_WIDTH * 1.4) / effectiveZoom, 0, Math.PI * 2);
-  ctx.fillStyle = palette.portLabel;
-  ctx.fill();
 }
 
 /**
  * Draws `block`'s level inside its own face. Call it after drawBlock has
- * painted that block, passing the `t` subPreviewProgress returned for the
- * same block and zoom — early enough in the ramp (or 0) draws nothing.
- * `visible` (optional) is the visible world rect in the coordinates of
- * the level `block` sits in; anything outside it is skipped. `focus`
- * (see drawLevel) makes a block on the path to the level being edited
- * draw fully open at any zoom, and unclipped, so a child dragged past
- * the frame from inside stays on screen.
+ * painted that block, passing the `t` previewAlphaFor returned for the
+ * same block and zoom — 0 draws nothing. `visible` (optional) is the
+ * visible world rect in the coordinates of the level `block` sits in;
+ * anything outside it is skipped. `focus` (see drawLevel) makes a block
+ * on the path to the level being edited draw fully open at any zoom, and
+ * unclipped, so a child dragged past the frame from inside stays on
+ * screen.
  */
 export function drawSubPreview(
   ctx,
@@ -473,18 +457,15 @@ export function drawSubPreview(
   { zoom = 1, t = 1, palette = getCanvasPalette('light'), depth = 0, visible = null, focus = null, flowOffset = null, requestRender = () => {}, onDrawBlock = () => {} } = {},
 ) {
   const onFocusPath = Boolean(focus?.pathIds?.has(block.id));
-  const ink = onFocusPath ? 1 : previewInkFor(t);
+  const alpha = onFocusPath ? 1 : t;
   const frame = block.boundaryGeometry;
-  if (ink <= 0 || depth >= MAX_DEPTH || !hasSubArchitecture(block) || !frame) return;
+  if (alpha <= 0 || depth >= MAX_DEPTH || !hasSubArchitecture(block) || !frame) return;
   if (visible && !onFocusPath && !intersects(block.geometry, visible)) return;
 
   const view = new LevelView(block);
   const layout = frameToFace(block.geometry, frame);
   const effectiveZoom = zoom * layout.scale;
-  const detail = onFocusPath ? 1 : ramp(effectiveZoom, DETAIL_IN);
   const { x, y, width, height } = block.geometry;
-
-  const boundary = { block, geometry: frame };
 
   // What the level sees of the viewport, in its own coordinates.
   const childVisible = visible
@@ -497,23 +478,7 @@ export function drawSubPreview(
     : null;
 
   ctx.save();
-  ctx.globalAlpha *= ink;
-
-  // The caption carries the block's name while the level is a silhouette
-  // whose own names are too small to read; it fades out as the real
-  // rendering, names included, fades in.
-  if (detail < 1) {
-    const captionSize = CAPTION_FONT_SIZE / zoom;
-    const captionInset = CAPTION_INSET / zoom;
-    ctx.save();
-    ctx.globalAlpha *= 1 - detail;
-    ctx.fillStyle = palette.blockText;
-    ctx.font = `${captionSize}px ${MINI_FONT_STACK}`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.fillText(block.name || '', x + captionInset, y + captionInset * 0.6, width - captionInset * 2);
-    ctx.restore();
-  }
+  ctx.globalAlpha *= alpha;
 
   // Clipped to the face so anything reaching past the frame — a child
   // placed outside it, a hand-routed wire's detour — can't spill onto the
@@ -528,55 +493,26 @@ export function drawSubPreview(
   ctx.translate(layout.offsetX, layout.offsetY);
   ctx.scale(layout.scale, layout.scale);
 
-  // The level's own grid, fading in with its detail — over the face's
-  // fill, under its contents, exactly what the canvas shows behind the
-  // root level.
-  if (detail > 0 && childVisible) drawGridDots(ctx, childVisible, effectiveZoom, palette, detail);
+  // The level's own grid — over the face's fill, under its contents,
+  // exactly what the canvas shows behind the root level.
+  if (childVisible) drawGridDots(ctx, childVisible, effectiveZoom, palette);
 
-  // Silhouette pass — fades out as detail comes in.
-  if (detail < 1) {
-    const routed = [];
-    for (const connection of view.listConnections()) {
-      const geometry = getConnectionGeometry(view, connection, boundary);
-      if (geometry) routed.push({ connection, geometry });
-    }
-    const children = view.listBlocks().filter((child) => !childVisible || intersects(child.geometry, childVisible));
-    ctx.save();
-    ctx.globalAlpha *= PREVIEW_ALPHA * (1 - detail);
-    for (const { connection, geometry } of routed) {
-      drawPath(ctx, geometry.points, { color: connection.color || DEFAULT_WIRE_COLOR, width: MINI_WIRE_WIDTH / effectiveZoom });
-      if (connection.sourceBlockId === block.id) drawEdgeTerminal(ctx, geometry.sourcePos, palette, effectiveZoom);
-      if (connection.targetBlockId === block.id) drawEdgeTerminal(ctx, geometry.targetPos, palette, effectiveZoom);
-    }
-    for (const child of children) {
-      ctx.save();
-      drawMiniBlock(ctx, child, palette, effectiveZoom, subPreviewProgress(child, effectiveZoom));
-      ctx.restore();
-    }
-    ctx.restore();
-  }
-
-  // Full-detail pass — the level drawn exactly as the level being edited
-  // is drawn (same drawLevel), so moving the editing focus into it
-  // changes nothing on screen. Its children's own levels open inside it
-  // in turn, gated on their on-screen size under the combined scale.
-  if (detail > 0) {
-    ctx.save();
-    ctx.globalAlpha *= detail;
-    drawLevel(ctx, view, {
-      zoom: effectiveZoom,
-      palette,
-      visible: childVisible,
-      focus,
-      depth,
-      boundary: null,
-      showSubPreviews: true,
-      flowOffset,
-      requestRender,
-      onDrawBlock,
-    });
-    ctx.restore();
-  }
+  // The level drawn exactly as the level being edited is drawn (same
+  // drawLevel), so moving the editing focus into it changes nothing on
+  // screen. Its children's own levels open inside it in turn, gated on
+  // their on-screen size under the combined scale.
+  drawLevel(ctx, view, {
+    zoom: effectiveZoom,
+    palette,
+    visible: childVisible,
+    focus,
+    depth,
+    boundary: null,
+    showSubPreviews: true,
+    flowOffset,
+    requestRender,
+    onDrawBlock,
+  });
 
   ctx.restore();
 }
