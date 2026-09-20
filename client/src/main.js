@@ -1323,6 +1323,7 @@ async function bootstrap() {
       wireSelection,
       remoteCursors: currentLevelCursors(),
       hoverGhost: stateMachine.getHoverGhost(),
+      hoverPin: stateMachine.getHoverPin(),
       wireMoveOverride: stateMachine.getWireMoveOverride(),
       activeWirePiece: stateMachine.getActiveWirePiece(),
       marqueeRect: stateMachine.getMarqueeRect(),
@@ -1457,6 +1458,9 @@ async function bootstrap() {
     // isn't over the canvas anymore.
     cursorHidden = true;
     sendCursor();
+    // A pin lit under the mouse (see DragStateMachine.getHoverPin) goes
+    // out with it.
+    stateMachine.clearHover();
   });
 
   // Re-announces the last known position (and hidden state) on a steady

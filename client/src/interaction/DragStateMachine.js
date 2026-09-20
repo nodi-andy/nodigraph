@@ -198,6 +198,8 @@ export class DragStateMachine {
     // { blockId, geometry, ports, side, offset, ready } while the cursor is
     // dwelling in a block's edge zone, or null — see updateHoverGhost.
     this.hoverGhost = null;
+    // The pin under an idle mouse, or null — see getHoverPin.
+    this.hoverPin = null;
     this.ghostTimer = null;
   }
 
@@ -1366,6 +1368,7 @@ export class DragStateMachine {
   computeHoverCursor(world) {
     const boundary = this.getBoundaryInfo();
     const hit = hitTest(this.project, world.x, world.y, boundary, this.getResizableBlockId(), this.getResizablePortId(), this.camera.zoom);
+    this.setHoverPin(hit);
     // Same priority onPointerDown gives them: a selected wire's grip over a
     // block body or the boundary line, then any wire's free piece where
     // nothing else was hit at all.
@@ -1384,16 +1387,48 @@ export class DragStateMachine {
       const axis = port ? sideAxis(getPortBoundaryPlacement(port, block).side) : 'x';
       return axis === 'y' ? 'ew-resize' : 'ns-resize';
     }
-    // Any port's own body — as opposed to one of its resize handles, or
-    // the connector handle past it — is what you drag to move it between
-    // slots, so it gets the same "grab this" cue a draggable thing
-    // conventionally gets. The connector keeps the default arrow: it
-    // starts/redirects a wire rather than moving anything, and showing the
-    // same cue for both is exactly what made the two feel interchangeable.
+    // A pin's own socket — as opposed to one of its resize handles, or the
+    // plug past it — is what you drag to move it between slots, so it gets
+    // the same "grab this" cue a draggable thing conventionally gets. The
+    // plug starts or redirects a wire rather than moving anything, so it
+    // gets the wiring cue instead; showing the same cursor for both is what
+    // made the two feel interchangeable. The pin itself is lit to match
+    // (see getHoverPin).
     if (hit?.type === 'port') return 'move';
+    if (hit?.type === 'connector') return 'crosshair';
     if (hit?.type === 'boundaryLabel') return 'text';
     if (hit?.type === 'link') return 'pointer';
     return 'default';
+  }
+
+  // Which pin the idle mouse is over, and which part of it: 'slot' (the
+  // socket: a press here moves the pin along its edge) or 'plug' (the wire's
+  // plug: a press here picks the wire up, or starts one). SceneRenderer
+  // draws the pin lit accordingly, so what a press will do is shown before
+  // it happens. `connectionId`/`wireIndex` name the one wire of a frame
+  // pin's group when the hit does.
+  setHoverPin(hit) {
+    const pin =
+      hit?.type === 'port' || hit?.type === 'connector'
+        ? { blockId: hit.blockId, portId: hit.portId, part: hit.type === 'port' ? 'slot' : 'plug', connectionId: hit.connectionId ?? null, wireIndex: hit.wireIndex ?? null }
+        : null;
+    const before = this.hoverPin;
+    this.hoverPin = pin;
+    const same =
+      before === pin ||
+      (before && pin && before.blockId === pin.blockId && before.portId === pin.portId && before.part === pin.part && before.connectionId === pin.connectionId && before.wireIndex === pin.wireIndex);
+    if (!same) this.requestRender();
+  }
+
+  getHoverPin() {
+    return this.state === STATES.IDLE ? this.hoverPin : null;
+  }
+
+  // The mouse has left the canvas: nothing is hovered any more.
+  clearHover() {
+    this.hoverCursor = null;
+    this.setHoverPin(null);
+    this.clearHoverGhost();
   }
 
   // What InputRouter should set canvas.style.cursor to right now — a

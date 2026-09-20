@@ -6,7 +6,6 @@ import {
   getOccupiedWireIndices,
   getPortBoundaryPlacement,
   asBoundaryView,
-  getConnectorHandlePosition,
   getResizeHandleRects,
   getBoundaryLabelRect,
   getPortSlotRect,
@@ -16,7 +15,7 @@ import {
   borderPointForOffset,
   getLinkGlyphRect,
   isOpenableLink,
-  CONNECTOR_HANDLE_RADIUS,
+  getPlugRect,
 } from '../render/BlockRenderer.js';
 
 // Handles are visually tiny, so their hit area is padded beyond what's drawn —
@@ -29,20 +28,15 @@ import {
 // zoomed in; dividing by zoom keeps it a constant, comfortable few screen
 // pixels of extra grab room regardless.
 const HANDLE_HIT_PADDING = 6;
-// The connector handle is a bare ~20px-diameter target sitting a stub's
-// length (CONNECTOR_NUB_LENGTH, 14 world units) past a much bigger, closer
-// port body, so it needs a bump over the generic HANDLE_HIT_PADDING to be
-// comfortably grabbable at all. What keeps that bump from eating the port
-// underneath it is no longer the size of this number — it's the explicit
-// carve-out in hitPortsAcrossBlocks, which drops the connector test
-// entirely for any point inside the port's own DRAWN rect. Before that
-// carve-out these two zones genuinely overlapped (this radius reaches back
-// to 3 units off the border; the port's padded rect extends 12 the other
-// way) and the connector, checked first, won the whole contested band —
-// including the outward half of the port square itself, which is what made
-// "grab the port to move it" start a rewire instead. With the port's drawn
-// body reserved, this can safely grow further if the arrow still feels
-// small; it can no longer reach anything the user sees as "the port."
+// The plug (see BlockRenderer.getPlugRect) is the body a wire's plug draws
+// on the wire's side of the border, a small target next to the much bigger
+// socket, so it gets a bump over the generic HANDLE_HIT_PADDING. What keeps
+// that bump from eating the socket is the explicit carve-out in
+// hitPortsAcrossBlocks, which drops the plug test entirely for any point
+// inside the pin's own DRAWN rect: on the socket you move the pin, on the
+// plug you take the wire. Without it the plug, checked first, won the
+// outward half of the socket, which is what made "grab the pin to move it"
+// start a rewire instead.
 const CONNECTOR_HIT_PADDING = 7;
 // Resize handles already float well clear of the block (see
 // BlockRenderer.RESIZE_HANDLE_OUTSET) — a slightly bigger pad than the
@@ -69,12 +63,6 @@ function pointInRect(px, py, rect, padding = 0) {
     py >= rect.y - padding &&
     py <= rect.y + rect.height + padding
   );
-}
-
-function pointInCircle(px, py, cx, cy, radius) {
-  const dx = px - cx;
-  const dy = py - cy;
-  return dx * dx + dy * dy <= radius * radius;
 }
 
 function hitResizeHandle(geometry, worldX, worldY, zoom = 1) {
@@ -131,15 +119,15 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
   const padding = HANDLE_HIT_PADDING / zoom;
   const connectorPadding = CONNECTOR_HIT_PADDING / zoom;
 
-  // Connector handles first — they're the outermost/smallest target, and
-  // sit close enough to their port that ambiguity should favor "start a wire"
-  // when the cursor is right at the tip. The one thing that outranks them
-  // is the port's own DRAWN body (see portBodyClaims below): the handle's
+  // Plugs first — they're the outermost/smallest target, and sit close
+  // enough to their pin that ambiguity should favor "start a wire" when
+  // the cursor is out past the socket. The one thing that outranks them is
+  // the pin's own DRAWN socket (see portBodyClaims below): the plug's
   // padded reach is wider than the gap between the two, so checking it
-  // blindly first let it swallow the outward half of the very square the
-  // user was aiming at — "I grab the port and it starts rewiring instead."
-  // Now the split follows exactly what's on screen: on the square = the
-  // port, on the stub/arrow past it = the wire head.
+  // blindly first let it swallow the outward half of the very socket the
+  // user was aiming at — "I grab the pin and it starts rewiring instead."
+  // The split follows exactly what's on screen: on the socket = the pin,
+  // on the plug body past it = the wire.
   const portBodyClaims = (pos, side) => pointInRect(worldX, worldY, getSlotRectFromBorderPoint(pos.x, pos.y, side));
 
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
@@ -164,16 +152,14 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
           // actually drawn at.
           const pos = getBoundaryWirePosition(block, port, wireIndex, wireIds[wireIndex]);
           if (portBodyClaims(pos, side)) continue;
-          const handle = getConnectorHandlePosition(pos, side, true);
-          if (pointInCircle(worldX, worldY, handle.x, handle.y, CONNECTOR_HANDLE_RADIUS + connectorPadding)) {
+          if (pointInRect(worldX, worldY, getPlugRect(pos, side, true), connectorPadding)) {
             return { type: 'connector', blockId: block.id, portId: port.id, connectionId: wireIds[wireIndex] || null };
           }
         }
       } else {
         const pos = getPortPosition(block, port);
         if (portBodyClaims(pos, port.side)) continue;
-        const handle = getConnectorHandlePosition(pos, port.side, false);
-        if (pointInCircle(worldX, worldY, handle.x, handle.y, CONNECTOR_HANDLE_RADIUS + connectorPadding)) {
+        if (pointInRect(worldX, worldY, getPlugRect(pos, port.side, false), connectorPadding)) {
           return { type: 'connector', blockId: block.id, portId: port.id, connectionId: connectionIdFor(block.id, port.id) };
         }
       }

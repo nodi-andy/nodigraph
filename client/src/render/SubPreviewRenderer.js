@@ -264,6 +264,33 @@ export function routeConnections(view, boundary, wireMoveOverride = null, hidden
   return routed;
 }
 
+// The colour a wire is drawn in. window.nodigraphConnectionColor (see
+// main.js's own doc on this file's handful of host hooks) lets a host
+// recolor a specific wire by whatever data it is presently carrying,
+// without touching the connection's own stored `color`; the Inspector's
+// colour picker stays authoritative for any wire the host has no opinion
+// on. The plug the wire puts in its pins takes the same colour (see
+// BlockRenderer.drawPorts).
+function wireColorOf(connection) {
+  const hostColor = typeof window !== 'undefined' ? window.nodigraphConnectionColor?.(connection) : null;
+  return hostColor || connection.color || WIRE_COLOR;
+}
+
+// Map<blockId, Map<portId, colour>>: the colour of the wire on every pin
+// that has one in this level, for the plugs.
+function pinWiresOf(routed) {
+  const byBlock = new Map();
+  for (const { connection } of routed) {
+    const color = wireColorOf(connection);
+    for (const [blockId, portId] of [[connection.sourceBlockId, connection.sourcePortId], [connection.targetBlockId, connection.targetPortId]]) {
+      if (!byBlock.has(blockId)) byBlock.set(blockId, new Map());
+      const pins = byBlock.get(blockId);
+      if (!pins.has(portId)) pins.set(portId, color);
+    }
+  }
+  return byBlock;
+}
+
 function drawOneConnection(ctx, entry, routed, wireSelection, flowOffset, palette) {
   const hopOver = routed
     .filter((other) => other !== entry && !sharesEndpoint(other.connection, entry.connection))
@@ -281,17 +308,8 @@ function drawOneConnection(ctx, entry, routed, wireSelection, flowOffset, palett
   // Animate takes over the whole wire's dashing while it's running,
   // regardless of the wire's own resting style — the marching dashes
   // are the point of it, not something a dotted wire should opt out of.
-  // window.nodigraphConnectionColor (see main.js's own doc on this file's
-  // handful of host hooks) lets a host recolor a specific wire by
-  // whatever data it's presently carrying, without touching the
-  // connection's own stored `color` at all -- the Inspector's own color
-  // picker (see ui/InspectorPanel.js) stays exactly as authoritative as
-  // it always was for any wire the host has no opinion on (a host
-  // returning null/undefined here, which is every wire by default with
-  // no hook set at all).
-  const hostColor = typeof window !== 'undefined' ? window.nodigraphConnectionColor?.(entry.connection) : null;
   drawPath(ctx, entry.geometry.points, {
-    color: hostColor || entry.connection.color || WIRE_COLOR,
+    color: wireColorOf(entry.connection),
     width: 3,
     hopOver,
     dash: flowOffset === null ? getDashPattern(entry.connection.dashStyle) : FLOW_DASH,
@@ -340,12 +358,21 @@ export function drawLevel(
   const wireSelection = focused ? focus.wireSelection : null;
   const hiddenConnectionId = focused ? focus.hiddenConnectionId : null;
   const wireMoveOverride = focused ? focus.wireMoveOverride : null;
+  const hoverPin = focused ? focus.hoverPin || null : null;
 
   // Wires that end on the container's own pins route to the frame
   // whether or not the frame itself is drawn.
   const routingBoundary = container?.boundaryGeometry ? { block: container, geometry: container.boundaryGeometry } : null;
   const routed = routeConnections(view, routingBoundary, wireMoveOverride, hiddenConnectionId);
   if (focused && focus.out) focus.out.routed = routed;
+  // A wire being picked up (hiddenConnectionId) is not in `routed`, so its
+  // pins show their sockets empty while it is in the air.
+  const pinWires = pinWiresOf(routed);
+  const wireEntriesFor = (blockId, port) =>
+    view.listBoundaryWires(blockId, port.id).map((id, rank) => {
+      const connection = view.getConnection(id);
+      return { id, rank, label: connection?.label || '', color: connection ? wireColorOf(connection) : null };
+    });
 
   const blocks = view.listBlocks();
   // A block just off the visible rect can still reach into it with a
@@ -396,12 +423,7 @@ export function drawLevel(
     // Which wires (if any beyond the ordinary single one) attach to each
     // of those pins from inside — see Project.listBoundaryWires (already
     // resolved against the same collapsed group) and BlockRenderer.drawPorts.
-    const boundaryWireLabels = new Map(
-      boundaryPorts.map((port) => {
-        const ids = view.listBoundaryWires(boundary.block.id, port.id);
-        return [port.id, ids.map((id, rank) => ({ id, rank, label: view.getConnection(id)?.label || '' }))];
-      }),
-    );
+    const boundaryWireLabels = new Map(boundaryPorts.map((port) => [port.id, wireEntriesFor(boundary.block.id, port)]));
     drawBoundary(ctx, { ...boundary.block, ports: boundaryPorts }, boundary.geometry, {
       selected: boundary.block.id === selectedBlockId,
       portHighlights,
@@ -409,6 +431,7 @@ export function drawLevel(
       boundaryWireLabels,
       wireMoveOverride,
       zoom,
+      hoverPin,
     });
   } else if (focused && routingBoundary && container.id === selectedBlockId) {
     // A nested level draws no frame of its own. There is no "current
@@ -446,6 +469,8 @@ export function drawLevel(
       zoom,
       contentAlpha: contentAlphaFor(previewT),
       portLabelsOutside: previewT,
+      pinWires: pinWires.get(block.id) || null,
+      hoverPin,
     });
     if (previewT > 0) {
       drawSubPreview(ctx, block, { zoom, t: previewT, palette, depth: depth + 1, visible, focus, flowOffset, requestRender, onDrawBlock });
@@ -478,7 +503,7 @@ export function drawLevel(
     if (!wiredIds.has(block.id) && !hasSubArchitecture(block)) continue;
     if (cullRect && !intersects(block.geometry, cullRect)) continue;
     const openAlpha = showSubPreviews && hasSubArchitecture(block) && block.boundaryGeometry ? (focus?.pathIds?.has(block.id) ? 1 : previewAlphaFor(block, zoom, requestRender)) : 0;
-    drawBlockPorts(ctx, block, { portHighlights, palette, zoom, labelsOutside: openAlpha });
+    drawBlockPorts(ctx, block, { portHighlights, palette, zoom, labelsOutside: openAlpha, pinWires: pinWires.get(block.id) || null, hoverPin });
     // An open container's multi-wire pins split into sub-slots at this
     // level's scale (see BlockRenderer.drawExteriorSubSlots), arriving
     // with the level.
@@ -497,13 +522,8 @@ export function drawLevel(
   if (!boundary && routingBoundary) {
     const wiredPins = view.listBoundaryPorts(container).filter((port) => view.listBoundaryWires(container.id, port.id).length > 0);
     if (wiredPins.length) {
-      const boundaryWireLabels = new Map(
-        wiredPins.map((port) => {
-          const ids = view.listBoundaryWires(container.id, port.id);
-          return [port.id, ids.map((id, rank) => ({ id, rank, label: view.getConnection(id)?.label || '' }))];
-        }),
-      );
-      drawBoundaryPins(ctx, container, routingBoundary.geometry, wiredPins, { portHighlights, palette, boundaryWireLabels, wireMoveOverride, zoom });
+      const boundaryWireLabels = new Map(wiredPins.map((port) => [port.id, wireEntriesFor(container.id, port)]));
+      drawBoundaryPins(ctx, container, routingBoundary.geometry, wiredPins, { portHighlights, palette, boundaryWireLabels, wireMoveOverride, zoom, hoverPin });
     }
   }
 }

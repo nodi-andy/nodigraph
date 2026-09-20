@@ -62,8 +62,6 @@ export const PORT_LENGTH = PORT_WIDTH * 1.5;
 // footprint runs the full width of a grid slot per wire it holds (so a
 // multi-wire port visibly widens) and this much thick across the edge.
 export const BOUNDARY_PORT_THICKNESS = PORT_SLOT_SPACING / 2;
-const INPUT_PORT_COLOR = '#8b93a3';
-const DEFAULT_OUTPUT_PORT_COLOR = '#8b93a3';
 const PORT_LABEL_GAP = 6;
 // A port label is content, so it scales with the world the way a block's
 // own name does — but only up to a point. Past twice its resting size on
@@ -690,22 +688,162 @@ function drawPortLabelInside(ctx, port, pos, inverted, palette) {
   }
 }
 
-// A pin is a plug: one shape in the block's accent, from just inside the
-// border out to where the wire starts. An output's plug is pointed, away
-// from the block; an input's is a socket, a rounded plug with a light
-// chevron cut in where the wire arrives, pointing into the block — both
-// the direction data flows, both on the wire's own axis. A pin with no
-// direction is a plain rounded plug with no point and no chevron: a two-
-// way pin is never drawn as an arrow. `side`/`inverted` give the pin's
-// outward axis (a frame pin seen from inside points into the frame).
-const PLUG_WIDTH = PORT_WIDTH + 2;
-const PLUG_INSET = PORT_LENGTH / 2;
-const PLUG_REACH = CONNECTOR_NUB_LENGTH + CONNECTOR_ARROW_SIZE / 2;
-const PLUG_TIP = 6;
+// A pin is a socket cut into the block's own border, and the wire that
+// reaches it is the plug that fits it. The direction is the shape: an
+// input is a trapezoid dent into the face, an output the same trapezoid
+// as a tab out of it, so the plug on a wire always narrows the way the
+// data flows and no separate arrowhead is needed; a pin with no direction
+// is a ring on the border and its plug a disc, never an arrow. The socket
+// is part of the block's outline (see blockOutlinePath), in the border's
+// own colour with the face's fill, so an unwired pin is plainly an empty
+// socket. Once a wire is on the pin its plug is drawn in the wire's colour
+// (see drawPinPlug): it fills the socket and carries a short body out to
+// where the wire leaves, which is also where the plug is grabbed to
+// redirect the wire (see getPlugRect and HitTest). A frame pin, seen from
+// inside its container, keeps the exterior's shape: the wire arrives from
+// the inside, so its plug sits on that side of the same socket.
+export const SOCKET_HALF_OUTER = PORT_LENGTH / 2 + 1;
+export const SOCKET_HALF_INNER = PORT_WIDTH / 2;
+export const SOCKET_DEPTH = PORT_LENGTH / 2;
+export const SOCKET_RING_RADIUS = SOCKET_HALF_OUTER - 0.5;
+// How far out from the border a plug's body reaches: the connector handle
+// (CONNECTOR_NUB_LENGTH) sits inside it.
+export const PLUG_REACH = CONNECTOR_NUB_LENGTH + CONNECTOR_ARROW_SIZE / 2;
+// The wall of the female plug that grips an output tab.
+const PLUG_CAP = 2.5;
 const PLUG_RADIUS = 2;
-const CHEVRON_DEPTH = 4;
-const CHEVRON_INSET = 4;
-const CHEVRON_STROKE = 'rgba(255, 255, 255, 0.92)';
+// The hover outline is drawn over a plug that may well be the same blue,
+// so it sits on a white halo, which keeps it readable on any wire colour.
+const SOCKET_HOVER_COLOR = SELECTION_COLOR;
+const SOCKET_HOVER_WIDTH = 2;
+const HOVER_HALO_COLOR = 'rgba(255, 255, 255, 0.9)';
+const HOVER_HALO_EXTRA = 2.5;
+const PLUG_HOVER_FILL = 'rgba(79, 140, 255, 0.35)';
+const PLUG_HOVER_WIDTH = 1.5;
+
+function strokeWithHalo(ctx, color, width) {
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = HOVER_HALO_COLOR;
+  ctx.lineWidth = width + HOVER_HALO_EXTRA;
+  ctx.stroke();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.stroke();
+}
+
+// The exterior shape of a pin from its logical direction.
+export function pinShapeOf(direction) {
+  return direction === 'in' || direction === 'out' ? direction : 'both';
+}
+
+// Every socket the block's outline has to detour for, in world
+// coordinates: [{ side, x, y, shape }].
+export function socketsOf(block) {
+  const sockets = [];
+  for (const port of block.ports || []) {
+    const { x, y } = getPortPosition(block, port);
+    sockets.push({ side: port.side, x, y, shape: pinShapeOf(logicalPortOf(block, port)?.direction ?? null) });
+  }
+  return sockets;
+}
+
+// The block's outline with its pins' sockets cut into it: a rounded
+// rectangle whose border steps into the face at every input and out of it
+// at every output. Two-way pins leave the border alone; their ring is drawn
+// on it afterwards (see drawSocket). This one path is the block's fill,
+// border and clip alike, so a dent shows the canvas through it and a tab
+// carries the face's fill out.
+export function blockOutlinePath(ctx, geometry, sockets = []) {
+  const { x, y, width, height } = geometry;
+  const r = CORNER_RADIUS;
+  const HO = SOCKET_HALF_OUTER;
+  const HI = SOCKET_HALF_INNER;
+  const D = SOCKET_DEPTH;
+  // Clockwise from the top-left corner: each side as a run from its first
+  // corner tangent to its last, `u` along it, `nIn` into the face, and the
+  // arcTo corner that follows it.
+  const runs = [
+    { side: 'top', from: { x: x + r, y }, to: { x: x + width - r, y }, u: { x: 1, y: 0 }, nIn: { x: 0, y: 1 }, corner: [x + width, y, x + width, y + r] },
+    { side: 'right', from: { x: x + width, y: y + r }, to: { x: x + width, y: y + height - r }, u: { x: 0, y: 1 }, nIn: { x: -1, y: 0 }, corner: [x + width, y + height, x + width - r, y + height] },
+    { side: 'bottom', from: { x: x + width - r, y: y + height }, to: { x: x + r, y: y + height }, u: { x: -1, y: 0 }, nIn: { x: 0, y: -1 }, corner: [x, y + height, x, y + height - r] },
+    { side: 'left', from: { x, y: y + height - r }, to: { x, y: y + r }, u: { x: 0, y: -1 }, nIn: { x: 1, y: 0 }, corner: [x, y, x + r, y] },
+  ];
+  ctx.beginPath();
+  ctx.moveTo(runs[0].from.x, runs[0].from.y);
+  for (const run of runs) {
+    const { from, to, u, nIn } = run;
+    const length = (to.x - from.x) * u.x + (to.y - from.y) * u.y;
+    const here = sockets
+      .filter((s) => s.side === run.side && s.shape !== 'both')
+      .map((s) => ({ t: (s.x - from.x) * u.x + (s.y - from.y) * u.y, depth: s.shape === 'in' ? D : -D }))
+      .filter((s) => s.t - HO >= 0 && s.t + HO <= length)
+      .sort((a, b) => a.t - b.t);
+    const at = (t, depth) => ({ x: from.x + u.x * t + nIn.x * depth, y: from.y + u.y * t + nIn.y * depth });
+    for (const s of here) {
+      const p1 = at(s.t - HO, 0);
+      const p2 = at(s.t - HI, s.depth);
+      const p3 = at(s.t + HI, s.depth);
+      const p4 = at(s.t + HO, 0);
+      ctx.lineTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.lineTo(p3.x, p3.y);
+      ctx.lineTo(p4.x, p4.y);
+    }
+    ctx.lineTo(to.x, to.y);
+    const [cx1, cy1, cx2, cy2] = run.corner;
+    ctx.arcTo(cx1, cy1, cx2, cy2, r);
+  }
+  ctx.closePath();
+}
+
+// The socket's own shape in pin coordinates: the origin on the border
+// point, +x out of the face. A dent lies at negative x, a tab at positive.
+function socketPath(ctx, shape) {
+  const HO = SOCKET_HALF_OUTER;
+  const HI = SOCKET_HALF_INNER;
+  if (shape === 'both') {
+    ctx.moveTo(SOCKET_RING_RADIUS, 0);
+    ctx.arc(0, 0, SOCKET_RING_RADIUS, 0, Math.PI * 2);
+    return;
+  }
+  const d = shape === 'in' ? -SOCKET_DEPTH : SOCKET_DEPTH;
+  ctx.moveTo(0, -HO);
+  ctx.lineTo(d, -HI);
+  ctx.lineTo(d, HI);
+  ctx.lineTo(0, HO);
+  ctx.closePath();
+}
+
+function withPinFrame(ctx, p, side, draw) {
+  const n = sideNormal(side);
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(Math.atan2(n.y, n.x));
+  draw();
+  ctx.restore();
+}
+
+// A socket drawn on its own: the ring of a two-way pin on a block's
+// border, every pin of a frame, an exterior sub-slot, and the hover
+// outline of any of them (`fill` null, `halo` on).
+function drawSocket(ctx, p, side, shape, stroke, fill, lineWidth, halo = false) {
+  withPinFrame(ctx, p, side, () => {
+    ctx.beginPath();
+    socketPath(ctx, shape);
+    if (fill) {
+      ctx.fillStyle = fill;
+      ctx.fill();
+    }
+    if (halo) {
+      strokeWithHalo(ctx, stroke, lineWidth);
+      return;
+    }
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = lineWidth;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+  });
+}
 
 function roundedPlugPath(ctx, x0, x1, h, r) {
   ctx.moveTo(x0 + r, -h);
@@ -719,48 +857,83 @@ function roundedPlugPath(ctx, x0, x1, h, r) {
   ctx.arcTo(x0, -h, x0 + r, -h, r);
 }
 
-function drawPlug(ctx, p, side, inverted, isOutput, color) {
-  const n = sideNormal(side);
-  const out = inverted ? -1 : 1;
-  ctx.save();
-  ctx.translate(p.x, p.y);
-  ctx.rotate(Math.atan2(n.y * out, n.x * out));
-  const x0 = -PLUG_INSET;
-  const x1 = PLUG_REACH;
-  const h = PLUG_WIDTH / 2;
-  const r = PLUG_RADIUS;
-  ctx.beginPath();
-  if (isOutput === null || isOutput === false) {
-    roundedPlugPath(ctx, x0, x1, h, r);
-  } else if (isOutput) {
-    const xb = x1 - PLUG_TIP;
-    ctx.moveTo(x0 + r, -h);
-    ctx.lineTo(xb, -h);
-    ctx.lineTo(x1, 0);
-    ctx.lineTo(xb, h);
-    ctx.lineTo(x0 + r, h);
-    ctx.arcTo(x0, h, x0, h - r, r);
-    ctx.lineTo(x0, -h + r);
-    ctx.arcTo(x0, -h, x0 + r, -h, r);
-  }
-  ctx.closePath();
-  ctx.fillStyle = color;
-  ctx.fill();
-  if (isOutput === false) {
-    // The socket's chevron: where the wire comes in, pointing on along
-    // the wire's axis into the block.
-    const tip = x1 - CHEVRON_INSET - CHEVRON_DEPTH;
+// The plug a wire puts in a socket, in the wire's colour: what fills the
+// socket (the dent itself, a cap over the tab, the disc in the ring) plus
+// a body from there out to PLUG_REACH on the wire's side of the border,
+// which is where the wire starts. `inverted` puts the wire inside (a
+// frame pin seen from within its container). `hover` draws it translucent
+// with an outline: the plug about to be picked up.
+function drawPinPlug(ctx, p, side, inverted, shape, color, hover = false) {
+  const HO = SOCKET_HALF_OUTER;
+  const HI = SOCKET_HALF_INNER;
+  const D = SOCKET_DEPTH;
+  const w = inverted ? -1 : 1;
+  withPinFrame(ctx, p, side, () => {
+    ctx.fillStyle = color;
+    let bodyFrom;
+    let bodyHalf;
     ctx.beginPath();
-    ctx.moveTo(x1 - CHEVRON_INSET, -h + 2);
-    ctx.lineTo(tip, 0);
-    ctx.lineTo(x1 - CHEVRON_INSET, h - 2);
-    ctx.strokeStyle = CHEVRON_STROKE;
-    ctx.lineWidth = 1.6;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.stroke();
+    if (shape === 'both') {
+      ctx.arc(0, 0, SOCKET_RING_RADIUS - 1, 0, Math.PI * 2);
+      bodyFrom = SOCKET_RING_RADIUS - 1;
+      bodyHalf = HI + 0.5;
+    } else if (shape === 'in') {
+      socketPath(ctx, 'in');
+      // From outside the plug enters at the wide opening; from inside a
+      // frame it meets the narrow end.
+      bodyFrom = w > 0 ? 0 : D;
+      bodyHalf = w > 0 ? HO : HI + 1;
+    } else {
+      ctx.moveTo(0, -HO - PLUG_CAP);
+      ctx.lineTo(D + PLUG_CAP, -HI - PLUG_CAP);
+      ctx.lineTo(D + PLUG_CAP, HI + PLUG_CAP);
+      ctx.lineTo(0, HO + PLUG_CAP);
+      ctx.closePath();
+      bodyFrom = w > 0 ? D + PLUG_CAP : 0;
+      bodyHalf = w > 0 ? HI + PLUG_CAP : HO;
+    }
+    ctx.fill();
+    if (hover) strokeWithHalo(ctx, SOCKET_HOVER_COLOR, PLUG_HOVER_WIDTH);
+    const x0 = Math.min(w * bodyFrom, w * PLUG_REACH);
+    const x1 = Math.max(w * bodyFrom, w * PLUG_REACH);
+    ctx.beginPath();
+    roundedPlugPath(ctx, x0, x1, bodyHalf, PLUG_RADIUS);
+    ctx.fill();
+    if (hover) strokeWithHalo(ctx, SOCKET_HOVER_COLOR, PLUG_HOVER_WIDTH);
+  });
+}
+
+// Where a wire's plug is grabbed: the body on the wire's side of the
+// border, from the socket's edge out to PLUG_REACH, as an axis-aligned
+// world rect. Kept clear of the socket itself, which is the pin's own
+// body (see getSlotRectFromBorderPoint): on the socket you move the pin,
+// on the plug you take the wire.
+export function getPlugRect(pos, side, inverted = false) {
+  const n = sideNormal(side);
+  const w = inverted ? -1 : 1;
+  const a = SOCKET_DEPTH * w;
+  const b = PLUG_REACH * w;
+  const lo = Math.min(a, b);
+  const hi = Math.max(a, b);
+  if (n.x !== 0) {
+    const x0 = pos.x + (n.x > 0 ? lo : -hi);
+    const x1 = pos.x + (n.x > 0 ? hi : -lo);
+    return { x: x0, y: pos.y - SOCKET_HALF_OUTER, width: x1 - x0, height: 2 * SOCKET_HALF_OUTER };
   }
-  ctx.restore();
+  const y0 = pos.y + (n.y > 0 ? lo : -hi);
+  const y1 = pos.y + (n.y > 0 ? hi : -lo);
+  return { x: pos.x - SOCKET_HALF_OUTER, y: y0, width: 2 * SOCKET_HALF_OUTER, height: y1 - y0 };
+}
+
+// One pin: its socket where the outline does not already carry it, the
+// plug of the wire on it, and the hover feedback — `hover` is 'slot' (the
+// socket outlined: this pin is about to be moved along its edge) or
+// 'plug' (the plug outlined: the wire is about to be picked up).
+function drawPin(ctx, pos, side, inverted, shape, { stroke, fill, lineWidth, wireColor = null, hover = null }) {
+  if (inverted || shape === 'both') drawSocket(ctx, pos, side, shape, stroke, fill, lineWidth);
+  if (wireColor) drawPinPlug(ctx, pos, side, inverted, shape, wireColor);
+  if (hover === 'slot') drawSocket(ctx, pos, side, shape, SOCKET_HOVER_COLOR, null, SOCKET_HOVER_WIDTH, true);
+  if (hover === 'plug') drawPinPlug(ctx, pos, side, inverted, shape, PLUG_HOVER_FILL, true);
 }
 
 function drawPortRing(ctx, x, y, color, radius) {
@@ -771,16 +944,15 @@ function drawPortRing(ctx, x, y, color, radius) {
   ctx.stroke();
 }
 
-// A port's rect, centered *on* the border point rather than inset behind
-// it — PORT_LENGTH/2 juts out past the border toward the connector handle,
-// PORT_LENGTH/2 stays inset in the block's own face, so it reads as a
-// short pipe straddling the wall rather than a socket sunk entirely into
-// it. Exported so HitTest can hit-test the exact area actually drawn, not
-// an approximation of it.
+// A pin's own rect, centered on the border point: the socket (see
+// socketPath) whichever way it goes. Exported so HitTest hit-tests the
+// area actually drawn, not an approximation of it.
 export function getSlotRectFromBorderPoint(px, py, side) {
   const horizontal = side === 'left' || side === 'right';
-  const w = horizontal ? PORT_LENGTH : PORT_WIDTH;
-  const h = horizontal ? PORT_WIDTH : PORT_LENGTH;
+  // The socket's footprint: SOCKET_DEPTH to either side of the border
+  // (a dent's depth in, a tab's reach out), SOCKET_HALF_OUTER along it.
+  const w = horizontal ? 2 * SOCKET_DEPTH : 2 * SOCKET_HALF_OUTER;
+  const h = horizontal ? 2 * SOCKET_HALF_OUTER : 2 * SOCKET_DEPTH;
   return { x: px - w / 2, y: py - h / 2, width: w, height: h };
 }
 
@@ -852,16 +1024,6 @@ function drawEmptySlots(ctx, block, palette = DEFAULT_PALETTE) {
   }
 }
 
-// Shared by both the container's per-wire loop and the plain single-wire
-// case below — the stub line + slot square + arrowhead/dot every wire
-// gets, wherever its own position resolves to.
-// One plug per pin (see drawPlug). The handle position still decides
-// where the wire is grabbed (see HitTest), the plug just covers the whole
-// stretch from the border to it.
-function drawWireStubAndDot(ctx, { px, py, side, inverted, isEffectivelyOutput, color }) {
-  drawPlug(ctx, { x: px, y: py }, side, inverted, isEffectivelyOutput, color);
-}
-
 // A light, always-visible outline (never gated on selection — see
 // drawPorts) around a multi-wire port's full reserved span, so the wires
 // inside plainly read as one group even before anything's been clicked.
@@ -912,15 +1074,25 @@ function drawPorts(
     wireMoveOverride = null,
     // See drawPortLabel — ordinary blocks only.
     labelsOutside = 0,
+    // Ordinary blocks: Map<portId, wire colour> for every pin that has a
+    // wire on it in this level (see SubPreviewRenderer.drawLevel); the
+    // plug is drawn in that colour. A frame's wires carry their colour on
+    // the boundaryWireLabels entries instead.
+    pinWires = null,
+    // { blockId, portId, part: 'slot' | 'plug', connectionId, wireIndex }
+    // for the pin under the mouse (see DragStateMachine.getHoverPin), or
+    // null.
+    hoverPin = null,
   } = {},
 ) {
-  // A host's state colour (see BlockDescription.getStateColor) still wins;
-  // otherwise every pin takes the block's accent, the colour its border
-  // already has, and a block with no accent of its own keeps the neutral
-  // pin grey.
+  // A socket is drawn in the block's border colour — a host's state colour
+  // (see BlockDescription.getStateColor) winning over the accent — with
+  // the face's own fill, so it reads as part of the outline it sits in.
   const accent = block.style?.color && block.style.color !== 'transparent' ? block.style.color : null;
-  const outputColor = getStateColor(block) || accent || DEFAULT_OUTPUT_PORT_COLOR;
-  const inputColor = accent || INPUT_PORT_COLOR;
+  const socketStroke = getStateColor(block) || accent || DEFAULT_BLOCK_COLOR;
+  const socketFill = block.style?.fill === 'transparent' ? null : block.style?.fill || palette.blockFill;
+  const socketWidth = Math.min(BORDER_WIDTH, BORDER_MAX_SCREEN_WIDTH / zoom);
+  const hoverHere = hoverPin && hoverPin.blockId === block.id ? hoverPin : null;
 
   // Shown while selected (about to add or drag a port there) — showing
   // them all the time, on every block, cluttered ones you weren't
@@ -945,8 +1117,9 @@ function drawPorts(
     const reservedWidth = inverted ? getPortBoundaryPlacement(port, block).width || 1 : 1;
     const rectCount = Math.max(1, wireEntries.length, reservedWidth);
     const effectiveSide = inverted ? getPortBoundaryPlacement(port, block).side : port.side;
-    const isEffectivelyOutput0 = portDirection === null ? null : inverted ? portDirection === 'in' : portDirection === 'out';
-    const color0 = isEffectivelyOutput0 ? outputColor : inputColor;
+    const shape = pinShapeOf(portDirection);
+    const hover = hoverHere && hoverHere.portId === port.id ? hoverHere : null;
+    const pinStyle = { stroke: socketStroke, fill: socketFill, lineWidth: socketWidth };
 
     // A widened (or already multi-wire) boundary port reads as one visible
     // group — a light, *always-shown* outline (not gated on selection, so
@@ -969,20 +1142,23 @@ function drawPorts(
       const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
       drawPortLabel(ctx, { name: portName, side: effectiveSide }, center, inverted, palette, zoom);
 
-      for (const entry of wireEntries) {
+      wireEntries.forEach((entry, index) => {
         const isMoving = wireMoveOverride && wireMoveOverride.portId === port.id && wireMoveOverride.connectionId === entry.id;
         const { x: px, y: py } = isMoving
           ? getBoundaryWirePosition(block, port, wireMoveOverride.previewIndex)
           : getBoundaryWirePosition(block, port, entry.rank, entry.id);
-        const handle = getConnectorHandlePosition({ x: px, y: py }, effectiveSide, inverted);
-        drawWireStubAndDot(ctx, { px, py, handle, side: effectiveSide, inverted, isEffectivelyOutput: isEffectivelyOutput0, color: color0, palette });
+        // The hover names one wire of the group (by id, or by slot for a
+        // wire it has no id for); a hit on the group as a whole names none
+        // and lights every sub-slot.
+        const hoverThis = hover && (hover.connectionId ? hover.connectionId === entry.id : hover.wireIndex == null || hover.wireIndex === index);
+        drawPin(ctx, { x: px, y: py }, effectiveSide, inverted, shape, { ...pinStyle, wireColor: entry.color || null, hover: hoverThis ? hover.part : null });
         const wireRingColor = portHighlights?.get(`${block.id}:${port.id}`);
         if (wireRingColor) drawPortRing(ctx, px, py, wireRingColor, SLOT_RING_RADIUS);
         // Every wire shows only its OWN (child-side) label here — the
         // port's own name/identity is the centered one drawn once above,
         // never repeated (or substituted in) at any individual wire.
         if (entry.label) drawPortLabel(ctx, { name: entry.label, side: effectiveSide }, { x: px, y: py }, inverted, palette, zoom);
-      }
+      });
       continue;
     }
 
@@ -990,8 +1166,8 @@ function drawPorts(
     // one dot, the port's own name shown right there, same as it always
     // has been.
     const { x: px, y: py } = inverted ? getBoundaryWirePosition(block, port, 0) : getPortPosition(block, port);
-    const handle = getConnectorHandlePosition({ x: px, y: py }, effectiveSide, inverted);
-    drawWireStubAndDot(ctx, { px, py, handle, side: effectiveSide, inverted, isEffectivelyOutput: isEffectivelyOutput0, color: color0, palette });
+    const wireColor = inverted ? wireEntries[0]?.color || null : pinWires?.get(port.id) || null;
+    drawPin(ctx, { x: px, y: py }, effectiveSide, inverted, shape, { ...pinStyle, wireColor, hover: hover ? hover.part : null });
     const ringColor = portHighlights?.get(`${block.id}:${port.id}`);
     if (ringColor) drawPortRing(ctx, px, py, ringColor, SLOT_RING_RADIUS);
     // Selecting a still-plain boundary port shows the same two width grips
@@ -1143,7 +1319,9 @@ export function drawOpenHeader(ctx, block, { alpha = 1, palette = DEFAULT_PALETT
   for (const row of rows) ensureFontLoaded(row.font, requestRender);
 
   ctx.save();
-  roundRectPath(ctx, x, y, width, height, CORNER_RADIUS);
+  // The same outline the face itself is drawn with (see drawBlock), so a
+  // socket on the top edge cuts the band exactly as it cuts the block.
+  blockOutlinePath(ctx, block.geometry, socketsOf(block));
   ctx.clip();
   ctx.globalAlpha *= alpha;
   ctx.translate(x, y);
@@ -1200,6 +1378,9 @@ export function drawBlock(
     // arrives, where they would otherwise sit right where its wires
     // reach the frame. See drawPortLabel.
     portLabelsOutside = 0,
+    // See drawPorts.
+    pinWires = null,
+    hoverPin = null,
   } = {},
 ) {
   const { x, y, width, height } = block.geometry;
@@ -1217,7 +1398,11 @@ export function drawBlock(
   // one" on their own, so either was just the same fact told again. The
   // border stays exactly as it looks unselected, in the block's own
   // accent colour, whether or not it's the one picked right now.
-  roundRectPath(ctx, x, y, width, height, CORNER_RADIUS);
+  //
+  // The outline carries the pins' sockets (see blockOutlinePath): the
+  // fill, the shadow, the border and the content clip all follow it.
+  const sockets = socketsOf(block);
+  blockOutlinePath(ctx, block.geometry, sockets);
   ctx.fillStyle = fillColor;
   // A card lying flat casts a shadow; a deliberately paint-nothing block
   // (fillColor === 'transparent', see SelectionFabs' transparent swatch)
@@ -1248,7 +1433,7 @@ export function drawBlock(
   ctx.stroke();
 
   ctx.save();
-  roundRectPath(ctx, x, y, width, height, CORNER_RADIUS);
+  blockOutlinePath(ctx, block.geometry, sockets);
   ctx.clip();
 
   // A block's name doubles as an image source: point it at a picture
@@ -1269,7 +1454,10 @@ export function drawBlock(
   // A text block has no ports and can't gain one (see addPort's kind
   // guard) — showing the discoverable empty-slot squares on it would
   // advertise an affordance that doesn't work.
-  drawPorts(ctx, block, { portHighlights, showEmptySlots: selected && block.kind !== 'text', palette, zoom, labelsOutside: portLabelsOutside });
+  // The free slots also show while a pin of this block is hovered: they
+  // are where it can be moved to.
+  const slotHover = hoverPin?.blockId === block.id && hoverPin.part === 'slot';
+  drawPorts(ctx, block, { portHighlights, showEmptySlots: (selected || slotHover) && block.kind !== 'text', palette, zoom, labelsOutside: portLabelsOutside, pinWires, hoverPin });
   if (isOpenableLink(block.link)) drawLinkGlyph(ctx, block.geometry, palette, zoom);
   if (selected) drawResizeHandles(ctx, block.geometry, palette, zoom);
 }
@@ -1278,8 +1466,8 @@ export function drawBlock(
 // SubPreviewRenderer.drawLevel): a wire's z-index is that of its front
 // endpoint, so it would otherwise cover the arrowhead of the pin it
 // leaves from on the other block.
-export function drawBlockPorts(ctx, block, { portHighlights = null, palette = DEFAULT_PALETTE, zoom = 1, labelsOutside = 0 } = {}) {
-  drawPorts(ctx, block, { portHighlights, palette, zoom, labelsOutside });
+export function drawBlockPorts(ctx, block, { portHighlights = null, palette = DEFAULT_PALETTE, zoom = 1, labelsOutside = 0, pinWires = null, hoverPin = null } = {}) {
+  drawPorts(ctx, block, { portHighlights, palette, zoom, labelsOutside, pinWires, hoverPin });
 }
 
 // The sub-slots of a container's multi-wire pins, drawn at the exterior
@@ -1294,7 +1482,8 @@ export function drawExteriorSubSlots(ctx, block, wireCounts, { palette = DEFAULT
   const frame = block.boundaryGeometry;
   if (!frame || !wireCounts?.size) return;
   const accent = block.style?.color && block.style.color !== 'transparent' ? block.style.color : null;
-  const color = getStateColor(block) || accent || DEFAULT_OUTPUT_PORT_COLOR;
+  const color = getStateColor(block) || accent || DEFAULT_BLOCK_COLOR;
+  const fill = block.style?.fill === 'transparent' ? null : block.style?.fill || palette.blockFill;
   const t = frameToFace(block.geometry, frame);
   const toFace = (p) => ({ x: p.x * t.scale + t.offsetX, y: p.y * t.scale + t.offsetY });
   ctx.save();
@@ -1304,9 +1493,10 @@ export function drawExteriorSubSlots(ctx, block, wireCounts, { palette = DEFAULT
     if (count < 2) continue;
     const view = asBoundaryView(block, frame, [port]);
     const side = getPortBoundaryPlacement(port, view).side;
+    const shape = pinShapeOf(logicalPortOf(block, port)?.direction ?? null);
     for (let i = 1; i < count; i += 1) {
       const pos = toFace(getBoundaryWirePosition(view, port, i));
-      drawPlug(ctx, pos, side, false, null, color);
+      drawSocket(ctx, pos, side, shape, color, fill, BORDER_WIDTH);
     }
     const group = getBoundaryPortBlockRect(view, port, count);
     const a = toFace({ x: group.x, y: group.y });
@@ -1327,8 +1517,8 @@ export function drawExteriorSubSlots(ctx, block, wireCounts, { palette = DEFAULT
 // label. A pin that carries several wires from inside shows one sub-slot
 // per wire (see getBoundaryWirePosition): the plug outside is one
 // connector, the level inside sees its individual pins.
-export function drawBoundaryPins(ctx, block, geometry, ports, { portHighlights = null, palette = DEFAULT_PALETTE, boundaryWireLabels = null, wireMoveOverride = null, zoom = 1 } = {}) {
-  drawPorts(ctx, asBoundaryView(block, geometry, ports), { inverted: true, portHighlights, palette, boundaryWireLabels, wireMoveOverride, zoom });
+export function drawBoundaryPins(ctx, block, geometry, ports, { portHighlights = null, palette = DEFAULT_PALETTE, boundaryWireLabels = null, wireMoveOverride = null, zoom = 1, hoverPin = null } = {}) {
+  drawPorts(ctx, asBoundaryView(block, geometry, ports), { inverted: true, portHighlights, palette, boundaryWireLabels, wireMoveOverride, zoom, hoverPin });
 }
 
 // The frame representing "the current system" — the block you're inside,
@@ -1352,6 +1542,7 @@ export function drawBoundary(
     boundaryWireLabels = null,
     wireMoveOverride = null,
     zoom = 1,
+    hoverPin = null,
   } = {},
 ) {
   const { x, y, width, height } = geometry;
@@ -1376,7 +1567,7 @@ export function drawBoundary(
   // reads as a wall of faint circles rather than a helpful preview — the
   // hover ghost already shows exactly one, right where you're about to
   // click, which is the affordance that actually matters.
-  drawPorts(ctx, asBoundaryView(block, geometry), { inverted: true, portHighlights, palette, boundaryWireLabels, wireMoveOverride, zoom });
+  drawPorts(ctx, asBoundaryView(block, geometry), { inverted: true, portHighlights, palette, boundaryWireLabels, wireMoveOverride, zoom, hoverPin });
   // Gated on `selected` exactly like an ordinary block: clicking the
   // dashed line itself now selects the boundary (see HitTest's
   // 'boundaryLine' hit and DragStateMachine's handling of it), so there's

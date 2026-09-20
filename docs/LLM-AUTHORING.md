@@ -133,6 +133,14 @@ A block's name doubles as an image source: give it an `http(s)` URL ending in
 | `offset` | auto | px from that side's start corner (top for left/right, left for top/bottom). **Must be `20 + 40n`.** |
 | `desc` | — | free text |
 
+A port is drawn as a socket cut into the block's border, and `dir` is its
+shape: an `in` is a trapezoid dent into the block, an `out` the same trapezoid
+as a tab out of it, an undecided port a ring on the border. A wire fills the
+socket it reaches with a plug in the wire's own colour, so a wired pin reads as
+plugged and an unwired one as an empty socket; the plug narrows the way the
+data flows, which is the only arrow a wire has. Leave `dir` out for a two-way
+link (a bus, an Ethernet cable): a ring never points anywhere.
+
 A side of length `L` has `floor(L / 40)` slots at `20, 60, 100, …`. So an
 `h: 120` block has `20 / 60 / 100`, and `60` is its vertical middle — give every
 card in a row the same height and the same offset and all the wires run dead

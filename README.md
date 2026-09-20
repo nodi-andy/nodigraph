@@ -81,6 +81,13 @@ own client architecture, drawn and kept up to date this way.
   starts undecided — no name, no in/out direction — until you set one in
   the Inspector; it wires up just fine either way, taking on whichever
   direction the other end doesn't already claim.
+- **Sockets and plugs** — a port is a socket cut into the block's border:
+  a trapezoid dent for an input, a trapezoid tab for an output, a ring for
+  a two-way pin. The wire that reaches it fills the socket with a plug in
+  its own colour, narrowing the way the data flows. Hover a pin and it
+  shows what a press will do: the socket lights up when you are about to
+  move the pin along its edge, the plug when you are about to pick the
+  wire up.
 - **Resize handles** — select a block to see four diamond handles, one
   per edge, sitting outside the block rather than on its border so they
   never fight with a port for the same touch. Click the dashed line of

@@ -144,6 +144,9 @@ export function renderScene(
     wireSelection,
     remoteCursors,
     hoverGhost,
+    // The pin under the mouse, lit as the socket or the plug (see
+    // DragStateMachine.getHoverPin and BlockRenderer.drawPorts).
+    hoverPin = null,
     marqueeRect,
     // The one connection (if any) currently being picked up to redirect —
     // see DragStateMachine.getRedirectingConnectionId's own doc.
@@ -229,6 +232,7 @@ export function renderScene(
     hiddenConnectionId,
     wireMoveOverride,
     gridBlockId,
+    hoverPin,
     // Filled in by drawLevel with the routed wires of the level being
     // edited, for the grips drawn over everything below.
     out: {},
