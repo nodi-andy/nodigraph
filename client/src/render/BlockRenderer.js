@@ -494,39 +494,6 @@ export function hasSubArchitecture(block) {
   return Boolean(block.children?.blocks?.size);
 }
 
-// A small "box within a box" marker in a block's corner, shown only once it
-// actually has sub-architecture — otherwise there's no way to tell from the
-// diagram itself which blocks are worth drilling into versus which are
-// leaves. Fixed screen size (see getResizeHandleRects' own note on why) so
-// it stays legible zoomed out across a whole large diagram, which is
-// exactly when knowing this at a glance matters most.
-const SUBLEVEL_BADGE_SIZE = 13;
-const SUBLEVEL_BADGE_MARGIN = 5;
-
-function drawSubArchitectureBadge(ctx, geometry, palette, zoom) {
-  const size = SUBLEVEL_BADGE_SIZE / zoom;
-  const margin = SUBLEVEL_BADGE_MARGIN / zoom;
-  const x = geometry.x + geometry.width - size - margin;
-  const y = geometry.y + geometry.height - size - margin;
-  ctx.save();
-  ctx.globalAlpha = 0.9;
-  roundRectPath(ctx, x, y, size, size, size * 0.22);
-  ctx.strokeStyle = palette.boundaryLabel;
-  ctx.lineWidth = 1.2 / zoom;
-  ctx.stroke();
-  // The inner square peeks out past the outer one's own bottom-right
-  // corner rather than sitting fully inside it — the same offset-stack
-  // look used everywhere else for "there's another one behind/inside
-  // this" (duplicate icons, layered windows).
-  const innerSize = size * 0.6;
-  const innerX = x + size * 0.42;
-  const innerY = y + size * 0.42;
-  roundRectPath(ctx, innerX, innerY, innerSize, innerSize, innerSize * 0.28);
-  ctx.fillStyle = palette.boundaryLabel;
-  ctx.fill();
-  ctx.restore();
-}
-
 // A block with a `link` is a reference to an artifact that lives
 // elsewhere — a source file on GitHub, a callable endpoint, a document.
 // The glyph is a small "opens in a new tab" arrow in the block's top-right
@@ -654,10 +621,43 @@ function drawContainImage(ctx, img, x, y, width, height) {
   ctx.drawImage(img, x + width / 2 - w / 2, y + height / 2 - h / 2, w, h);
 }
 
-function drawPortLabel(ctx, port, pos, inverted = false, palette = DEFAULT_PALETTE, zoom = 1) {
+// `outside` (0..1) moves an ordinary block's label from inside the face
+// to beside the pin's stub outside it — the schematic convention, and
+// the only place that stays clear of the block's own level once that is
+// drawn on the face. Beside the stub, not on its axis, so the wire leaving
+// the pin never runs through its own name. Fractions draw both, fading.
+function drawPortLabel(ctx, port, pos, inverted = false, palette = DEFAULT_PALETTE, zoom = 1, outside = 0) {
   if (!port.name) return;
   ctx.fillStyle = palette.portLabel;
   ctx.font = `${portLabelFontSize(zoom)}px -apple-system, Segoe UI, Roboto, sans-serif`;
+
+  if (!inverted && outside > 0) {
+    const n = sideNormal(port.side);
+    const mid = PORT_LENGTH / 2 + CONNECTOR_NUB_LENGTH / 2;
+    const m = { x: pos.x + n.x * mid, y: pos.y + n.y * mid };
+    ctx.save();
+    ctx.globalAlpha *= Math.min(1, outside);
+    if (n.y !== 0) {
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(port.name, m.x + PORT_LABEL_GAP, m.y);
+    } else {
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(port.name, m.x, m.y - PORT_LABEL_GAP * 0.6);
+    }
+    ctx.restore();
+    if (outside >= 1) return;
+    ctx.save();
+    ctx.globalAlpha *= 1 - outside;
+    drawPortLabelInside(ctx, port, pos, inverted, palette);
+    ctx.restore();
+    return;
+  }
+  drawPortLabelInside(ctx, port, pos, inverted, palette);
+}
+
+function drawPortLabelInside(ctx, port, pos, inverted, palette) {
 
   const n = sideNormal(port.side);
   const sign = inverted ? 1 : -1;
@@ -890,6 +890,8 @@ function drawPorts(
     // actual stored slot, so it visibly follows the cursor mid-drag
     // rather than only snapping into place once you release.
     wireMoveOverride = null,
+    // See drawPortLabel — ordinary blocks only.
+    labelsOutside = 0,
   } = {},
 ) {
   // A host's state colour (see BlockDescription.getStateColor) still wins;
@@ -980,7 +982,7 @@ function drawPorts(
     if (inverted && ringColor === PORT_SELECTED_RING_COLOR) {
       drawPortResizeHandles(ctx, getPortResizeHandleRects(block, port, rectCount), palette);
     }
-    drawPortLabel(ctx, { name: portName, side: effectiveSide }, { x: px, y: py }, inverted, palette, zoom);
+    drawPortLabel(ctx, { name: portName, side: effectiveSide }, { x: px, y: py }, inverted, palette, zoom, labelsOutside);
   }
 }
 
@@ -1091,15 +1093,17 @@ export function drawBlock(
     requestRender = () => {},
     palette = DEFAULT_PALETTE,
     zoom = 1,
-    // The opacity of everything on this face that the sub-architecture
-    // miniature is about to replace — the big centered name, the corner
-    // badge. SceneRenderer derives it from the miniature's own alpha (see
-    // SubPreviewRenderer.contentAlphaFor) and draws the miniature straight
-    // after this call, so the two halves are one crossfade rather than two
-    // things stacked on top of each other. 1 for every block with no
-    // internals to show, which leaves this drawing precisely what it
-    // always drew.
+    // The opacity of the big centered name, which the block's own level
+    // replaces once it is shown on the face (see
+    // SubPreviewRenderer.contentAlphaFor). 1 for every block with no
+    // level to show, which leaves this drawing precisely what it always
+    // drew.
     contentAlpha = 1,
+    // How far the pin labels have moved from inside the face to beside
+    // the pins outside it (0..1) — they move out as the level inside
+    // arrives, where they would otherwise sit right where its wires
+    // reach the frame. See drawPortLabel.
+    portLabelsOutside = 0,
   } = {},
 ) {
   const { x, y, width, height } = block.geometry;
@@ -1164,16 +1168,7 @@ export function drawBlock(
   // A text block has no ports and can't gain one (see addPort's kind
   // guard) — showing the discoverable empty-slot squares on it would
   // advertise an affordance that doesn't work.
-  drawPorts(ctx, block, { portHighlights, showEmptySlots: selected && block.kind !== 'text', palette, zoom });
-  // The badge exists to say "there's something inside this" from across a
-  // zoomed-out diagram; once the inside is actually on show it's the same
-  // fact told twice, so it goes with the name.
-  if (hasSubArchitecture(block) && contentAlpha > 0) {
-    ctx.save();
-    ctx.globalAlpha = contentAlpha;
-    drawSubArchitectureBadge(ctx, block.geometry, palette, zoom);
-    ctx.restore();
-  }
+  drawPorts(ctx, block, { portHighlights, showEmptySlots: selected && block.kind !== 'text', palette, zoom, labelsOutside: portLabelsOutside });
   if (isOpenableLink(block.link)) drawLinkGlyph(ctx, block.geometry, palette, zoom);
   if (selected) drawResizeHandles(ctx, block.geometry, palette, zoom);
 }
@@ -1182,8 +1177,8 @@ export function drawBlock(
 // SubPreviewRenderer.drawLevel): a wire's z-index is that of its front
 // endpoint, so it would otherwise cover the arrowhead of the pin it
 // leaves from on the other block.
-export function drawBlockPorts(ctx, block, { portHighlights = null, palette = DEFAULT_PALETTE, zoom = 1 } = {}) {
-  drawPorts(ctx, block, { portHighlights, palette, zoom });
+export function drawBlockPorts(ctx, block, { portHighlights = null, palette = DEFAULT_PALETTE, zoom = 1, labelsOutside = 0 } = {}) {
+  drawPorts(ctx, block, { portHighlights, palette, zoom, labelsOutside });
 }
 
 // The sub-slots of a container's multi-wire pins, drawn at the exterior

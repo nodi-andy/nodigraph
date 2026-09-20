@@ -138,8 +138,8 @@ const openings = new Map();
 
 /**
  * How far open `block`'s level is drawn right now, 0..1 — the animated
- * version of subPreviewProgress. drawBlock fades the name and badge it
- * displaces by the same number (see contentAlphaFor), so the two halves
+ * version of subPreviewProgress. drawBlock fades the name it displaces
+ * by the same number (see contentAlphaFor), so the two halves
  * never disagree.
  */
 export function previewAlphaFor(block, zoom, requestRender = () => {}) {
@@ -162,7 +162,7 @@ export function previewAlphaFor(block, zoom, requestRender = () => {}) {
 
 /**
  * The opacity everything an open level displaces should be drawn at —
- * the block's own centred name and its corner badge — at the given point
+ * the block's own centred name — at the given point
  * of the opening. The name fades where it stands; nothing moves.
  */
 export function contentAlphaFor(t) {
@@ -376,8 +376,8 @@ export function drawLevel(
     const block = item.block;
     if (cullRect && !intersects(block.geometry, cullRect) && !focus?.pathIds?.has(block.id)) continue;
     // One number positions both halves of the crossfade: drawSubPreview
-    // paints the level from it, and drawBlock fades the name and badge
-    // it displaces back out (see contentAlphaFor). A block on the way
+    // paints the level from it, and drawBlock fades the name it
+    // displaces back out (see contentAlphaFor). A block on the way
     // down to the level being edited is always fully open.
     let previewT = showSubPreviews ? previewAlphaFor(block, zoom, requestRender) : 0;
     if (showSubPreviews && focus?.pathIds?.has(block.id) && hasSubArchitecture(block) && block.boundaryGeometry) previewT = 1;
@@ -388,6 +388,7 @@ export function drawLevel(
       palette,
       zoom,
       contentAlpha: contentAlphaFor(previewT),
+      portLabelsOutside: previewT,
     });
     if (previewT > 0) {
       drawSubPreview(ctx, block, { zoom, t: previewT, palette, depth: depth + 1, visible, focus, flowOffset, requestRender, onDrawBlock });
@@ -410,11 +411,11 @@ export function drawLevel(
   for (const block of blocks) {
     if (!wiredIds.has(block.id) && !hasSubArchitecture(block)) continue;
     if (cullRect && !intersects(block.geometry, cullRect)) continue;
-    drawBlockPorts(ctx, block, { portHighlights, palette, zoom });
+    const openAlpha = showSubPreviews && hasSubArchitecture(block) && block.boundaryGeometry ? (focus?.pathIds?.has(block.id) ? 1 : previewAlphaFor(block, zoom, requestRender)) : 0;
+    drawBlockPorts(ctx, block, { portHighlights, palette, zoom, labelsOutside: openAlpha });
     // An open container's multi-wire pins split into sub-slots at this
     // level's scale (see BlockRenderer.drawExteriorSubSlots), arriving
     // with the level.
-    const openAlpha = showSubPreviews && hasSubArchitecture(block) && block.boundaryGeometry ? (focus?.pathIds?.has(block.id) ? 1 : previewAlphaFor(block, zoom, requestRender)) : 0;
     if (openAlpha > 0) {
       const inner = new LevelView(block);
       const counts = new Map(inner.listBoundaryPorts(block).map((port) => [port.id, inner.listBoundaryWires(block.id, port.id).length]));

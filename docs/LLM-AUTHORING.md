@@ -158,7 +158,10 @@ will overlap them.
 - The grid is **40px**. Keep every `x`, `y`, `w`, `h` on a multiple of it.
 - **Order in `blocks` is z-order.** The first key is drawn furthest back. List
   background panels before the things that sit on them.
-- Wires route themselves orthogonally around blocks; you do not place bends.
+- Wires route themselves orthogonally; you do not place bends. Parallel wires
+  between the same two rows fan out into separate channels on their own, and a
+  wire to a `self` pin keeps clear of the band along the frame. Wires do not
+  yet avoid blocks that stand in their way — leave a free lane.
 - Nothing auto-layouts. You are responsible for every coordinate, so work out
   your column and row positions before you start emitting.
 
@@ -287,7 +290,9 @@ snap to the nearest slot.
 Every level is drawn in place: zooming into a block draws its level on its
 face through that same mapping as soon as the block is big enough on screen,
 and its children can then be selected, dragged and wired right there — the
-click decides which level it edits, nothing on screen changes. A `self` pin
+click decides which level it edits, nothing on screen changes. The block's
+pin labels move out beside the pins while its level is shown, so they never
+sit where the level's wires reach the frame. A `self` pin
 that carries several wires inside shows one sub-slot per wire on the frame:
 one plug outside, its individual pins inside. Grabbing a
 container's empty space still moves the container as a whole until it fills

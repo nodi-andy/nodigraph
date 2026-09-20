@@ -1,4 +1,4 @@
-import { WIRE_STUB_LENGTH, sideNormal, sideAxis } from '../model/grid.js';
+import { GRID_SIZE, WIRE_STUB_LENGTH, sideNormal, sideAxis } from '../model/grid.js';
 import { resolveRouteCoords, buildRouteLines, routePieces } from '../model/wireRoute.js';
 import { asBoundaryView, findConnectorPosition, getPortBoundaryPlacement } from './BlockRenderer.js';
 import { getCanvasPalette } from './canvasPalette.js';
@@ -46,6 +46,17 @@ function simplifyPath(rawPoints) {
  * which axis they start on (`first`), whether they're hand-drawn
  * (`manual`), and both stub ends.
  */
+// How far inside the frame an automatic trunk stays from a frame pin it
+// runs parallel to: the band along the frame is where the pins' own
+// stubs and sub-slots sit, and a trunk laid in it makes every wire there
+// look joined to every pin it passes.
+const BOUNDARY_KEEPOUT = GRID_SIZE * 1.5;
+
+// Automatic trunks of parallel wires between the same two rows fan out
+// by this much so they never lie on top of each other — a shared trunk
+// is indistinguishable from a junction.
+const CHANNEL_STEP = GRID_SIZE / 2;
+
 export function computeConnectionPath(
   sourcePos,
   sourceSide,
@@ -54,6 +65,10 @@ export function computeConnectionPath(
   routing,
   sourceInverted = false,
   targetInverted = false,
+  // `autoTrunk`: the trunk coordinate the channel pass (see
+  // getConnectionGeometry) assigned this wire, used in place of the plain
+  // midpoint for an automatic single-trunk route.
+  { autoTrunk = null } = {},
 ) {
   const sNorm = sideNormal(sourceSide);
   const tNorm = sideNormal(targetSide);
@@ -64,7 +79,25 @@ export function computeConnectionPath(
   const stubA = { x: sourcePos.x + sNorm.x * sSign * WIRE_STUB_LENGTH, y: sourcePos.y + sNorm.y * sSign * WIRE_STUB_LENGTH };
   const stubB = { x: targetPos.x + tNorm.x * tSign * WIRE_STUB_LENGTH, y: targetPos.y + tNorm.y * tSign * WIRE_STUB_LENGTH };
 
-  const { first, coords, manual } = resolveRouteCoords(routing, sourceSide, targetSide, stubA, stubB);
+  const resolved = resolveRouteCoords(routing, sourceSide, targetSide, stubA, stubB);
+  const { first, manual } = resolved;
+  let coords = resolved.coords;
+  if (!manual && coords.length === 1) {
+    // The trunk runs on the axis perpendicular to the stubs: its one
+    // coordinate is an x for horizontal stubs, a y for vertical ones.
+    const key = first === 'x' ? 'x' : 'y';
+    let trunk = autoTrunk ?? coords[0];
+    // Keep-out from a frame pin: the trunk stays at least BOUNDARY_KEEPOUT
+    // inside the frame, measured from the pin along its own inward stub.
+    for (const [inverted, pos, stub] of [[sourceInverted, sourcePos, stubA], [targetInverted, targetPos, stubB]]) {
+      if (!inverted) continue;
+      const inward = Math.sign(stub[key] - pos[key]);
+      if (inward === 0) continue;
+      const limit = pos[key] + inward * BOUNDARY_KEEPOUT;
+      if ((trunk - limit) * inward < 0) trunk = limit;
+    }
+    coords = [trunk];
+  }
   const lines = buildRouteLines(stubA, sourceSide, stubB, coords);
   const { corners, pieces } = routePieces(lines, stubA, stubB);
   return {
@@ -98,7 +131,39 @@ export function previewPathToCursor(sourcePos, sourceSide, cursorPos, inverted =
 // currently inside — if either endpoint is that block, its boundary
 // geometry and inverted stub direction are used instead of its own
 // (irrelevant, outside-facing) stored geometry.
-export function getConnectionGeometry(project, connection, boundary, wireMoveOverride) {
+export function getConnectionGeometry(project, connection, boundary, wireMoveOverride, { raw = false } = {}) {
+  const base = computeGeometry(project, connection, boundary, wireMoveOverride);
+  if (raw || !base || base.manual || base.coords.length !== 1) return base;
+
+  // Channel assignment. Every other automatic single-trunk wire of this
+  // level whose trunk lies on the same line and overlaps this one's along
+  // it would be drawn on top of it; the whole cluster fans out by
+  // CHANNEL_STEP, ordered along the trunk so the fan reads as parallel
+  // wires rather than a braid. Each wire works this out for itself from
+  // the same data, so drawing and hit-testing always agree without any
+  // shared state.
+  const key = base.first === 'x' ? 'x' : 'y';
+  const along = key === 'x' ? 'y' : 'x';
+  const spanOf = (g) => [Math.min(g.stubA[along], g.stubB[along]), Math.max(g.stubA[along], g.stubB[along])];
+  const mySpan = spanOf(base);
+  const cluster = [{ id: connection.id, mid: (mySpan[0] + mySpan[1]) / 2 }];
+  for (const other of project.listConnections()) {
+    if (other.id === connection.id) continue;
+    const g = computeGeometry(project, other, boundary, wireMoveOverride);
+    if (!g || g.manual || g.coords.length !== 1 || g.first !== base.first) continue;
+    if (Math.abs(g.coords[0] - base.coords[0]) >= CHANNEL_STEP) continue;
+    const span = spanOf(g);
+    if (span[0] > mySpan[1] + CHANNEL_STEP || span[1] < mySpan[0] - CHANNEL_STEP) continue;
+    cluster.push({ id: other.id, mid: (span[0] + span[1]) / 2 });
+  }
+  if (cluster.length === 1) return base;
+  cluster.sort((a, b) => a.mid - b.mid || (a.id < b.id ? -1 : 1));
+  const index = cluster.findIndex((entry) => entry.id === connection.id);
+  const trunk = base.coords[0] + (index - (cluster.length - 1) / 2) * CHANNEL_STEP;
+  return computeGeometry(project, connection, boundary, wireMoveOverride, trunk);
+}
+
+function computeGeometry(project, connection, boundary, wireMoveOverride, autoTrunk = null) {
   const resolve = (blockId) => {
     const block = project.getBlock(blockId);
     if (!block) return null;
@@ -168,6 +233,7 @@ export function getConnectionGeometry(project, connection, boundary, wireMoveOve
     connection,
     source.isBoundary,
     target.isBoundary,
+    { autoTrunk },
   );
   return { ...routed, sourcePos, targetPos };
 }
