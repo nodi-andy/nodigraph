@@ -1045,6 +1045,13 @@ const LINE_SCALE = 0.8;
 const SUBTITLE_ALPHA = 0.72;
 const LINE_ALPHA = 0.85;
 
+// The header band an open block keeps its heading in (see drawOpenHeader).
+// The scrim is not fully opaque on purpose: the level behind it stays
+// visible through the band, so the heading reads as a label on the face
+// rather than a lid over it.
+const HEADER_SCRIM_ALPHA = 0.86;
+const HEADER_RULE_WIDTH = 1;
+
 export function blockTextRows(block) {
   const style = block.style || {};
   const fontFamily = getFontFamily(style.font);
@@ -1056,9 +1063,9 @@ export function blockTextRows(block) {
   const subtitleSize = Math.max(8, Math.round(fontSize * SUBTITLE_SCALE));
   const lineSize = Math.max(8, Math.round(fontSize * LINE_SCALE));
   const rows = [];
-  if (block.name) rows.push({ text: block.name, font: `${fontStyle}${fontWeight}${fontSize}px ${fontFamily}`, height: fontSize * 1.3, alpha: 1 });
-  if (subtitle) rows.push({ text: subtitle, font: `${fontStyle}${subtitleSize}px ${fontFamily}`, height: subtitleSize * 1.3, alpha: SUBTITLE_ALPHA });
-  for (const line of lines) rows.push({ text: line, font: `${lineSize}px ${getFontFamily('mono')}`, height: lineSize * 1.4, alpha: LINE_ALPHA });
+  if (block.name) rows.push({ role: 'title', text: block.name, font: `${fontStyle}${fontWeight}${fontSize}px ${fontFamily}`, height: fontSize * 1.3, alpha: 1 });
+  if (subtitle) rows.push({ role: 'subtitle', text: subtitle, font: `${fontStyle}${subtitleSize}px ${fontFamily}`, height: subtitleSize * 1.3, alpha: SUBTITLE_ALPHA });
+  for (const line of lines) rows.push({ role: 'line', text: line, font: `${lineSize}px ${getFontFamily('mono')}`, height: lineSize * 1.4, alpha: LINE_ALPHA });
   return rows;
 }
 
@@ -1088,6 +1095,75 @@ function drawBlockText(ctx, block, { x, y, width, height, textColor, requestRend
     cursor += row.height;
   }
   ctx.globalAlpha = baseAlpha;
+}
+
+/**
+ * The title and subtitle of a block whose level is open on its face.
+ *
+ * The centred text stack fades out as the level arrives (see
+ * SubPreviewRenderer.contentAlphaFor) — it would otherwise sit in the
+ * middle of the children — so the heading rows come back as a band along
+ * the top of the face. Everything here is drawn in the coordinates of the
+ * level inside, so the title is the same size as the names of the blocks
+ * it contains rather than the frame scale times them, and a heading stays
+ * proportional to its own contents however deep the nesting goes.
+ *
+ * Detail `lines` are deliberately left out: they are per-block data, not a
+ * heading, and they keep fading with the centred stack. A name that is an
+ * image URL is left out too — the picture is the label, and the raw URL
+ * would be a worse one.
+ *
+ * Call it after the level has been painted onto the face, so the band sits
+ * over the children rather than under them.
+ */
+export function drawOpenHeader(ctx, block, { alpha = 1, palette = DEFAULT_PALETTE, requestRender = () => {} } = {}) {
+  const frame = block.boundaryGeometry;
+  if (alpha <= 0 || !frame) return;
+  const rows = blockTextRows(block).filter(
+    (row) => row.role === 'subtitle' || (row.role === 'title' && !isImageUrl(row.text)),
+  );
+  if (rows.length === 0) return;
+
+  const { x, y, width, height } = block.geometry;
+  const layout = frameToFace(block.geometry, frame);
+  const style = block.style || {};
+  const scrimColor = style.fill && style.fill !== 'transparent' ? style.fill : palette.blockFill;
+  const textColor = style.fill && style.fill !== 'transparent' ? readableTextColor(style.fill) : palette.blockText;
+  const titleAlign = TITLE_ALIGNMENTS.includes(style.titleAlign) ? style.titleAlign : 'center';
+  for (const row of rows) ensureFontLoaded(row.font, requestRender);
+
+  ctx.save();
+  roundRectPath(ctx, x, y, width, height, CORNER_RADIUS);
+  ctx.clip();
+  ctx.globalAlpha *= alpha;
+  ctx.translate(x, y);
+  ctx.scale(layout.scale, layout.scale);
+
+  // From here on the units are the level's own, the same ones its blocks
+  // are laid out in.
+  const faceWidth = width / layout.scale;
+  const bandHeight = rows.reduce((sum, row) => sum + row.height, 0) + TEXT_PAD_Y * 2;
+  const baseAlpha = ctx.globalAlpha;
+
+  ctx.globalAlpha = baseAlpha * HEADER_SCRIM_ALPHA;
+  ctx.fillStyle = scrimColor;
+  ctx.fillRect(0, 0, faceWidth, bandHeight);
+  ctx.globalAlpha = baseAlpha;
+  ctx.fillStyle = palette.emptySlotStroke;
+  ctx.fillRect(0, bandHeight - HEADER_RULE_WIDTH, faceWidth, HEADER_RULE_WIDTH);
+
+  ctx.fillStyle = textColor;
+  ctx.textAlign = titleAlign;
+  ctx.textBaseline = 'middle';
+  const tx = titleAlign === 'left' ? TEXT_PAD_X : titleAlign === 'right' ? faceWidth - TEXT_PAD_X : faceWidth / 2;
+  let cursor = TEXT_PAD_Y;
+  for (const row of rows) {
+    ctx.font = row.font;
+    ctx.globalAlpha = baseAlpha * row.alpha;
+    ctx.fillText(row.text, tx, cursor + row.height / 2, faceWidth - TEXT_PAD_X * 2);
+    cursor += row.height;
+  }
+  ctx.restore();
 }
 
 // A block is a plain titled box with its name centered — no header band.

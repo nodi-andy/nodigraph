@@ -35,7 +35,7 @@ import {
   verticalSegmentsOf,
   FLOW_DASH,
 } from './ConnectionRenderer.js';
-import { drawBlock, drawBoundary, drawBoundaryPins, drawBlockPorts, drawExteriorSubSlots, drawResizeHandles, hasSubArchitecture } from './BlockRenderer.js';
+import { drawBlock, drawBoundary, drawBoundaryPins, drawBlockPorts, drawExteriorSubSlots, drawOpenHeader, drawResizeHandles, hasSubArchitecture } from './BlockRenderer.js';
 import { LevelView } from '../model/levelView.js';
 import { defaultBoundaryFor, frameToFace } from '../model/levelGeometry.js';
 import { GRID_SIZE } from '../model/grid.js';
@@ -449,6 +449,10 @@ export function drawLevel(
     });
     if (previewT > 0) {
       drawSubPreview(ctx, block, { zoom, t: previewT, palette, depth: depth + 1, visible, focus, flowOffset, requestRender, onDrawBlock });
+      // The block's own heading, over the level that has just covered its
+      // face — it fades in by the same number the centred name fades out
+      // by, so the two never both show at full strength.
+      drawOpenHeader(ctx, block, { alpha: previewT, palette, requestRender });
     } else if (focus?.gridBlockId === block.id) {
       // The block a new block would land in, with its level not drawn on
       // its face — closed at this zoom, or still empty, which is exactly

@@ -12,6 +12,11 @@
   /* Not a color token — the height every floating HUD chip and control-bar
      button is built around, so the two stay visually matched. */
   --topbar-height: 44px;
+  /* The desktop inspector's width, shared with the rule that slides the
+     right-hand HUD chip clear of it (see body.inspector-open): the chip
+     has to move by exactly the panel's width, so the two read from one
+     number rather than repeating 300px and drifting apart. */
+  --inspector-width: 300px;
   /* A step darker than --bg-surface — Figma-style neutral canvas gray, not
      this app's old near-white, so a paper-white block (see --bg-surface /
      BlockRenderer's blockFill) actually reads as a sheet resting on the
@@ -142,6 +147,9 @@ html, body {
 
 .hud-chip-right {
   flex: 0 0 auto;
+  /* Matches the inspector's own slide (see the desktop rule further down),
+     so the chip travels with the panel rather than jumping ahead of it. */
+  transition: transform 0.22s ease;
 }
 
 #topbar .brand {
@@ -196,7 +204,12 @@ html, body {
   position: fixed;
   inset: 0;
   background: var(--backdrop);
-  z-index: 29;
+  /* Above the floating HUD chips (see .topbar-hud), not below them: the
+     drawer is modal, so the chips dim with the rest of the page instead of
+     staying lit on top of it. A click on the dimmed hamburger lands on
+     this backdrop and closes the drawer, which is what it would have done
+     anyway. */
+  z-index: 32;
 }
 
 /* A drawer fixed to the left edge and off-screen until opened — the same
@@ -206,12 +219,11 @@ html, body {
    doesn't sit underneath the header's hamburger/brand/breadcrumb. */
 .topbar-menu {
   position: fixed;
-  /* Full height, not offset below a reserved header row (there isn't one
-     any more) — but the top-left HUD chip (see .topbar-hud) floats at a
-     higher z-index than this drawer and sits in that same top-left
-     corner, so the drawer's own top padding has to clear the chip's
-     height itself (below) or its first row or two would render underneath
-     the chip and be genuinely unclickable, not just visually crowded. */
+  /* Full height, and now drawn over the top-left HUD chip rather than
+     under it (see the z-index below) — the chip used to float on top of
+     this drawer as an opaque pill, so the drawer needed a chip-sized top
+     padding just to keep its first rows clear of it. The drawer covers the
+     chip instead, and an ordinary padding is enough. */
   top: 0;
   bottom: 0;
   left: 0;
@@ -222,11 +234,11 @@ html, body {
   background: var(--bg-surface);
   border-right: 1px solid var(--border);
   box-shadow: 12px 0 32px rgba(0, 0, 0, 0.5);
-  padding: calc(10px + var(--topbar-height) + 12px) 12px 16px;
+  padding: 16px 12px;
   overflow-y: auto;
   transform: translateX(-100%);
   transition: transform 0.22s ease;
-  z-index: 30;
+  z-index: 33;
 }
 
 .topbar-menu.open {
@@ -1013,7 +1025,7 @@ html, body {
   top: 0;
   right: 0;
   bottom: 0;
-  width: 300px;
+  width: var(--inspector-width);
   background: var(--bg-surface-2);
   color: var(--text-primary);
   border-left: 1px solid var(--border);
@@ -1038,6 +1050,19 @@ html, body {
 
   body.inspector-open #inspector {
     transform: translateX(0);
+  }
+
+  /* The right-hand HUD chip floats above the panel (see .topbar-hud's
+     z-index) and sits in exactly the corner the panel slides into, so it
+     used to land on top of the inspector's first field — the Name input
+     was underneath it and genuinely unclickable. Slide the chip clear by
+     the panel's own width instead of hiding it: undo/redo, Share and the
+     toggle that closes the panel again all stay reachable while it is
+     open, which fading the chip out (the treatment the control bar gets
+     below) would have cost. Desktop only — the mobile inspector is a
+     bottom sheet and never reaches this corner. */
+  body.inspector-open .hud-chip-right {
+    transform: translateX(calc(-1 * var(--inspector-width)));
   }
 }
 
