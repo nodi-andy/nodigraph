@@ -37,7 +37,7 @@ import {
 } from './ConnectionRenderer.js';
 import { drawBlock, drawBoundary, drawBoundaryPins, drawBlockPorts, drawExteriorSubSlots, drawResizeHandles, hasSubArchitecture } from './BlockRenderer.js';
 import { LevelView } from '../model/levelView.js';
-import { frameToFace } from '../model/levelGeometry.js';
+import { defaultBoundaryFor, frameToFace } from '../model/levelGeometry.js';
 import { GRID_SIZE } from '../model/grid.js';
 import { getCanvasPalette } from './canvasPalette.js';
 
@@ -83,6 +83,26 @@ const MIN_GRID_SCREEN_SPACING = 8;
 const EMPTY_SET = new Set();
 const CULL_PAD = 120;
 
+// A rect of the level a block sits in, expressed in the coordinates of
+// the level drawn inside that block (see frameToFace).
+function toChildRect(rect, layout) {
+  return {
+    x: (rect.x - layout.offsetX) / layout.scale,
+    y: (rect.y - layout.offsetY) / layout.scale,
+    width: rect.width / layout.scale,
+    height: rect.height / layout.scale,
+  };
+}
+
+// The overlap of two rects, or null when they don't meet.
+function intersection(a, b) {
+  const x = Math.max(a.x, b.x);
+  const y = Math.max(a.y, b.y);
+  const width = Math.min(a.x + a.width, b.x + b.width) - x;
+  const height = Math.min(a.y + a.height, b.y + b.height) - y;
+  return width > 0 && height > 0 ? { x, y, width, height } : null;
+}
+
 export function drawGridDots(ctx, rect, zoom, palette, alpha = 1) {
   if (!rect || GRID_SIZE * zoom < MIN_GRID_SCREEN_SPACING) return;
   const startX = Math.floor(rect.x / GRID_SIZE) * GRID_SIZE;
@@ -101,6 +121,44 @@ export function drawGridDots(ctx, rect, zoom, palette, alpha = 1) {
     }
   }
   ctx.fill();
+  ctx.restore();
+}
+
+/**
+ * The grid of the level *inside* `block`, painted on its face — for a
+ * block whose level is not drawn there (closed at this zoom, or empty and
+ * so never opening at all). drawSubPreview draws the same grid as part of
+ * an open level; this is the standalone version, so the one container new
+ * blocks land in (see `focus.gridBlockId`) shows its grid whether or not
+ * its contents happen to be on screen. A block never entered yet has no
+ * frame; the one it would get on being entered stands in, so the dots are
+ * at the same scale they will be a moment later.
+ */
+function drawFaceGrid(ctx, block, { zoom = 1, palette, visible = null } = {}) {
+  const frame = block.boundaryGeometry || defaultBoundaryFor(block.geometry);
+  if (!frame) return;
+  const layout = frameToFace(block.geometry, frame);
+  const { x, y, width, height } = block.geometry;
+  // The face itself, in the coordinates of the level inside it. Unlike an
+  // open level — which has contents of its own reaching to the edge of
+  // the viewport — there is nothing here but the dots, so the rect is
+  // clamped to the face rather than handing drawGridDots the whole
+  // viewport to generate a screenful of dots the clip then throws away.
+  const face = {
+    x: (x - layout.offsetX) / layout.scale,
+    y: (y - layout.offsetY) / layout.scale,
+    width: width / layout.scale,
+    height: height / layout.scale,
+  };
+  const rect = visible ? intersection(face, toChildRect(visible, layout)) : face;
+  if (!rect) return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, width, height);
+  ctx.clip();
+  ctx.translate(layout.offsetX, layout.offsetY);
+  ctx.scale(layout.scale, layout.scale);
+  drawGridDots(ctx, rect, zoom * layout.scale, palette);
   ctx.restore();
 }
 
@@ -391,6 +449,11 @@ export function drawLevel(
     });
     if (previewT > 0) {
       drawSubPreview(ctx, block, { zoom, t: previewT, palette, depth: depth + 1, visible, focus, flowOffset, requestRender, onDrawBlock });
+    } else if (focus?.gridBlockId === block.id) {
+      // The block a new block would land in, with its level not drawn on
+      // its face — closed at this zoom, or still empty, which is exactly
+      // the case where "the next block goes in here" most needs saying.
+      drawFaceGrid(ctx, block, { zoom, palette, visible });
     }
     // The host's per-block drawing hook (see SceneRenderer.renderScene)
     // fires for the level being edited only — what it always drew on.
@@ -468,14 +531,7 @@ export function drawSubPreview(
   const { x, y, width, height } = block.geometry;
 
   // What the level sees of the viewport, in its own coordinates.
-  const childVisible = visible
-    ? {
-        x: (visible.x - layout.offsetX) / layout.scale,
-        y: (visible.y - layout.offsetY) / layout.scale,
-        width: visible.width / layout.scale,
-        height: visible.height / layout.scale,
-      }
-    : null;
+  const childVisible = visible ? toChildRect(visible, layout) : null;
 
   ctx.save();
   ctx.globalAlpha *= alpha;
@@ -494,8 +550,13 @@ export function drawSubPreview(
   ctx.scale(layout.scale, layout.scale);
 
   // The level's own grid — over the face's fill, under its contents,
-  // exactly what the canvas shows behind the root level.
-  if (childVisible) drawGridDots(ctx, childVisible, effectiveZoom, palette);
+  // exactly what the canvas shows behind the root level. Only the one
+  // container a new block would land in gets it (see `focus.gridBlockId`),
+  // so the dotted background reads as "here" rather than as scenery every
+  // level repeats.
+  if (childVisible && (focus?.gridBlockId == null || focus.gridBlockId === block.id)) {
+    drawGridDots(ctx, childVisible, effectiveZoom, palette);
+  }
 
   // The level drawn exactly as the level being edited is drawn (same
   // drawLevel), so moving the editing focus into it changes nothing on

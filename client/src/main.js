@@ -1326,6 +1326,13 @@ async function bootstrap() {
       wireMoveOverride: stateMachine.getWireMoveOverride(),
       activeWirePiece: stateMachine.getActiveWirePiece(),
       marqueeRect: stateMachine.getMarqueeRect(),
+      // The dotted background marks the one container the FAB would add
+      // into — the selected block, otherwise the level being edited. With
+      // a selection the FAB cannot add into at all (several blocks, a
+      // wire), it falls back to the level being edited: that is where
+      // adding resumes the moment the selection is cleared, and it keeps
+      // the grid from simply vanishing while something else is selected.
+      gridBlockId: target && target !== 'level' ? target.id : project.getContainerBlock()?.id ?? null,
       // Derived from the clock rather than counted in frames, so the
       // dashes travel at the same speed on any refresh rate. Negative
       // because a decreasing offset moves them along the path's own

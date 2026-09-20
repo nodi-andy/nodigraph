@@ -65,6 +65,11 @@ own client architecture, drawn and kept up to date this way.
 - **Recursive decomposition** — drill into any block to model its internals;
   breadcrumbs to navigate back out, and a button to wrap the whole product
   in a new parent when the scope grows.
+- **The dotted background is the target** — the dots mark the one
+  container the + button will add into, and nothing else: the level you
+  are editing while nothing is selected, and the selected block itself the
+  moment you pick one. Select an empty block and its face fills with dots;
+  that is where the next block lands.
 - **See inside without going inside** — zoom in until a block has room to
   spare and its internals draw themselves on its face: the blocks and
   wires alone, to scale and sized to fill it. Zoom back out and it's a

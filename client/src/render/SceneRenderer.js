@@ -165,6 +165,16 @@ export function renderScene(
     // exported PNG's background genuinely transparent instead of a faint
     // lattice of grid dots on a light Doc page.
     showGrid = true,
+    // The one container whose level draws the dotted background: the
+    // block a new block would land in right now (see main.js's
+    // addTargetForSelection) — the selected block, or the container of
+    // the level being edited when nothing is selected. Every other level
+    // draws without a grid, so the dots say where the FAB will put things
+    // instead of tiling the whole scene. The root block's id means the
+    // root level, which has no face to draw on and so gets the grid
+    // across the whole viewport, as it always did. Null — the default,
+    // and what both exporters pass — keeps the grid on every level.
+    gridBlockId = null,
     // On for the live canvas: the scene is drawn from the root with every
     // level open on its block's face. Off for both exporters, whose
     // "zoom" is a resolution/scale choice rather than someone actually
@@ -218,6 +228,7 @@ export function renderScene(
     wireSelection,
     hiddenConnectionId,
     wireMoveOverride,
+    gridBlockId,
     // Filled in by drawLevel with the routed wires of the level being
     // edited, for the grips drawn over everything below.
     out: {},
@@ -228,7 +239,12 @@ export function renderScene(
     const rootCamera = rootCameraFor(levelCamera, chainToRoot(pathBlocks));
     applyCamera(ctx, rootCamera, dpr);
     const visible = visibleRectFor(rootCamera, canvasWidth, canvasHeight);
-    if (showGrid) drawGridDots(ctx, visible, rootCamera.zoom, palette);
+    // The root level has no face anywhere to be drawn on, so its grid is
+    // the whole viewport's background — drawn only when the root is
+    // itself the container new blocks land in.
+    if (showGrid && (gridBlockId === null || gridBlockId === project.rootBlock.id)) {
+      drawGridDots(ctx, visible, rootCamera.zoom, palette);
+    }
     const rootBoundary = project.rootBlock.boundaryGeometry
       ? { block: project.rootBlock, geometry: project.rootBlock.boundaryGeometry }
       : null;
@@ -246,7 +262,9 @@ export function renderScene(
     });
   } else {
     applyCamera(ctx, levelCamera, dpr);
-    if (showGrid) drawGridDots(ctx, visibleRectFor(levelCamera, canvasWidth, canvasHeight), camera.zoom, palette);
+    if (showGrid && (gridBlockId === null || gridBlockId === containerBlock?.id)) {
+      drawGridDots(ctx, visibleRectFor(levelCamera, canvasWidth, canvasHeight), camera.zoom, palette);
+    }
     drawLevel(ctx, project, {
       zoom: camera.zoom,
       palette,
