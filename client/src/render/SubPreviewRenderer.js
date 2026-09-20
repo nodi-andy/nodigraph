@@ -96,7 +96,6 @@ const DEFAULT_WIRE_COLOR = '#4f8cff';
 const DEFAULT_ACCENT_COLOR = '#3b6fa0';
 const WIRE_COLOR = DEFAULT_WIRE_COLOR;
 const WIRE_SELECTED_HALO = 'rgba(255, 180, 84, 0.55)';
-const SELECTION_COLOR = '#4f8cff';
 
 // A dot at every grid intersection rather than a lattice of lines — the
 // Figma/design-tool convention, and a lot less visually busy across a
@@ -249,23 +248,6 @@ function drawOneConnection(ctx, entry, routed, wireSelection, flowOffset, palett
   drawConnectionLabel(ctx, entry.geometry, entry.connection.label, palette);
 }
 
-// The dashed outline of the level being edited when that level is a
-// nested one: its container's face border is already there (drawn by the
-// level above), so this is only a quiet reminder of which level the
-// selection and the next click belong to — and, when the container is
-// the selected thing, the frame's own resize handles.
-function drawFocusFrame(ctx, geometry, { selected, palette, zoom }) {
-  const { x, y, width, height } = geometry;
-  ctx.save();
-  ctx.globalAlpha *= 0.6;
-  ctx.setLineDash([8 / zoom, 6 / zoom]);
-  ctx.strokeStyle = selected ? SELECTION_COLOR : palette.boundaryDash;
-  ctx.lineWidth = 1.5 / zoom;
-  ctx.strokeRect(x, y, width, height);
-  ctx.restore();
-  if (selected) drawResizeHandles(ctx, geometry, palette, zoom);
-}
-
 /**
  * Draws one level's contents in that level's own coordinates — `ctx` is
  * already under the transform that puts them on screen, and `zoom` is
@@ -376,8 +358,19 @@ export function drawLevel(
       wireMoveOverride,
       zoom,
     });
-  } else if (focused && routingBoundary) {
-    drawFocusFrame(ctx, routingBoundary.geometry, { selected: container.id === selectedBlockId, palette, zoom });
+  } else if (focused && routingBoundary && container.id === selectedBlockId) {
+    // A nested level draws no frame of its own. There is no "current
+    // view" to outline any more — every level is on screen at once, and
+    // the container's own face border is already drawn by the level
+    // above, so a dashed rectangle inside it was a second border for a
+    // thing that already has one (and, where the frame's aspect ratio
+    // differs from the face's, one that did not even line up with it).
+    // The root keeps its frame: it has no face anywhere to borrow a
+    // border from, and it is what a new parent would be wrapped around.
+    // Only the resize handles survive here, and only while the container
+    // is the selected thing — they are how its frame is resized from
+    // inside, and they are not a border.
+    drawResizeHandles(ctx, routingBoundary.geometry, palette, zoom);
   }
 
   for (const item of drawItems) {
