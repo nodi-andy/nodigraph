@@ -27,6 +27,12 @@ const PALETTES = {
     wireLabelBorder: 'rgba(28, 36, 49, 0.16)',
     wireLabelText: '#1c2431',
     resizeHandleFill: '#ffffff',
+    // The ink a block's drop shadow is mixed from (see BlockRenderer's
+    // PAPER_SHADOW_LAYERS). A bare rgb triple rather than a finished
+    // colour, so the renderer can mix its own two alphas out of it — a
+    // wide ambient layer and a tight contact one — without the palette
+    // having to spell both out.
+    blockShadowRgb: '15, 18, 24',
   },
   dark: {
     // A dot grid (see the light palette's own comment) needs more contrast
@@ -46,6 +52,10 @@ const PALETTES = {
     wireLabelBorder: 'rgba(255, 255, 255, 0.15)',
     wireLabelText: '#e6e9ef',
     resizeHandleFill: '#10151c',
+    // Near-black, not the light palette's blue-grey ink: a shadow only
+    // reads if it is darker than the surface it falls on, and --bg-canvas
+    // (#12161d) leaves almost no room below the ink colour to work with.
+    blockShadowRgb: '0, 0, 0',
   },
 };
 

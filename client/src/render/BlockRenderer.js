@@ -25,12 +25,22 @@ const CORNER_RADIUS = 8;
 const BORDER_WIDTH = 1.5;
 const BORDER_MAX_SCREEN_WIDTH = 6;
 // Constant *screen*-pixel shadow (divided by zoom before use, the same
-// trick this file already uses for grid dots/resize handles) — the soft
+// trick this file already uses for grid dots/resize handles) — the
 // elevation that makes a block read as a card resting on the canvas
 // rather than a flat rectangle painted onto it.
-const PAPER_SHADOW_COLOR = 'rgba(15, 18, 24, 0.16)';
-const PAPER_SHADOW_BLUR = 10;
-const PAPER_SHADOW_OFFSET_Y = 3;
+//
+// Two layers, the way the CSS box-shadow stacks in styles.css do it: a
+// wide, soft ambient shadow supplies the height, and a tight contact
+// shadow just under the bottom edge keeps the block anchored to the canvas
+// instead of looking like it floats free of it. One shadow per fill is all
+// a canvas context carries, so the two layers are two fills, ambient
+// first. The colour is mixed per-theme (see canvasPalette's
+// blockShadowRgb): the same ink that reads on a light canvas disappears
+// on a dark one.
+const PAPER_SHADOW_LAYERS = [
+  { alpha: 0.18, blur: 20, offsetY: 8 },
+  { alpha: 0.16, blur: 5, offsetY: 2 },
+];
 // The drawn arrowhead is smaller than this — it's the hit-test radius
 // around the handle's tip, padded like every other small handle.
 export const CONNECTOR_HANDLE_RADIUS = 4;
@@ -1213,13 +1223,18 @@ export function drawBlock(
   // (fillColor === 'transparent', see SelectionFabs' transparent swatch)
   // is meant to read as bare floating text with no card at all, so it
   // skips the shadow rather than getting a ghost of one.
-  if (fillColor !== 'transparent') {
-    ctx.save();
-    ctx.shadowColor = PAPER_SHADOW_COLOR;
-    ctx.shadowBlur = PAPER_SHADOW_BLUR / zoom;
-    ctx.shadowOffsetY = PAPER_SHADOW_OFFSET_Y / zoom;
-    ctx.fill();
-    ctx.restore();
+  // The SVG recording context (render/svgContext.js) has no shadow support
+  // at all, so a second fill there would buy nothing and emit a duplicate
+  // path per block — it gets the single plain fill it always did.
+  if (fillColor !== 'transparent' && 'shadowColor' in ctx) {
+    for (const layer of PAPER_SHADOW_LAYERS) {
+      ctx.save();
+      ctx.shadowColor = `rgba(${palette.blockShadowRgb}, ${layer.alpha})`;
+      ctx.shadowBlur = layer.blur / zoom;
+      ctx.shadowOffsetY = layer.offsetY / zoom;
+      ctx.fill();
+      ctx.restore();
+    }
   } else {
     ctx.fill();
   }
