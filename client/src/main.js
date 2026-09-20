@@ -34,7 +34,7 @@ import { maybeShowOnboarding } from './ui/Onboarding.js';
 import { renderCurrentLevelDataUrl, renderCurrentLevelBlob } from './model/diagramImage.js';
 import { getBoundaryLabelRect, hasSubArchitecture, isOpenableLink } from './render/BlockRenderer.js';
 import { chainToRoot, childCameraFor, rootCameraFor } from './render/levelTransform.js';
-import { isLevelEditable, MIN_EDIT_ZOOM } from './render/SubPreviewRenderer.js';
+import { isLevelEditable, isLevelOpen, MIN_EDIT_ZOOM } from './render/SubPreviewRenderer.js';
 import { resolveFocus } from './interaction/LevelFocus.js';
 import { getConnectionGeometry, getConnectionLabelPosition } from './render/ConnectionRenderer.js';
 import { downloadProjectFile, readProjectFile, safeFileStem } from './model/localFile.js';
@@ -586,6 +586,53 @@ async function bootstrap() {
     if (block.id === project.getContainerBlock()?.id) return null;
     if (!canEnterBlock(block)) return null;
     return block;
+  }
+
+  // Where the add-block FAB adds: 'level' (the level being edited) with
+  // nothing or the level's own container selected, the selected block
+  // itself when exactly one enterable block is selected, null when the
+  // selection is not one place to add into.
+  function addTargetForSelection() {
+    if (selectionCount() === 0) return 'level';
+    if (wireSelection.list().length > 0 || selection.count !== 1) return null;
+    const block = project.getBlock(selection.selectedBlockId);
+    if (!block) return null;
+    if (block.id === project.getContainerBlock()?.id) return 'level';
+    return getEnterableSelectedBlock();
+  }
+
+  // Before the FAB adds a block: with one block selected, move the editing
+  // focus into that block so the new block lands inside it. If the block's
+  // contents are not on screen — its level is closed at this zoom, or its
+  // face is mostly off screen — zoom in to show them first; otherwise the
+  // camera is only re-based and nothing moves. Returns the frame the new
+  // block should land in, or null to add into the level being edited.
+  function addIntoSelection() {
+    const target = addTargetForSelection();
+    if (!target || target === 'level') return null;
+    const face = target.geometry;
+    const viewW = canvas.clientWidth;
+    const viewH = canvas.clientHeight;
+    const tl = camera.worldToScreen(face.x, face.y);
+    const br = camera.worldToScreen(face.x + face.width, face.y + face.height);
+    const visibleW = Math.max(0, Math.min(br.x, viewW) - Math.max(tl.x, 0));
+    const visibleH = Math.max(0, Math.min(br.y, viewH) - Math.max(tl.y, 0));
+    const mostlyOnScreen = visibleW * visibleH >= 0.6 * (br.x - tl.x) * (br.y - tl.y);
+    const contentsVisible = isLevelOpen(target, camera.zoom) && mostlyOnScreen;
+    const rebased = childCameraFor(camera, target);
+    if (!project.enterBlock(target.id)) return null;
+    if (contentsVisible) {
+      camera.zoom = rebased.zoom;
+      camera.offsetX = rebased.offsetX;
+      camera.offsetY = rebased.offsetY;
+    } else {
+      frameCurrentLevel();
+    }
+    selection.clear();
+    wireSelection.clear();
+    updateNavigationUI();
+    renderLoop.requestRender();
+    return project.getContainerBlock()?.boundaryGeometry || null;
   }
 
   // Moving the editing focus. The scene is drawn from the root with every
@@ -1247,11 +1294,15 @@ async function bootstrap() {
     // is exactly one enterable block selected: "add a block" makes no
     // sense with a selection already active, but "enter this block" does,
     // so the same button switches to that instead of just going inert.
-    const enterableBlock = getEnterableSelectedBlock();
-    fabEl.disabled = selectionCount() > 0 && !enterableBlock;
-    fabAddIconEl.style.display = enterableBlock ? 'none' : '';
-    fabEnterIconEl.style.display = enterableBlock ? '' : 'none';
-    fabEl.title = enterableBlock ? 'Enter block' : 'Add block';
+    // The FAB always adds a block: into the level being edited, or — with
+    // one block selected — inside that block (see addIntoSelection). It is
+    // inert only when the selection is not one place to add into: several
+    // blocks, a wire, a text label.
+    const target = addTargetForSelection();
+    fabEl.disabled = target === null;
+    fabAddIconEl.style.display = '';
+    fabEnterIconEl.style.display = 'none';
+    fabEl.title = target && target !== 'level' ? `Add block inside ${target.name || 'block'}` : 'Add block';
     fabEl.setAttribute('aria-label', fabEl.title);
     if (textFabEl) textFabEl.disabled = selectionCount() > 0;
     pruneStaleCursors();
@@ -1426,8 +1477,7 @@ async function bootstrap() {
     requestRender: () => renderLoop.requestRender(),
     persist,
     textFabEl,
-    getEnterableBlock: getEnterableSelectedBlock,
-    onEnterBlock: enterBlock,
+    beforeAdd: addIntoSelection,
   });
 
   inspectorApi = mountInspector(inspectorEl, {

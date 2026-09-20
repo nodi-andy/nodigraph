@@ -4,12 +4,25 @@ import { DEFAULT_BLOCK_WIDTH, DEFAULT_BLOCK_HEIGHT, DEFAULT_TEXT_WIDTH, DEFAULT_
 // as-is on desktop rather than a separate toolbar button. `textFabEl` is
 // the smaller "add text" mini-FAB stacked above it — same creation flow,
 // just a different kind and default footprint (see Block.createBlock).
+//
+// It always adds. With one block selected, the new block goes inside that
+// block: `beforeAdd` (see main.js's addIntoSelection) moves the editing
+// focus into it first, zooming in if its contents are not on screen, and
+// returns the frame the new block should land in, or null to add into the
+// level being edited as before.
 export function mountToolbar(
   fabEl,
-  { project, camera, canvas, selection, requestRender, persist, textFabEl, getEnterableBlock, onEnterBlock },
+  { project, camera, canvas, selection, requestRender, persist, textFabEl, beforeAdd },
 ) {
   function addCentered(kind, width, height) {
+    const frame = beforeAdd?.() || null;
     const center = camera.screenToWorld(canvas.clientWidth / 2, canvas.clientHeight / 2);
+    // Inside a frame, the new block lands where the view is looking but
+    // never outside the frame itself.
+    if (frame) {
+      center.x = Math.min(Math.max(center.x, frame.x + width / 2), frame.x + frame.width - width / 2);
+      center.y = Math.min(Math.max(center.y, frame.y + height / 2), frame.y + frame.height - height / 2);
+    }
     // createDefaultBlock snaps the position to the grid; centering against
     // the real default size just keeps that snapped block visually centered.
     const block = project.createDefaultBlock(center.x - width / 2, center.y - height / 2, kind);
@@ -18,17 +31,6 @@ export function mountToolbar(
     requestRender();
   }
 
-  // With exactly one enterable block selected, "add a block" isn't a
-  // sensible action for this same button to take (see main.js's draw(),
-  // which disables it otherwise) — drilling into the one block already
-  // selected is, and it's the same gesture as clicking it in the Inspector.
-  fabEl.addEventListener('click', () => {
-    const enterable = getEnterableBlock?.();
-    if (enterable) {
-      onEnterBlock(enterable.id);
-      return;
-    }
-    addCentered('block', DEFAULT_BLOCK_WIDTH, DEFAULT_BLOCK_HEIGHT);
-  });
+  fabEl.addEventListener('click', () => addCentered('block', DEFAULT_BLOCK_WIDTH, DEFAULT_BLOCK_HEIGHT));
   textFabEl?.addEventListener('click', () => addCentered('text', DEFAULT_TEXT_WIDTH, DEFAULT_TEXT_HEIGHT));
 }

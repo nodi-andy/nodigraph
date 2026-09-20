@@ -1,5 +1,6 @@
 import { GRID_SIZE, WIRE_STUB_LENGTH, sideNormal, sideAxis } from '../model/grid.js';
 import { resolveRouteCoords, buildRouteLines, routePieces } from '../model/wireRoute.js';
+import { routeAroundObstacles, obstaclesFor, pathHitsObstacles, OBSTACLE_MARGIN } from '../model/obstacleRoute.js';
 import { asBoundaryView, findConnectorPosition, getPortBoundaryPlacement } from './BlockRenderer.js';
 import { getCanvasPalette } from './canvasPalette.js';
 
@@ -67,8 +68,10 @@ export function computeConnectionPath(
   targetInverted = false,
   // `autoTrunk`: the trunk coordinate the channel pass (see
   // getConnectionGeometry) assigned this wire, used in place of the plain
-  // midpoint for an automatic single-trunk route.
-  { autoTrunk = null } = {},
+  // midpoint for an automatic single-trunk route. `detour`: the free-piece
+  // coordinates the obstacle router found (see model/obstacleRoute.js),
+  // which replace the automatic route outright.
+  { autoTrunk = null, detour = null } = {},
 ) {
   const sNorm = sideNormal(sourceSide);
   const tNorm = sideNormal(targetSide);
@@ -82,7 +85,9 @@ export function computeConnectionPath(
   const resolved = resolveRouteCoords(routing, sourceSide, targetSide, stubA, stubB);
   const { first, manual } = resolved;
   let coords = resolved.coords;
-  if (!manual && coords.length === 1) {
+  const avoided = !manual && Array.isArray(detour);
+  if (avoided) coords = detour;
+  if (!manual && !avoided && coords.length === 1) {
     // The trunk runs on the axis perpendicular to the stubs: its one
     // coordinate is an x for horizontal stubs, a y for vertical ones.
     const key = first === 'x' ? 'x' : 'y';
@@ -107,6 +112,7 @@ export function computeConnectionPath(
     coords,
     first,
     manual,
+    avoided,
     stubA,
     stubB,
   };
@@ -131,9 +137,95 @@ export function previewPathToCursor(sourcePos, sourceSide, cursorPos, inverted =
 // currently inside — if either endpoint is that block, its boundary
 // geometry and inverted stub direction are used instead of its own
 // (irrelevant, outside-facing) stored geometry.
+// Detours found by the obstacle router, per connection, with the
+// situation they were found for: the route is searched again only when a
+// pin or a block in the way has moved.
+const detours = new Map();
+
+function detourKey(base, obstacles) {
+  const parts = [base.stubA.x, base.stubA.y, base.stubB.x, base.stubB.y];
+  for (const r of obstacles) parts.push(r.x, r.y, r.width, r.height);
+  return parts.join(',');
+}
+
+// Half the width of the lane a routed wire reserves for itself when a
+// later wire is routed around it — a bit under the channel step, so two
+// wires that must share a gap still can, one lattice line apart.
+const WIRE_LANE = 8;
+
+// The free pieces of a wire's route as thin rectangles, for a later
+// wire's detour to keep clear of.
+function wireLanes(geometry) {
+  const lanes = [];
+  const points = geometry.points.slice(1, -1);
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const a = points[i];
+    const b = points[i + 1];
+    lanes.push({
+      x: Math.min(a.x, b.x) - WIRE_LANE,
+      y: Math.min(a.y, b.y) - WIRE_LANE,
+      width: Math.abs(b.x - a.x) + 2 * WIRE_LANE,
+      height: Math.abs(b.y - a.y) + 2 * WIRE_LANE,
+    });
+  }
+  return lanes;
+}
+
+// Guards the recursion below: a wire being routed never asks for itself.
+const routing = new Set();
+
 export function getConnectionGeometry(project, connection, boundary, wireMoveOverride, { raw = false } = {}) {
-  const base = computeGeometry(project, connection, boundary, wireMoveOverride);
-  if (raw || !base || base.manual || base.coords.length !== 1) return base;
+  let base = computeGeometry(project, connection, boundary, wireMoveOverride);
+  if (!base || base.manual) return base;
+
+  // Obstacle avoidance. When the plain route runs through a block that
+  // is neither of its own ends nor a panel one of them sits in, the wire
+  // is routed around it instead (see model/obstacleRoute.js). The detour
+  // also keeps clear of the wires listed before this one in the level
+  // that themselves had to detour, so two wires forced around the same
+  // block take separate lanes instead of one line; a wire is never asked
+  // to dodge one listed after it, which is what keeps the order settled.
+  // A hand-routed wire is the author's business and is left alone.
+  const obstacles = obstaclesFor(project.listBlocks(), connection.sourceBlockId, connection.targetBlockId, base.stubA, base.stubB);
+  const inflated = obstacles.map((r) => ({ x: r.x - OBSTACLE_MARGIN, y: r.y - OBSTACLE_MARGIN, width: r.width + 2 * OBSTACLE_MARGIN, height: r.height + 2 * OBSTACLE_MARGIN }));
+  // Only the free part of the route is judged: the stubs and the pins they
+  // belong to may legitimately sit against a neighbouring block.
+  const free = base.points.slice(1, -1);
+  if (free.length >= 2 && pathHitsObstacles(free, inflated) && !routing.has(connection.id)) {
+    routing.add(connection.id);
+    try {
+      const lanes = [];
+      for (const other of project.listConnections()) {
+        if (other.id === connection.id) break;
+        if (routing.has(other.id)) continue;
+        const g = getConnectionGeometry(project, other, boundary, wireMoveOverride);
+        if (g?.avoided) lanes.push(...wireLanes(g));
+      }
+      const k = detourKey(base, [...obstacles, ...lanes]);
+      let cached = detours.get(connection.id);
+      if (!cached || cached.key !== k) {
+        const coords = routeAroundObstacles({
+          stubA: base.stubA,
+          sourceSide: base.sourceSide,
+          sourceInverted: base.sourceInverted,
+          stubB: base.stubB,
+          targetSide: base.targetSide,
+          targetInverted: base.targetInverted,
+          obstacles,
+          lanes,
+        });
+        cached = { key: k, coords };
+        detours.set(connection.id, cached);
+      }
+      if (cached.coords) {
+        const detoured = computeGeometry(project, connection, boundary, wireMoveOverride, null, cached.coords);
+        if (detoured) return detoured;
+      }
+    } finally {
+      routing.delete(connection.id);
+    }
+  }
+  if (raw || base.coords.length !== 1) return base;
 
   // Channel assignment. Every other automatic single-trunk wire of this
   // level whose trunk lies on the same line and overlaps this one's along
@@ -163,7 +255,7 @@ export function getConnectionGeometry(project, connection, boundary, wireMoveOve
   return computeGeometry(project, connection, boundary, wireMoveOverride, trunk);
 }
 
-function computeGeometry(project, connection, boundary, wireMoveOverride, autoTrunk = null) {
+function computeGeometry(project, connection, boundary, wireMoveOverride, autoTrunk = null, detour = null) {
   const resolve = (blockId) => {
     const block = project.getBlock(blockId);
     if (!block) return null;
@@ -233,9 +325,9 @@ function computeGeometry(project, connection, boundary, wireMoveOverride, autoTr
     connection,
     source.isBoundary,
     target.isBoundary,
-    { autoTrunk },
+    { autoTrunk, detour },
   );
-  return { ...routed, sourcePos, targetPos };
+  return { ...routed, sourcePos, targetPos, sourceSide, targetSide, sourceInverted: source.isBoundary, targetInverted: target.isBoundary };
 }
 
 // Two wires that merely cross look exactly like two wires that join, which

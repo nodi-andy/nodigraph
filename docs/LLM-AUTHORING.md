@@ -159,9 +159,12 @@ will overlap them.
 - **Order in `blocks` is z-order.** The first key is drawn furthest back. List
   background panels before the things that sit on them.
 - Wires route themselves orthogonally; you do not place bends. Parallel wires
-  between the same two rows fan out into separate channels on their own, and a
-  wire to a `self` pin keeps clear of the band along the frame. Wires do not
-  yet avoid blocks that stand in their way — leave a free lane.
+  between the same two rows fan out into separate channels on their own, a
+  wire to a `self` pin keeps clear of the band along the frame, and a wire
+  whose straight route would run through a block is routed around it (and
+  around the wires already routed around that block). A lane or panel a pin
+  sits inside is not an obstacle. Leaving a free lane still gives the shortest
+  wires.
 - Nothing auto-layouts. You are responsible for every coordinate, so work out
   your column and row positions before you start emitting.
 
@@ -353,6 +356,16 @@ an OpenAPI page — never at something that needs the reader's session.
 ---
 
 ## Before you emit, check
+
+Run the lint on the file: it walks every level with the editor's own model
+and routing and reports, as text or `--json`, what a reader would trip over —
+a wire through a block, blocks on top of each other, a pin off its slots,
+labels colliding, wires lying on one line, a frame that is not the block's
+shape. Exit code 1 means at least one error.
+
+```
+node client/tools/lint.mjs diagram.yaml [--json]
+```
 
 - [ ] `blocks` is a mapping; `wires` is a sequence.
 - [ ] 2-space indentation throughout; every `{ … }` on one line.

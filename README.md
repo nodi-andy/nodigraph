@@ -214,3 +214,10 @@ modified or embedded version as a closed-source, proprietary service
 without that source-sharing obligation — the same dual-licensing model
 used by projects like MongoDB and Qt. There's no self-serve process for
 this yet; open an issue or otherwise get in touch to ask about one.
+
+## Linting a diagram
+
+`node client/tools/lint.mjs diagram.yaml` checks a diagram the way a reader
+sees it — wires through blocks, overlapping blocks, colliding labels, pins off
+their slots — using the same model and routing code as the canvas, and prints
+findings as text or, with `--json`, as data. See docs/LLM-AUTHORING.md.

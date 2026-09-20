@@ -681,16 +681,33 @@ function drawPortLabelInside(ctx, port, pos, inverted, palette) {
 }
 
 // A pin is a plug: one shape in the block's accent, from just inside the
-// border out to where the wire starts. An input's plug points into the
-// block and an output's away from it — the direction data flows — and a
-// pin with no direction is a plain rounded plug with no point at all: a
-// two-way pin is never drawn as an arrow. `side`/`inverted` give the pin's
+// border out to where the wire starts. An output's plug is pointed, away
+// from the block; an input's is a socket, a rounded plug with a light
+// chevron cut in where the wire arrives, pointing into the block — both
+// the direction data flows, both on the wire's own axis. A pin with no
+// direction is a plain rounded plug with no point and no chevron: a two-
+// way pin is never drawn as an arrow. `side`/`inverted` give the pin's
 // outward axis (a frame pin seen from inside points into the frame).
 const PLUG_WIDTH = PORT_WIDTH + 2;
 const PLUG_INSET = PORT_LENGTH / 2;
 const PLUG_REACH = CONNECTOR_NUB_LENGTH + CONNECTOR_ARROW_SIZE / 2;
 const PLUG_TIP = 6;
 const PLUG_RADIUS = 2;
+const CHEVRON_DEPTH = 4;
+const CHEVRON_INSET = 4;
+const CHEVRON_STROKE = 'rgba(255, 255, 255, 0.92)';
+
+function roundedPlugPath(ctx, x0, x1, h, r) {
+  ctx.moveTo(x0 + r, -h);
+  ctx.lineTo(x1 - r, -h);
+  ctx.arcTo(x1, -h, x1, -h + r, r);
+  ctx.lineTo(x1, h - r);
+  ctx.arcTo(x1, h, x1 - r, h, r);
+  ctx.lineTo(x0 + r, h);
+  ctx.arcTo(x0, h, x0, h - r, r);
+  ctx.lineTo(x0, -h + r);
+  ctx.arcTo(x0, -h, x0 + r, -h, r);
+}
 
 function drawPlug(ctx, p, side, inverted, isOutput, color) {
   const n = sideNormal(side);
@@ -703,16 +720,8 @@ function drawPlug(ctx, p, side, inverted, isOutput, color) {
   const h = PLUG_WIDTH / 2;
   const r = PLUG_RADIUS;
   ctx.beginPath();
-  if (isOutput === null) {
-    ctx.moveTo(x0 + r, -h);
-    ctx.lineTo(x1 - r, -h);
-    ctx.arcTo(x1, -h, x1, -h + r, r);
-    ctx.lineTo(x1, h - r);
-    ctx.arcTo(x1, h, x1 - r, h, r);
-    ctx.lineTo(x0 + r, h);
-    ctx.arcTo(x0, h, x0, h - r, r);
-    ctx.lineTo(x0, -h + r);
-    ctx.arcTo(x0, -h, x0 + r, -h, r);
+  if (isOutput === null || isOutput === false) {
+    roundedPlugPath(ctx, x0, x1, h, r);
   } else if (isOutput) {
     const xb = x1 - PLUG_TIP;
     ctx.moveTo(x0 + r, -h);
@@ -723,19 +732,24 @@ function drawPlug(ctx, p, side, inverted, isOutput, color) {
     ctx.arcTo(x0, h, x0, h - r, r);
     ctx.lineTo(x0, -h + r);
     ctx.arcTo(x0, -h, x0 + r, -h, r);
-  } else {
-    const xb = x0 + PLUG_TIP;
-    ctx.moveTo(xb, -h);
-    ctx.lineTo(x1 - r, -h);
-    ctx.arcTo(x1, -h, x1, -h + r, r);
-    ctx.lineTo(x1, h - r);
-    ctx.arcTo(x1, h, x1 - r, h, r);
-    ctx.lineTo(xb, h);
-    ctx.lineTo(x0, 0);
   }
   ctx.closePath();
   ctx.fillStyle = color;
   ctx.fill();
+  if (isOutput === false) {
+    // The socket's chevron: where the wire comes in, pointing on along
+    // the wire's axis into the block.
+    const tip = x1 - CHEVRON_INSET - CHEVRON_DEPTH;
+    ctx.beginPath();
+    ctx.moveTo(x1 - CHEVRON_INSET, -h + 2);
+    ctx.lineTo(tip, 0);
+    ctx.lineTo(x1 - CHEVRON_INSET, h - 2);
+    ctx.strokeStyle = CHEVRON_STROKE;
+    ctx.lineWidth = 1.6;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
