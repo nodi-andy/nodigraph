@@ -39,7 +39,6 @@ export function mountAppMenu(
     onOpenFromGitHub,
     onSaveToGitHub,
     onAnimate,
-    onToggleDarkMode,
   },
 ) {
   container.innerHTML = '';
@@ -169,16 +168,7 @@ export function mountAppMenu(
   animateText.textContent = 'Animate';
   animateLabel.append(animateCheckbox, animateText);
 
-  const darkModeLabel = document.createElement('label');
-  darkModeLabel.className = 'app-menu-toggle-row';
-  const darkModeCheckbox = document.createElement('input');
-  darkModeCheckbox.type = 'checkbox';
-  darkModeCheckbox.addEventListener('change', () => onToggleDarkMode(darkModeCheckbox.checked));
-  const darkModeText = document.createElement('span');
-  darkModeText.textContent = 'Dark mode';
-  darkModeLabel.append(darkModeCheckbox, darkModeText);
-
-  settingsBody.append(animateLabel, darkModeLabel);
+  settingsBody.append(animateLabel);
 
   return {
     // The dot marks edits made since the address bar was last written, so
@@ -195,10 +185,6 @@ export function mountAppMenu(
 
     refreshAnimating(on) {
       animateCheckbox.checked = on;
-    },
-
-    refreshDarkMode(on) {
-      darkModeCheckbox.checked = on;
     },
 
     // Ctrl/Cmd+S routes through the button rather than duplicating its

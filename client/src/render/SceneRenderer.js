@@ -10,7 +10,6 @@ import { drawGridDots, drawLevel, routeConnections } from './SubPreviewRenderer.
 import { chainToRoot, rootCameraFor, screenToWorldWith } from './levelTransform.js';
 import { LevelView } from '../model/levelView.js';
 import { getCanvasPalette } from './canvasPalette.js';
-import { getTheme } from '../theme.js';
 
 const WIRE_COLOR = '#4f8cff';
 
@@ -198,7 +197,7 @@ export function renderScene(
     // image exporter (model/diagramImage.js) always passes the light
     // palette explicitly instead, since an exported figure lands on a
     // white Doc page regardless of which theme its editor prefers.
-    palette = getCanvasPalette(getTheme()),
+    palette = getCanvasPalette(),
     // A generic embedding point for a host page (see main.js's own
     // window.nodigraph doc) that wants to draw its own thing onto a
     // specific block, in lockstep with this exact paint rather than a

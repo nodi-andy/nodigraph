@@ -1,13 +1,10 @@
-/* Light is the default (no attribute needed) — chosen so a diagram
-   exported to Google Docs, which always lands on a white page, matches
-   what the exporter was looking at while drawing it. Dark is opt-in via
-   Settings (see ui/AppMenu.js / src/theme.js), applied by setting
-   data-theme="dark" on <html>.
+/* One light theme, no dark mode: the colours a diagram carries are part
+   of the circuit it describes, and they were picked against this
+   background.
    FAB buttons (the floating add/delete/color/parent-nav controls) and the
    color swatch palette they open are deliberately left out of this token
-   system — they stay a fixed dark, high-contrast "glass" chrome in both
-   themes, the same way a floating toolbar often does regardless of the
-   page behind it. */
+   system — they stay a fixed dark, high-contrast "glass" chrome, the same
+   way a floating toolbar often does regardless of the page behind it. */
 :root {
   /* Not a color token — the height every floating HUD chip and control-bar
      button is built around, so the two stay visually matched. */
@@ -48,33 +45,6 @@
   --backdrop: rgba(15, 18, 24, 0.35);
 }
 
-:root[data-theme='dark'] {
-  --bg-canvas: #12161d;
-  --bg-surface: #1e2530;
-  --bg-surface-2: #1a1f28;
-  --bg-well: #10151c;
-  --bg-hover: #2c3644;
-  --bg-hover-strong: #3a4556;
-  --border: #2c3644;
-  --border-strong: #3a4556;
-  --text-primary: #e6e9ef;
-  --text-strongest: #ffffff;
-  --text-secondary: #c3c9d4;
-  --text-muted: #8b93a3;
-  --text-faint: #6b7889;
-  --text-faint-2: #4a5568;
-  --accent: #4f8cff;
-  --accent-strong: #2f6fed;
-  --accent-strong-hover: #3f7bf5;
-  --success: #3ecf5d;
-  --danger: #e5484d;
-  --danger-tint: rgba(229, 72, 77, 0.12);
-  --warning: #ffb454;
-  --warning-tint: rgba(255, 180, 84, 0.08);
-  --warning-text: #d8a760;
-  --warning-border: #4a3a1c;
-  --backdrop: rgba(0, 0, 0, 0.35);
-}
 
 * {
   box-sizing: border-box;
