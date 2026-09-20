@@ -96,7 +96,7 @@ are all safe unquoted.
 | `blocks` | mapping of local id → block (**required**) |
 | `wires` | sequence of wires between those blocks |
 | `ports` | the product's *own* interface, same shape as a block's `ports` |
-| `boundary` | `{ x, y, w, h }` of the dashed frame. Default: the block's own size × 3 at the origin (the top level: `{0,0,360,240}`) — set it to wrap your content. Keep it 3× the block (or another odd multiple) so the block's pins line up exactly with the frame's, see Nesting. |
+| `boundary` | `{ x, y, w, h }` of the frame the block's interior is laid out in. Default: the block's own size × 3 at the origin (the top level: `{0,0,360,240}`) — set it to wrap your content. It is grown to the block's aspect ratio on load, never shrunk, so 3× the block's `w`/`h` is the tidy choice; see Nesting. |
 
 ### Block
 
@@ -278,17 +278,18 @@ Child keys are scoped to their own level, so reusing `c1` in another block is
 fine.
 
 **The frame is a scaled picture of the block.** `self` ports sit on the frame
-where the block's own ports sit on its face — same side, proportional
-position, snapped to the frame's slot grid. You do not place them separately
-(an older `inSide`/`inOffset` on a port is read and ignored). To wire a child
-straight to a `self` port, put the child's port at 3× the parent port's offset
-when the frame is the default 3× size: a parent pin at `offset: 60` on the top
-edge is at `x: 180` inside a 3× frame. Sizing the frame to another odd multiple
-of the block keeps that exact; any other size still works, the frame pins just
-snap to the nearest slot.
+exactly where the block's own ports sit on its face — same side, same
+proportional position. You do not place them separately (an older
+`inSide`/`inOffset` on a port is read and ignored). A frame whose aspect ratio
+differs from the block's is grown to match on load, so its edges always
+coincide with the block's. To wire a child straight to a `self` port, put the
+child's port at k× the parent port's offset when the frame is k× the block: a
+parent pin at `offset: 60` on the top edge is at `x: 180` inside a 3× frame.
+Odd multiples (3×, 5×) put those points on the child grid's own slots.
 
 Every level is drawn in place: zooming into a block draws its level on its
-face through that same mapping as soon as the block is big enough on screen,
+face through that same mapping as soon as its contents reach half size on
+screen (so a snug frame, 3× the block, opens much earlier than a sprawling one),
 and its children can then be selected, dragged and wired right there — the
 click decides which level it edits, nothing on screen changes. The block's
 pin labels move out beside the pins while its level is shown, so they never

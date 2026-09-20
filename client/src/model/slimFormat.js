@@ -16,7 +16,7 @@
 //   - block.description's text-editor view — it's a computed cache of
 //     logicalPorts/props/name (see BlockDescription.serializeBlockDescription)
 //     and gets rebuilt from those after import, never stored twice.
-import { generateId, hydrateBlockTree, DEFAULT_BLOCK_WIDTH, DEFAULT_BLOCK_HEIGHT, DEFAULT_TEXT_WIDTH, DEFAULT_TEXT_HEIGHT, DEFAULT_BLOCK_COLOR, TITLE_POSITIONS, TITLE_ALIGNMENTS } from './Block.js';
+import { generateId, hydrateBlockTree, DEFAULT_BLOCK_WIDTH, DEFAULT_BLOCK_HEIGHT, DEFAULT_TEXT_WIDTH, DEFAULT_TEXT_HEIGHT, DEFAULT_BLOCK_COLOR, TITLE_POSITIONS, TITLE_ALIGNMENTS, normalizeBoundary } from './Block.js';
 
 // A block's own `props` are host-defined data this module has no opinion
 // about (see Block.js's own doc) — most of it (a pin number, a toggle
@@ -336,6 +336,7 @@ function slimBlockToData(slimBlock) {
     block.boundaryGeometry = slimBlock.boundary
       ? { x: slimBlock.boundary.x, y: slimBlock.boundary.y, width: slimBlock.boundary.w, height: slimBlock.boundary.h }
       : createDefaultBoundaryGeometry(block.geometry);
+    normalizeBoundary(block);
     const { blocksArray, connectionsArray } = slimLevelToData(slimBlock.blocks, slimBlock.wires, block.id, pinIdByKey);
     block.children = { blocks: blocksArray, connections: connectionsArray };
   }

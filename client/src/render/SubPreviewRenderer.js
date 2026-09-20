@@ -15,8 +15,8 @@
  * on screen ever changes when the editing focus moves from one level to
  * another: the picture you were looking at IS the level.
  *
- * A level is shown as soon as its block is big enough on screen to hold
- * it (OPEN_SIZE), eased in over a fraction of a second; there is no
+ * A level is shown as soon as its contents would be drawn at half size
+ * or more (OPEN_ZOOM), eased in over a fraction of a second; there is no
  * intermediate rendering, what appears is the level exactly as it is
  * drawn when edited. A level is editable once it is shown at a readable
  * zoom (see isLevelEditable and interaction/LevelFocus.js), and the
@@ -41,18 +41,19 @@ import { frameToFace } from '../model/levelGeometry.js';
 import { GRID_SIZE } from '../model/grid.js';
 import { getCanvasPalette } from './canvasPalette.js';
 
-// A block's level opens once the block's smaller on-screen dimension
-// reaches this many CSS pixels: below it the level would be a smudge
-// that costs more attention than it repays. No crossfade over the zoom —
-// the level is either shown or not — but the flip is eased over
-// FADE_MS so it reads as the level arriving rather than popping.
-const OPEN_SIZE = 200;
+// A block's level opens once its contents would be drawn at this many
+// screen pixels per world unit of the level — half size — whatever the
+// block's own size on screen. Judged on the contents, not the face: a
+// small block with a big frame shows a smudge long after its face is
+// big, and a big block with a snug frame is readable while its face is
+// still small. No crossfade over the zoom, the level is either shown or
+// not, but the flip is eased over FADE_MS so it reads as the level
+// arriving rather than popping. Shown and editable are the same
+// threshold (see isLevelEditable); it is also where main.js hands the
+// editing focus back to the parent on zooming out.
+const OPEN_ZOOM = 0.5;
 const FADE_MS = 160;
-
-// The least zoom (screen px per world unit of the level) at which a
-// level is edited in place; below it, it is only shown. Also the zoom
-// under which main.js hands the editing focus back to the parent.
-export const MIN_EDIT_ZOOM = 0.35;
+export const MIN_EDIT_ZOOM = OPEN_ZOOM;
 
 // Position within a [start, end] window, clamped to 0..1 at both ends.
 function ramp(t, [start, end]) {
@@ -111,7 +112,7 @@ function now() {
 // the level `block` sits in).
 export function isLevelOpen(block, zoom) {
   if (block.kind === 'text' || !hasSubArchitecture(block) || !block.boundaryGeometry) return false;
-  return Math.min(block.geometry.width, block.geometry.height) * zoom >= OPEN_SIZE;
+  return zoom * frameToFace(block.geometry, block.boundaryGeometry).scale >= OPEN_ZOOM;
 }
 
 // Kept for callers that only need the target state: 1 when the level is
@@ -125,9 +126,7 @@ export function subPreviewProgress(block, zoom) {
  * edited in place (see interaction/LevelFocus.js).
  */
 export function isLevelEditable(block, zoom) {
-  if (!isLevelOpen(block, zoom)) return false;
-  const t = frameToFace(block.geometry, block.boundaryGeometry);
-  return zoom * t.scale >= MIN_EDIT_ZOOM;
+  return isLevelOpen(block, zoom);
 }
 
 // The eased opening of each level, keyed by block id: when the shown/

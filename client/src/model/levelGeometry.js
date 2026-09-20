@@ -73,10 +73,13 @@ export function frameOffsetToFace(side, frameOffset, face, frame) {
 }
 
 // Where a pin sits on the frame, derived from where it sits on the face —
-// same side, proportional position, snapped to the frame's slot grid.
-// `width`/`wireSlots` are the only facts a pin still stores about its
-// interior (see BlockRenderer.getBoundaryWirePosition); its interior
-// side and offset are no longer data, they are this function.
+// same side, the exact proportional position, so the pin inside lands
+// under the plug outside at any zoom. Not snapped to the frame's slot
+// grid: a snapped pin could be off by up to half a cell from the plug
+// the level above draws, and the two are the same connector. `width`/
+// `wireSlots` are the only facts a pin still stores about its interior
+// (see BlockRenderer.getBoundaryWirePosition); its interior side and
+// offset are no longer data, they are this function.
 export function boundaryPlacementFor(port, face, frame) {
   const width = port.boundary?.width || 1;
   const wireSlots = port.boundary?.wireSlots;
@@ -86,7 +89,27 @@ export function boundaryPlacementFor(port, face, frame) {
   const faceOffset = nearestPortSlot(faceLength, clamp(port.offset ?? bounds.min, bounds.min, bounds.max));
   const frameLength = sideLengthOf(frame, port.side);
   const raw = faceOffsetToFrame(port.side, faceOffset, face, frame);
-  return { side: port.side, offset: nearestPortSlot(frameLength, raw), width, wireSlots };
+  return { side: port.side, offset: clamp(raw, 0, frameLength), width, wireSlots };
+}
+
+// The frame grown to the face's aspect ratio, centred on the stored one.
+// frameToFace scales uniformly and centres, so a frame with a different
+// aspect ratio than its face leaves slack along one axis: its edge sits
+// inside the face there, and every pin on that edge — with the wires
+// reaching it — floats short of the block's own border. Growing the frame
+// (never shrinking it, so nothing placed inside is lost) puts its edges
+// exactly on the face's. Called wherever a frame or a face changes size
+// (see Block.normalizeBoundary).
+export function normalizeFrame(face, frame) {
+  if (!face || !frame || face.width <= 0 || face.height <= 0 || frame.width <= 0 || frame.height <= 0) return frame;
+  const aspect = face.width / face.height;
+  const wantHeight = frame.width / aspect;
+  if (Math.abs(wantHeight - frame.height) < 0.5) return frame;
+  if (wantHeight > frame.height) {
+    return { x: frame.x, y: frame.y - (wantHeight - frame.height) / 2, width: frame.width, height: wantHeight };
+  }
+  const wantWidth = frame.height * aspect;
+  return { x: frame.x - (wantWidth - frame.width) / 2, y: frame.y, width: wantWidth, height: frame.height };
 }
 
 // The exterior pin placement that puts a pin at `frameOffset` on `side`

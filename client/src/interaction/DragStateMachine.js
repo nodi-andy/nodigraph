@@ -1,5 +1,5 @@
 import { hitTest } from './HitTest.js';
-import { MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT } from '../model/Block.js';
+import { MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT, normalizeBoundary } from '../model/Block.js';
 import { snap, snapToCellCenter, GRID_SIZE, sideAxis, nearestPortSlot, getPortSlotOffsets } from '../model/grid.js';
 import {
   findConnectorPosition,
@@ -1649,6 +1649,12 @@ export class DragStateMachine {
     } else if (this.state === STATES.DRAGGING_WIRE_PIECE) {
       this.finishWirePieceDrag(world);
     } else if (this.state === STATES.RESIZING_EDGE || this.state === STATES.RESIZING_PORT) {
+      // A resized face or frame keeps the frame the shape of the face (see
+      // Block.normalizeBoundary) — the root's frame is the world and stays.
+      if (this.state === STATES.RESIZING_EDGE) {
+        const resized = this.project.getBlock(this.context.blockId);
+        if (resized && resized !== this.project.rootBlock) normalizeBoundary(resized);
+      }
       this.persist();
     } else if (this.state === STATES.MOVING_PORT_WIRE) {
       // Committed only onto a genuinely free slot — its own current one

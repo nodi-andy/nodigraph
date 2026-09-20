@@ -1,4 +1,5 @@
 import { GRID_SIZE, snap, createDefaultBoundaryGeometry } from './grid.js';
+import { normalizeFrame } from './levelGeometry.js';
 
 let counter = 0;
 
@@ -152,14 +153,26 @@ export function hydrateBlock(raw) {
   return block;
 }
 
+// Keeps a container's frame the shape of its face (see
+// levelGeometry.normalizeFrame), so the level drawn on the face fills it
+// edge to edge and every frame pin sits under its exterior plug. A no-op
+// for the root: it has no face anywhere, its frame is the world.
+export function normalizeBoundary(block) {
+  if (!block?.boundaryGeometry || !block.geometry) return block;
+  block.boundaryGeometry = normalizeFrame(block.geometry, block.boundaryGeometry);
+  return block;
+}
+
 // Recursively hydrates a block and, if it has a saved sub-architecture,
 // its whole nested children tree — turning the JSON array shape back into
-// the Map-based shape the rest of the app works with in memory.
-export function hydrateBlockTree(raw) {
+// the Map-based shape the rest of the app works with in memory. `isRoot`
+// is true for the tree's top block, whose frame is left as saved.
+export function hydrateBlockTree(raw, isRoot = true) {
   const block = hydrateBlock(raw);
+  if (!isRoot) normalizeBoundary(block);
   if (raw.children) {
     block.children = {
-      blocks: new Map((raw.children.blocks || []).map((b) => [b.id, hydrateBlockTree(b)])),
+      blocks: new Map((raw.children.blocks || []).map((b) => [b.id, hydrateBlockTree(b, false)])),
       connections: new Map((raw.children.connections || []).map((c) => [c.id, c])),
     };
   } else {

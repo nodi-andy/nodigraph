@@ -1,4 +1,4 @@
-import { MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT } from '../model/Block.js';
+import { MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT, normalizeBoundary } from '../model/Block.js';
 import { snap } from '../model/grid.js';
 import {
   applyDescriptionText,
@@ -288,6 +288,7 @@ export function mountInspector(
           block.geometry[key] = key === 'width' || key === 'height'
             ? Math.max(min, snap(block.geometry[key]))
             : snap(block.geometry[key]);
+          normalizeBoundary(block);
           persist();
         });
         return input;

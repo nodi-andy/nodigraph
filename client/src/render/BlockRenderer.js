@@ -680,55 +680,63 @@ function drawPortLabelInside(ctx, port, pos, inverted, palette) {
   }
 }
 
-// An arrowhead pointing outward (away from the block) for an output and
-// inward (back toward the block) for an input — reads as the direction
-// data actually flows, not just "here's a handle." `side`/`inverted` give
-// the handle's own outward-facing axis; isOutput then decides whether the
-// arrow points along that axis or against it.
-function drawConnectorArrow(ctx, handlePos, side, inverted, isOutput, palette = DEFAULT_PALETTE, color = null) {
+// A pin is a plug: one shape in the block's accent, from just inside the
+// border out to where the wire starts. An input's plug points into the
+// block and an output's away from it — the direction data flows — and a
+// pin with no direction is a plain rounded plug with no point at all: a
+// two-way pin is never drawn as an arrow. `side`/`inverted` give the pin's
+// outward axis (a frame pin seen from inside points into the frame).
+const PLUG_WIDTH = PORT_WIDTH + 2;
+const PLUG_INSET = PORT_LENGTH / 2;
+const PLUG_REACH = CONNECTOR_NUB_LENGTH + CONNECTOR_ARROW_SIZE / 2;
+const PLUG_TIP = 6;
+const PLUG_RADIUS = 2;
+
+function drawPlug(ctx, p, side, inverted, isOutput, color) {
   const n = sideNormal(side);
-  const outwardSign = inverted ? -1 : 1;
-  const directionSign = isOutput ? 1 : -1;
-  const dirX = n.x * outwardSign * directionSign;
-  const dirY = n.y * outwardSign * directionSign;
-  const perpX = -dirY;
-  const perpY = dirX;
-  const half = CONNECTOR_ARROW_SIZE / 2;
-
-  const tipX = handlePos.x + dirX * half;
-  const tipY = handlePos.y + dirY * half;
-  const backX = handlePos.x - dirX * half;
-  const backY = handlePos.y - dirY * half;
-
+  const out = inverted ? -1 : 1;
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(Math.atan2(n.y * out, n.x * out));
+  const x0 = -PLUG_INSET;
+  const x1 = PLUG_REACH;
+  const h = PLUG_WIDTH / 2;
+  const r = PLUG_RADIUS;
   ctx.beginPath();
-  ctx.moveTo(tipX, tipY);
-  ctx.lineTo(backX + perpX * half, backY + perpY * half);
-  ctx.lineTo(backX - perpX * half, backY - perpY * half);
-  ctx.closePath();
-  ctx.fillStyle = color || palette.connectorHandle;
-  ctx.fill();
-}
-
-// A direction-less port still needs *something* marking where to grab it to
-// start a wire — the arrowhead was doing double duty as both "which way
-// data flows" and "here's the handle," so dropping it outright for an
-// undecided port left the handle with no visible marker at all. This is
-// the same handle with no directional claim: a plain dot, same place, same
-// color, just no triangle pointing anywhere.
-// `inverted` draws a small square instead of the ordinary block's round
-// handle — on the boundary, a circular handle sitting right next to the
-// port's own (now rectangular) slot read as just another plain wire
-// endpoint rather than as part of a deliberately port-shaped thing.
-function drawConnectorHandleDot(ctx, handlePos, inverted = false, palette = DEFAULT_PALETTE, color = null) {
-  ctx.beginPath();
-  if (inverted) {
-    const half = CONNECTOR_ARROW_SIZE / 2;
-    ctx.rect(handlePos.x - half, handlePos.y - half, CONNECTOR_ARROW_SIZE, CONNECTOR_ARROW_SIZE);
+  if (isOutput === null) {
+    ctx.moveTo(x0 + r, -h);
+    ctx.lineTo(x1 - r, -h);
+    ctx.arcTo(x1, -h, x1, -h + r, r);
+    ctx.lineTo(x1, h - r);
+    ctx.arcTo(x1, h, x1 - r, h, r);
+    ctx.lineTo(x0 + r, h);
+    ctx.arcTo(x0, h, x0, h - r, r);
+    ctx.lineTo(x0, -h + r);
+    ctx.arcTo(x0, -h, x0 + r, -h, r);
+  } else if (isOutput) {
+    const xb = x1 - PLUG_TIP;
+    ctx.moveTo(x0 + r, -h);
+    ctx.lineTo(xb, -h);
+    ctx.lineTo(x1, 0);
+    ctx.lineTo(xb, h);
+    ctx.lineTo(x0 + r, h);
+    ctx.arcTo(x0, h, x0, h - r, r);
+    ctx.lineTo(x0, -h + r);
+    ctx.arcTo(x0, -h, x0 + r, -h, r);
   } else {
-    ctx.arc(handlePos.x, handlePos.y, CONNECTOR_ARROW_SIZE / 2, 0, Math.PI * 2);
+    const xb = x0 + PLUG_TIP;
+    ctx.moveTo(xb, -h);
+    ctx.lineTo(x1 - r, -h);
+    ctx.arcTo(x1, -h, x1, -h + r, r);
+    ctx.lineTo(x1, h - r);
+    ctx.arcTo(x1, h, x1 - r, h, r);
+    ctx.lineTo(xb, h);
+    ctx.lineTo(x0, 0);
   }
-  ctx.fillStyle = color || palette.connectorHandle;
+  ctx.closePath();
+  ctx.fillStyle = color;
   ctx.fill();
+  ctx.restore();
 }
 
 function drawPortRing(ctx, x, y, color, radius) {
@@ -823,23 +831,11 @@ function drawEmptySlots(ctx, block, palette = DEFAULT_PALETTE) {
 // Shared by both the container's per-wire loop and the plain single-wire
 // case below — the stub line + slot square + arrowhead/dot every wire
 // gets, wherever its own position resolves to.
-// Stub, pill and arrowhead in one colour — the block's own accent — so a
-// pin reads as part of its block rather than as three grey parts sitting
-// on the border.
-function drawWireStubAndDot(ctx, { px, py, handle, side, inverted, isEffectivelyOutput, color, palette }) {
-  // Drawn before the arrowhead/handle so it paints over its endpoint —
-  // the stub reads as attached to the handle, not the other way around.
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(px, py);
-  ctx.lineTo(handle.x, handle.y);
-  ctx.stroke();
-
-  drawSlotSquare(ctx, getSlotRectFromBorderPoint(px, py, side), color);
-
-  if (isEffectivelyOutput !== null) drawConnectorArrow(ctx, handle, side, inverted, isEffectivelyOutput, palette, color);
-  else drawConnectorHandleDot(ctx, handle, inverted, palette, color);
+// One plug per pin (see drawPlug). The handle position still decides
+// where the wire is grabbed (see HitTest), the plug just covers the whole
+// stretch from the border to it.
+function drawWireStubAndDot(ctx, { px, py, side, inverted, isEffectivelyOutput, color }) {
+  drawPlug(ctx, { x: px, y: py }, side, inverted, isEffectivelyOutput, color);
 }
 
 // A light, always-visible outline (never gated on selection — see
@@ -1205,7 +1201,7 @@ export function drawExteriorSubSlots(ctx, block, wireCounts, { palette = DEFAULT
     const side = getPortBoundaryPlacement(port, view).side;
     for (let i = 1; i < count; i += 1) {
       const pos = toFace(getBoundaryWirePosition(view, port, i));
-      drawSlotSquare(ctx, getSlotRectFromBorderPoint(pos.x, pos.y, side), color);
+      drawPlug(ctx, pos, side, false, null, color);
     }
     const group = getBoundaryPortBlockRect(view, port, count);
     const a = toFace({ x: group.x, y: group.y });
