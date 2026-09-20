@@ -1,29 +1,18 @@
 import {
-  drawBlock,
-  drawBoundary,
   drawPortGhost,
   PORT_SELECTED_RING_COLOR,
   PORT_SOURCE_RING_COLOR,
   PORT_TARGET_VALID_RING_COLOR,
   PORT_TARGET_INVALID_RING_COLOR,
 } from './BlockRenderer.js';
-import {
-  drawPath,
-  drawConnectionLabel,
-  drawWireGrips,
-  getConnectionGeometry,
-  getDashPattern,
-  verticalSegmentsOf,
-  FLOW_DASH,
-  PREVIEW_DASH,
-} from './ConnectionRenderer.js';
-import { contentAlphaFor, drawSubPreview, subPreviewProgress } from './SubPreviewRenderer.js';
-import { GRID_SIZE } from '../model/grid.js';
+import { drawPath, drawWireGrips, PREVIEW_DASH } from './ConnectionRenderer.js';
+import { drawGridDots, drawLevel, routeConnections } from './SubPreviewRenderer.js';
+import { chainToRoot, rootCameraFor, screenToWorldWith } from './levelTransform.js';
+import { LevelView } from '../model/levelView.js';
 import { getCanvasPalette } from './canvasPalette.js';
 import { getTheme } from '../theme.js';
 
 const WIRE_COLOR = '#4f8cff';
-const WIRE_SELECTED_HALO = 'rgba(255, 180, 84, 0.55)';
 
 // A handful of visually-distinct colors, deterministically picked per
 // remote client id — enough to tell separate cursors apart without any
@@ -42,7 +31,7 @@ export function colorForClientId(id) {
 
 // Drawn in world space like everything else, but scaled by 1/zoom so the
 // cursor glyph stays a constant on-screen size regardless of zoom level —
-// the same trick drawGrid uses for its line width.
+// the same trick the grid uses for its dot radius.
 function drawRemoteCursors(ctx, cursors, zoom) {
   const scale = 1 / zoom;
   for (const [clientId, cursor] of cursors) {
@@ -81,7 +70,7 @@ function drawRemoteCursors(ctx, cursors, zoom) {
 }
 
 // The shift-drag selection rectangle. Line width is divided by zoom so it
-// stays a constant on-screen thickness, the same trick drawGrid uses.
+// stays a constant on-screen thickness.
 function drawMarquee(ctx, rect, zoom) {
   ctx.save();
   ctx.fillStyle = 'rgba(79, 140, 255, 0.12)';
@@ -91,102 +80,6 @@ function drawMarquee(ctx, rect, zoom) {
   ctx.lineWidth = 1 / zoom;
   ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
   ctx.restore();
-}
-
-// A dot at every intersection rather than a lattice of lines — the Figma/
-// design-tool convention, and a lot less visually busy across a large
-// diagram than full-length lines crossing behind every block. Radius is a
-// fixed *screen* size (divided by zoom, the same trick the old line width
-// used) so dots stay a legible, constant pixel size whether zoomed in or
-// panned far out, instead of shrinking to nothing or ballooning with the
-// world-space geometry around them.
-const GRID_DOT_RADIUS = 1.4;
-
-function drawGrid(ctx, camera, canvasWidth, canvasHeight, palette) {
-  const topLeft = camera.screenToWorld(0, 0);
-  const bottomRight = camera.screenToWorld(canvasWidth, canvasHeight);
-  const startX = Math.floor(topLeft.x / GRID_SIZE) * GRID_SIZE;
-  const startY = Math.floor(topLeft.y / GRID_SIZE) * GRID_SIZE;
-  const radius = GRID_DOT_RADIUS / camera.zoom;
-
-  ctx.fillStyle = palette.grid;
-  ctx.beginPath();
-  for (let gy = startY; gy <= bottomRight.y; gy += GRID_SIZE) {
-    for (let gx = startX; gx <= bottomRight.x; gx += GRID_SIZE) {
-      ctx.moveTo(gx + radius, gy);
-      ctx.arc(gx, gy, radius, 0, Math.PI * 2);
-    }
-  }
-  ctx.fill();
-}
-
-// Two wires that leave or arrive at the same port are the same signal, so
-// where they meet is a junction, not a crossing — bowing there would claim
-// the opposite of what's true.
-function sharesEndpoint(a, b) {
-  return (
-    a.sourcePortId === b.sourcePortId
-    || a.targetPortId === b.targetPortId
-    || a.sourcePortId === b.targetPortId
-    || a.targetPortId === b.sourcePortId
-  );
-}
-
-// Computed once per frame, independent of draw order — routing (and the
-// hopOver bow every wire needs against every other) is a purely geometric
-// question, unrelated to which of them ends up painted over which block
-// (see renderScene's own z-ordering of this same list against `blocks`).
-function routeConnections(project, boundary, wireMoveOverride, hiddenConnectionId) {
-  const routed = [];
-  for (const connection of project.listConnections()) {
-    // The one connection currently being picked up to redirect (see
-    // DragStateMachine.getRedirectingConnectionId) is left out of its own
-    // ordinary, static rendering entirely — the whole point being that it
-    // visibly comes off its old port the instant it's grabbed, rather than
-    // sitting there unchanged alongside the live dashed preview (drawn
-    // separately, after every block — see renderScene) that's standing in
-    // for it. Left out of hopOver bowing too: nothing else should still
-    // treat it as an obstacle once it's already "in the air."
-    if (connection.id === hiddenConnectionId) continue;
-    const geometry = getConnectionGeometry(project, connection, boundary, wireMoveOverride);
-    if (geometry) routed.push({ connection, geometry, verticals: verticalSegmentsOf(geometry.points) });
-  }
-  return routed;
-}
-
-function drawOneConnection(ctx, entry, routed, wireSelection, flowOffset, palette) {
-  const hopOver = routed
-    .filter((other) => other !== entry && !sharesEndpoint(other.connection, entry.connection))
-    .flatMap((other) => other.verticals);
-
-  // Selection is a halo behind the wire rather than a recolor of it: the
-  // main reason to select a pipe is to change its color, and repainting
-  // it to show it is selected would hide the very thing being chosen.
-  // The halo stays solid while the wire above it marches, which also
-  // makes the dashes read as gaps in a wire rather than as a new shape.
-  const selected = wireSelection?.isSelected(entry.connection.id);
-  if (selected) {
-    drawPath(ctx, entry.geometry.points, { color: WIRE_SELECTED_HALO, width: 9, hopOver });
-  }
-  // Animate takes over the whole wire's dashing while it's running,
-  // regardless of the wire's own resting style — the marching dashes
-  // are the point of it, not something a dotted wire should opt out of.
-  // window.nodigraphConnectionColor (see main.js's own doc on this file's
-  // handful of host hooks) lets a host recolor a specific wire by
-  // whatever data it's presently carrying, without touching the
-  // connection's own stored `color` at all -- the Inspector's own color
-  // picker (see ui/InspectorPanel.js) stays exactly as authoritative as
-  // it always was for any wire the host has no opinion on (a host
-  // returning null/undefined here, which is every wire by default with
-  // no hook set at all).
-  drawPath(ctx, entry.geometry.points, {
-    color: window.nodigraphConnectionColor?.(entry.connection) || entry.connection.color || WIRE_COLOR,
-    width: 3,
-    hopOver,
-    dash: flowOffset === null ? getDashPattern(entry.connection.dashStyle) : FLOW_DASH,
-    dashOffset: flowOffset ?? 0,
-  });
-  drawConnectionLabel(ctx, entry.geometry, entry.connection.label, palette);
 }
 
 // One combined lookup so drawBlock/drawBoundary don't each need to know
@@ -207,6 +100,30 @@ function buildPortHighlights(selectedBlockId, selectedPortId, connectionSource, 
   return highlights;
 }
 
+function applyCamera(ctx, cam, dpr) {
+  ctx.setTransform(cam.zoom * dpr, 0, 0, cam.zoom * dpr, cam.offsetX * dpr, cam.offsetY * dpr);
+}
+
+// The part of the world a camera shows, in that camera's world units.
+function visibleRectFor(cam, canvasWidth, canvasHeight) {
+  const topLeft = screenToWorldWith(cam, 0, 0);
+  const bottomRight = screenToWorldWith(cam, canvasWidth, canvasHeight);
+  return { x: topLeft.x, y: topLeft.y, width: bottomRight.x - topLeft.x, height: bottomRight.y - topLeft.y };
+}
+
+/**
+ * Paints one frame. `camera` is in the coordinates of the level being
+ * edited (project.path), as is every overlay — selection handles, wire
+ * grips, the marquee, the wire being drawn. The scene itself is drawn
+ * from the root: the camera is re-based into root coordinates through
+ * the chain of frame→face transforms (see render/levelTransform.js) and
+ * the root level is drawn with every nested level open on its block's
+ * face (see SubPreviewRenderer.drawLevel), the one being edited among
+ * them. There is no separate rendering for "inside a block": a level
+ * looks the same whether it or its parent is being edited, so moving the
+ * editing focus (see interaction/LevelFocus.js) changes nothing on
+ * screen.
+ */
 export function renderScene(
   ctx,
   camera,
@@ -229,8 +146,7 @@ export function renderScene(
     hoverGhost,
     marqueeRect,
     // The one connection (if any) currently being picked up to redirect —
-    // see DragStateMachine.getRedirectingConnectionId's own doc, and
-    // drawConnections' use of this below.
+    // see DragStateMachine.getRedirectingConnectionId's own doc.
     hiddenConnectionId = null,
     // { portId, connectionId, previewIndex } while a wire is being dragged
     // to a different slot within its own port (see
@@ -247,15 +163,14 @@ export function renderScene(
     // Off for exported diagram images (see docSync.js) — the grid is an
     // editing aid, not part of the diagram, and leaving it out keeps the
     // exported PNG's background genuinely transparent instead of a faint
-    // lattice of grid lines on a light Doc page.
+    // lattice of grid dots on a light Doc page.
     showGrid = true,
-    // Whether a block zoomed in far enough to have room for it shows a
-    // miniature of its own sub-architecture (see
-    // render/SubPreviewRenderer.js). On for the live canvas; off for both
-    // exporters, whose "zoom" is a resolution/scale choice rather than
-    // someone actually leaning in — the PNG path in particular oversamples
-    // at 2x, which would otherwise crack every container block open in a
-    // figure meant to read at one level.
+    // On for the live canvas: the scene is drawn from the root with every
+    // level open on its block's face. Off for both exporters, whose
+    // "zoom" is a resolution/scale choice rather than someone actually
+    // leaning in — they draw the level being edited alone, its frame and
+    // pins included, every block closed, the way a figure reads at one
+    // level.
     showSubPreviews = true,
     // Lets a block whose name is an image URL (see render/imageCache.js)
     // ask for a redraw once that image finishes loading — a no-op by
@@ -272,132 +187,89 @@ export function renderScene(
     // specific block, in lockstep with this exact paint rather than a
     // separately-timed DOM overlay drifting out of sync on every pan/zoom
     // frame this canvas redraws but a slower host loop hasn't caught up
-    // to yet. Called once per block, right after this module draws it —
-    // `ctx` is already under this frame's camera transform at that point,
-    // so the callback can draw straight in world coordinates (block.geometry)
-    // with no transform math of its own to get right. A no-op by default,
-    // which is every caller today except a host that's set one up.
+    // to yet. Called once per block of the level being edited, right
+    // after it is drawn — `ctx` is under that level's camera transform at
+    // that point, so the callback can draw straight in world coordinates
+    // (block.geometry) with no transform math of its own to get right. A
+    // no-op by default, which is every caller today except a host that's
+    // set one up.
     onDrawBlock = () => {},
   },
 ) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-  camera.applyTransform(ctx, dpr);
-  if (showGrid) drawGrid(ctx, camera, canvasWidth, canvasHeight, palette);
-
-  const blocks = project.listBlocks();
   const containerBlock = project.getContainerBlock();
   const boundary = containerBlock?.boundaryGeometry
     ? { block: containerBlock, geometry: containerBlock.boundaryGeometry }
     : null;
   const portHighlights = buildPortHighlights(selectedBlockId, selectedPortId, connectionSource, connectionTarget);
 
-  const routed = routeConnections(project, boundary, wireMoveOverride, hiddenConnectionId);
-
-  // The visible part of this level, in world units — nested levels are
-  // culled against it (see SubPreviewRenderer), and a level drawn on a
-  // block that is off screen is skipped outright.
-  const visibleTopLeft = camera.screenToWorld(0, 0);
-  const visibleBottomRight = camera.screenToWorld(canvasWidth, canvasHeight);
-  const visible = {
-    x: visibleTopLeft.x,
-    y: visibleTopLeft.y,
-    width: visibleBottomRight.x - visibleTopLeft.x,
-    height: visibleBottomRight.y - visibleTopLeft.y,
+  // Everything the level being edited draws differently from the others
+  // (see SubPreviewRenderer.drawLevel), and the blocks on the way down to
+  // it, which always draw fully open.
+  const pathBlocks = project.getPathBlocks();
+  const focus = {
+    containerId: containerBlock?.id ?? null,
+    pathIds: new Set(pathBlocks.map((block) => block.id)),
+    selectedBlockIds,
+    selectedBlockId,
+    portHighlights,
+    wireSelection,
+    hiddenConnectionId,
+    wireMoveOverride,
+    // Filled in by drawLevel with the routed wires of the level being
+    // edited, for the grips drawn over everything below.
+    out: {},
   };
+  const levelCamera = { zoom: camera.zoom, offsetX: camera.offsetX, offsetY: camera.offsetY };
 
-  // `blocks` is already this level's own z-order (see Project's
-  // bringToFront/sendToBack — later in the list means drawn later, i.e. on
-  // top), so a block's index here doubles as its z-index. A wire's own
-  // z-index is the *higher* of its two endpoints' — bringing a block to
-  // the front brings its wires along with it, at least far enough to clear
-  // whatever they'd otherwise still be tucked under, rather than every
-  // wire staying pinned to the very back regardless of which blocks have
-  // since been reordered in front of each other. The boundary/container
-  // itself never participates (it isn't one of `blocks`, and doesn't
-  // reorder) — a wire touching it just inherits its one real, ordinary
-  // endpoint's z-index outright, and the boundary frame itself keeps
-  // drawing before every wire regardless (see below), same as always.
-  const blockZIndex = new Map(blocks.map((block, i) => [block.id, i]));
-  const zIndexOfEndpoint = (blockId) => blockZIndex.get(blockId) ?? -1;
-
-  const drawItems = [
-    ...routed.map((entry) => ({
-      kind: 'connection',
-      z: Math.max(zIndexOfEndpoint(entry.connection.sourceBlockId), zIndexOfEndpoint(entry.connection.targetBlockId)),
-      entry,
-    })),
-    ...blocks.map((block, z) => ({ kind: 'block', z, block })),
-  ];
-  // Stable (native Array#sort is a stable sort per spec): entries already
-  // sharing a z-index keep their relative order from the concat above,
-  // which is exactly what puts a wire tied with its own frontmost block
-  // right before that block — so the block's own port/connector glyphs
-  // still paint over the wire's endpoint, not the other way around, the
-  // same relationship every wire already had with every block before this
-  // ordering existed at all.
-  drawItems.sort((a, b) => a.z - b.z);
-
-  // The boundary frame (and its own ports) still always draws before every
-  // wire, exactly as it always has — it isn't part of the z-ordered block
-  // list above, and a wire attached to it inherits its *other* endpoint's
-  // z-index (see zIndexOfEndpoint's fallback), never the boundary's own, so
-  // there's no z-indexed slot for the boundary's drawing to occupy here.
-  // Drawn before the real blocks too, so they visually sit "inside" the
-  // frame rather than the dashed outline cutting across them.
-  if (boundary) {
-    // The container's own ports as seen from inside — cloned exterior
-    // siblings (see BlockDescription.clonePort) collapse onto one entry
-    // here, so a name+direction pair reads as the single logical pin it
-    // actually is rather than one row per wire it happens to have outside.
-    const boundaryPorts = project.listBoundaryPorts(boundary.block);
-    // Which wires (if any beyond the ordinary single one) attach to each
-    // of those pins from inside — see Project.listBoundaryWires (already
-    // resolved against the same collapsed group) and BlockRenderer.drawPorts.
-    const boundaryWireLabels = new Map(
-      boundaryPorts.map((port) => {
-        const ids = project.listBoundaryWires(boundary.block.id, port.id);
-        return [port.id, ids.map((id, rank) => ({ id, rank, label: project.getConnection(id)?.label || '' }))];
-      }),
-    );
-    drawBoundary(ctx, { ...boundary.block, ports: boundaryPorts }, boundary.geometry, {
-      selected: boundary.block.id === selectedBlockId,
-      portHighlights,
+  if (showSubPreviews && project.rootBlock) {
+    const rootCamera = rootCameraFor(levelCamera, chainToRoot(pathBlocks));
+    applyCamera(ctx, rootCamera, dpr);
+    const visible = visibleRectFor(rootCamera, canvasWidth, canvasHeight);
+    if (showGrid) drawGridDots(ctx, visible, rootCamera.zoom, palette);
+    const rootBoundary = project.rootBlock.boundaryGeometry
+      ? { block: project.rootBlock, geometry: project.rootBlock.boundaryGeometry }
+      : null;
+    drawLevel(ctx, new LevelView(project.rootBlock), {
+      zoom: rootCamera.zoom,
       palette,
-      boundaryWireLabels,
-      wireMoveOverride,
-      zoom: camera.zoom,
-    });
-  }
-
-  for (const item of drawItems) {
-    if (item.kind === 'connection') {
-      drawOneConnection(ctx, item.entry, routed, wireSelection, flowOffset, palette);
-      continue;
-    }
-    const block = item.block;
-    // One number positions both halves of the crossfade: drawSubPreview
-    // paints the miniature from it, and drawBlock fades the name and badge
-    // it displaces back out (see SubPreviewRenderer.contentAlphaFor).
-    const previewT = showSubPreviews ? subPreviewProgress(block, camera.zoom) : 0;
-    drawBlock(ctx, block, {
-      selected: selectedBlockIds.has(block.id),
-      portHighlights,
+      visible,
+      focus,
+      depth: 0,
+      boundary: rootBoundary,
+      showSubPreviews: true,
+      flowOffset,
       requestRender,
-      palette,
-      zoom: camera.zoom,
-      contentAlpha: contentAlphaFor(previewT),
+      onDrawBlock,
     });
-    if (previewT > 0) drawSubPreview(ctx, block, { zoom: camera.zoom, t: previewT, palette, visible });
-    onDrawBlock(ctx, block);
+  } else {
+    applyCamera(ctx, levelCamera, dpr);
+    if (showGrid) drawGridDots(ctx, visibleRectFor(levelCamera, canvasWidth, canvasHeight), camera.zoom, palette);
+    drawLevel(ctx, project, {
+      zoom: camera.zoom,
+      palette,
+      visible: null,
+      focus,
+      depth: 0,
+      boundary,
+      showSubPreviews: false,
+      flowOffset,
+      requestRender,
+      onDrawBlock,
+    });
   }
+
+  // Overlays, in the coordinates of the level being edited.
+  applyCamera(ctx, levelCamera, dpr);
 
   // A selected wire's grips (see ConnectionRenderer.drawWireGrips), drawn
   // after every block so none hides under a block its wire routes across —
   // a grip is exactly the thing being reached for. Exports pass no
   // wireSelection, so they never carry any.
   if (wireSelection) {
+    const routed = focus.out.routed || routeConnections(project, boundary, wireMoveOverride, hiddenConnectionId);
     for (const entry of routed) {
       if (!wireSelection.isSelected(entry.connection.id)) continue;
       drawWireGrips(ctx, entry.geometry, camera.zoom, {

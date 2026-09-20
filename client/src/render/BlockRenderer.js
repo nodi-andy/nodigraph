@@ -22,6 +22,8 @@ const DEFAULT_PALETTE = getCanvasPalette('light');
 // corner and less like a plain rectangle, part of the "sheet of paper"
 // look (see also the drop shadow in drawBlock below).
 const CORNER_RADIUS = 8;
+const BORDER_WIDTH = 1.5;
+const BORDER_MAX_SCREEN_WIDTH = 6;
 // Constant *screen*-pixel shadow (divided by zoom before use, the same
 // trick this file already uses for grid dots/resize handles) — the soft
 // elevation that makes a block read as a card resting on the canvas
@@ -522,6 +524,58 @@ function drawSubArchitectureBadge(ctx, geometry, palette, zoom) {
   roundRectPath(ctx, innerX, innerY, innerSize, innerSize, innerSize * 0.28);
   ctx.fillStyle = palette.boundaryLabel;
   ctx.fill();
+  ctx.restore();
+}
+
+// A block with a `link` is a reference to an artifact that lives
+// elsewhere — a source file on GitHub, a callable endpoint, a document.
+// The glyph is a small "opens in a new tab" arrow in the block's top-right
+// corner, fixed screen size like the sub-architecture badge, and it is
+// the click target that opens the link (see HitTest's 'link' hit and
+// DragStateMachine.onPointerDown); a double-click anywhere on a link block
+// without an interior of its own opens it too.
+const LINK_GLYPH_SIZE = 14;
+const LINK_GLYPH_MARGIN = 5;
+
+// Only web links open — the same string could otherwise smuggle in a
+// `javascript:` URL through a shared diagram.
+export function isOpenableLink(link) {
+  return typeof link === 'string' && /^https?:\/\//i.test(link.trim());
+}
+
+export function getLinkGlyphRect(geometry, zoom = 1) {
+  const size = LINK_GLYPH_SIZE / zoom;
+  const margin = LINK_GLYPH_MARGIN / zoom;
+  return { x: geometry.x + geometry.width - size - margin, y: geometry.y + margin, width: size, height: size };
+}
+
+function drawLinkGlyph(ctx, geometry, palette, zoom) {
+  const { x, y, width: size } = getLinkGlyphRect(geometry, zoom);
+  ctx.save();
+  ctx.globalAlpha = 0.9;
+  roundRectPath(ctx, x, y, size, size, size * 0.22);
+  ctx.fillStyle = palette.blockFill;
+  ctx.fill();
+  ctx.strokeStyle = palette.boundaryLabel;
+  ctx.lineWidth = 1.2 / zoom;
+  ctx.stroke();
+  // The arrow: a diagonal from lower-left to upper-right with a head.
+  const inset = size * 0.3;
+  const x0 = x + inset;
+  const y0 = y + size - inset;
+  const x1 = x + size - inset;
+  const y1 = y + inset;
+  const head = size * 0.28;
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.lineTo(x1, y1);
+  ctx.moveTo(x1 - head, y1);
+  ctx.lineTo(x1, y1);
+  ctx.lineTo(x1, y1 + head);
+  ctx.lineWidth = 1.4 / zoom;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -1066,7 +1120,12 @@ export function drawBlock(
   } else {
     ctx.fill();
   }
-  ctx.lineWidth = 1.5;
+  // World units, so the border scales with the block like everything
+  // else — capped in screen pixels, because the block you are editing
+  // inside of (see SubPreviewRenderer.drawLevel) is drawn at three times
+  // the zoom of its own level per nesting step, and its border would
+  // otherwise turn into a wall around the level.
+  ctx.lineWidth = Math.min(BORDER_WIDTH, BORDER_MAX_SCREEN_WIDTH / zoom);
   ctx.strokeStyle = accentColor;
   ctx.stroke();
 
@@ -1102,6 +1161,7 @@ export function drawBlock(
     drawSubArchitectureBadge(ctx, block.geometry, palette, zoom);
     ctx.restore();
   }
+  if (isOpenableLink(block.link)) drawLinkGlyph(ctx, block.geometry, palette, zoom);
   if (selected) drawResizeHandles(ctx, block.geometry, palette, zoom);
 }
 

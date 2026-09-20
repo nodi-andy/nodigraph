@@ -247,6 +247,23 @@ export function mountInspector(
     nameInput.addEventListener('change', persist);
     container_.appendChild(field('Name', nameInput));
 
+    // An artifact reference — the file, endpoint or document this block
+    // stands for. Set, it puts an "opens elsewhere" glyph in the block's
+    // corner (see BlockRenderer.drawLinkGlyph); cleared, the block is an
+    // ordinary block again. Stored only while non-empty, like `subtitle`.
+    const linkInput = document.createElement('input');
+    linkInput.type = 'url';
+    linkInput.placeholder = 'https://…';
+    linkInput.value = block.link || '';
+    linkInput.addEventListener('input', () => {
+      const value = linkInput.value.trim();
+      if (value) block.link = value;
+      else delete block.link;
+      requestRender();
+    });
+    linkInput.addEventListener('change', persist);
+    container_.appendChild(field('Link', linkInput));
+
     // Geometry/enter/delete only make sense for a block viewed as an
     // object from outside — while editing the container you're currently
     // inside, its own position/size on the *parent* canvas isn't relevant

@@ -99,6 +99,22 @@ export class Project {
     return this.getLevel();
   }
 
+  // The container blocks along `path`, outermost first — the chain the
+  // renderer composes into one transform from the level being edited up
+  // to the root (see render/levelTransform.js). The root block itself is
+  // not in it: it has no face in any level to be drawn on.
+  getPathBlocks() {
+    const blocks = [];
+    let level = this.rootBlock.children;
+    for (const blockId of this.path) {
+      const block = level?.blocks.get(blockId);
+      if (!block) break;
+      blocks.push(block);
+      level = block.children;
+    }
+    return blocks;
+  }
+
   // The block whose interior is currently being viewed — this.rootBlock at
   // the top, otherwise the block at the end of `path` (found in the level
   // one step up from `current`).

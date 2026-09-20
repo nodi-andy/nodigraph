@@ -111,6 +111,20 @@ export class LevelView {
     return this.level.connections.get(id) || null;
   }
 
+  // Same contract as Project.findConnectionForPort — HitTest asks it
+  // which wire (if any) a port already carries.
+  findConnectionForPort(blockId, portId) {
+    for (const connection of this.level.connections.values()) {
+      if (
+        (connection.sourceBlockId === blockId && connection.sourcePortId === portId) ||
+        (connection.targetBlockId === blockId && connection.targetPortId === portId)
+      ) {
+        return connection.id;
+      }
+    }
+    return null;
+  }
+
   // Resolves the container itself as well as its children, exactly like
   // Project.getBlock — a connection inside this level can legitimately
   // name the container as one of its endpoints (that's a boundary wire).

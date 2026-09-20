@@ -132,6 +132,10 @@ export function hydrateBlock(raw) {
   if (!(typeof block.subtitle === 'string' && block.subtitle !== '')) delete block.subtitle;
   if (Array.isArray(block.lines) && block.lines.length) block.lines = block.lines.map(String);
   else delete block.lines;
+  // `link` (see BlockRenderer.drawLinkGlyph) turns a block into an
+  // artifact reference — a source file, an endpoint — that opens in a new
+  // tab. Optional like the two above.
+  if (!(typeof block.link === 'string' && block.link !== '')) delete block.link;
   // A pin's interior side/offset used to be stored (dragged from inside,
   // independent of the exterior pin). It is derived now — see
   // model/levelGeometry.js — so only the two facts that are still data

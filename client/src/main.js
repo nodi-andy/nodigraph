@@ -32,8 +32,10 @@ import { mountOnlineUsers } from './ui/OnlineUsers.js';
 import { showToast } from './ui/Toast.js';
 import { maybeShowOnboarding } from './ui/Onboarding.js';
 import { renderCurrentLevelDataUrl, renderCurrentLevelBlob } from './model/diagramImage.js';
-import { getBoundaryLabelRect, hasSubArchitecture } from './render/BlockRenderer.js';
-import { frameToFace } from './model/levelGeometry.js';
+import { getBoundaryLabelRect, hasSubArchitecture, isOpenableLink } from './render/BlockRenderer.js';
+import { chainToRoot, childCameraFor, rootCameraFor } from './render/levelTransform.js';
+import { isLevelEditable, DETAIL_FULL_ZOOM } from './render/SubPreviewRenderer.js';
+import { resolveFocus } from './interaction/LevelFocus.js';
 import { getConnectionGeometry, getConnectionLabelPosition } from './render/ConnectionRenderer.js';
 import { downloadProjectFile, readProjectFile, safeFileStem } from './model/localFile.js';
 import { projectDataToYamlText, pasteSlimYamlText } from './model/slimFormat.js';
@@ -586,17 +588,59 @@ async function bootstrap() {
     return block;
   }
 
-  // The endless zoom. A container block's frame is a scaled picture of
-  // its face (see model/levelGeometry.js) and SubPreviewRenderer draws
-  // its level on the face through that same transform — so once you have
-  // zoomed until the block fills the view, the picture on screen already
-  // IS the level. This hands the camera over to it: the level becomes the
-  // one being edited and the camera is re-based through the transform,
-  // which leaves every pixel where it was. Zooming back out until the
-  // level's frame fits comfortably inside the view hands the camera back
-  // to the parent the same way. The two thresholds do not overlap (a
-  // frame that fills the view cannot also fit inside it with room to
-  // spare), so a zoom held at the boundary cannot flap between levels.
+  // Moving the editing focus. The scene is drawn from the root with every
+  // level open on its block's face (see render/SceneRenderer.js), so which
+  // level is being edited is a matter of where the camera and the
+  // selection live, not of what is on screen: this re-bases the camera
+  // into the new level through the chain of frame→face transforms (see
+  // render/levelTransform.js) and nothing moves. The selection keeps
+  // whatever still resolves in the new level — the container you were
+  // inside, when stepping out to its parent — and drops the rest.
+  function focusLevel(path, levelCamera = null) {
+    const before = project.path;
+    project.path = project.validPathPrefix(path);
+    if (levelCamera) {
+      camera.zoom = levelCamera.zoom;
+      camera.offsetX = levelCamera.offsetX;
+      camera.offsetY = levelCamera.offsetY;
+    }
+    const changed = before.length !== project.path.length || before.some((id, i) => id !== project.path[i]);
+    if (!changed) return false;
+    pruneSelectionToLevel();
+    updateNavigationUI();
+    persist();
+    renderLoop.requestRender();
+    return true;
+  }
+
+  function pruneSelectionToLevel() {
+    const blocks = selection.list().filter((id) => project.getBlock(id));
+    if (blocks.length !== selection.count || (selection.selectedPortId && !project.getBlock(selection.selectedBlockId))) {
+      if (blocks.length) selection.selectMany(blocks);
+      else selection.clear();
+    }
+    if (wireSelection.list().some((id) => !project.getConnection(id))) wireSelection.clear();
+  }
+
+  // Where a press or double-click lands decides which level it edits
+  // (see interaction/LevelFocus.js). Returns the pointer's world point in
+  // the level now being edited when the level changed, else null.
+  function focusLevelAt(screen) {
+    if (!stateMachine.isIdle()) return null;
+    const viewport = { width: canvas.clientWidth, height: canvas.clientHeight };
+    const target = resolveFocus(project, camera, screen, viewport, { canEnter: canEnterBlock });
+    if (!target) return null;
+    focusLevel(target.path, target.camera);
+    return camera.screenToWorld(screen.x, screen.y);
+  }
+
+  // Zooming moves the focus too, so the zoom range always has room. In:
+  // the view's centre lies on a container that fills the view and whose
+  // level is drawn at full detail. Out: the level being edited has
+  // dropped below full detail, or its frame has shrunk to well inside
+  // the view. The two cannot both hold at once (entering needs full
+  // detail, which is exactly what leaving needs to have gone), so a zoom
+  // held at the threshold cannot flap between levels.
   const ENTER_FRACTION = 0.85;
   const EXIT_FRACTION = 0.5;
 
@@ -607,8 +651,6 @@ async function bootstrap() {
     if (viewWidth <= 0 || viewHeight <= 0) return;
     const viewMin = Math.min(viewWidth, viewHeight);
 
-    // In: the view's centre lies on a container whose face is (nearly)
-    // as big as the view.
     const centre = camera.screenToWorld(viewWidth / 2, viewHeight / 2);
     const blocks = project.listBlocks();
     for (let i = blocks.length - 1; i >= 0; i -= 1) {
@@ -617,38 +659,27 @@ async function bootstrap() {
       const { x, y, width, height } = block.geometry;
       if (centre.x < x || centre.x > x + width || centre.y < y || centre.y > y + height) continue;
       if (Math.min(width, height) * camera.zoom < ENTER_FRACTION * viewMin) continue;
-      const t = frameToFace(block.geometry, block.boundaryGeometry);
-      if (!project.enterBlock(block.id)) return;
-      // screen = zoom * (framePoint * scale + offset) + cameraOffset
-      //        = (zoom * scale) * framePoint + (zoom * offset + cameraOffset)
-      camera.offsetX += camera.zoom * t.offsetX;
-      camera.offsetY += camera.zoom * t.offsetY;
-      camera.zoom *= t.scale;
-      afterLevelCrossing();
+      if (!isLevelEditable(block, camera.zoom)) continue;
+      focusLevel([...project.path, block.id], childCameraFor(camera, block));
       return;
     }
 
-    // Out: the level's own frame has shrunk to well inside the view.
-    const container = project.getContainerBlock();
-    if (project.path.length === 0 || !container?.boundaryGeometry) return;
-    const frame = container.boundaryGeometry;
-    if (Math.max(frame.width, frame.height) * camera.zoom > EXIT_FRACTION * viewMin) return;
-    const t = frameToFace(container.geometry, frame);
-    project.exitBlock();
-    camera.zoom /= t.scale;
-    camera.offsetX -= camera.zoom * t.offsetX;
-    camera.offsetY -= camera.zoom * t.offsetY;
-    afterLevelCrossing();
+    while (project.path.length > 0) {
+      const container = project.getContainerBlock();
+      const frame = container?.boundaryGeometry;
+      if (!frame) return;
+      const tooSmall = Math.max(frame.width, frame.height) * camera.zoom <= EXIT_FRACTION * viewMin;
+      if (camera.zoom >= DETAIL_FULL_ZOOM && !tooSmall) return;
+      const parentCamera = rootCameraFor(camera, chainToRoot([container]));
+      if (!focusLevel(project.path.slice(0, -1), parentCamera)) return;
+    }
   }
 
-  // Everything enterBlock/navigateToDepth do besides moving the camera —
-  // the camera has already been placed by the crossing itself.
-  function afterLevelCrossing() {
-    selection.clear();
-    wireSelection.clear();
-    updateNavigationUI();
-    persist();
-    renderLoop.requestRender();
+  // An artifact block's link (a source file, an endpoint — see
+  // BlockRenderer.drawLinkGlyph) opens in a new tab. Web links only.
+  function openBlockLink(block) {
+    if (!isOpenableLink(block?.link)) return;
+    window.open(block.link.trim(), '_blank', 'noopener,noreferrer');
   }
 
   function navigateToDepth(depth) {
@@ -1320,6 +1351,8 @@ async function bootstrap() {
       broadcastToPeers({ type: 'live', ...message });
     },
     onZoomChanged: crossLevelsForZoom,
+    onResolveFocus: focusLevelAt,
+    onOpenLink: openBlockLink,
   });
 
   attachInputRouter(canvas, camera, stateMachine);

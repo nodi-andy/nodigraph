@@ -14,6 +14,8 @@ import {
   getSlotRectFromBorderPoint,
   getBoundaryPortBlockRect,
   borderPointForOffset,
+  getLinkGlyphRect,
+  isOpenableLink,
   CONNECTOR_HANDLE_RADIUS,
 } from '../render/BlockRenderer.js';
 
@@ -403,6 +405,13 @@ export function hitTest(project, worldX, worldY, boundary, resizableBlockId, res
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const block = blocks[i];
     if (pointInRect(worldX, worldY, block.geometry)) {
+      // The link glyph in the corner of an artifact block (see
+      // BlockRenderer.drawLinkGlyph) opens the link instead of grabbing
+      // the block — only on the topmost block under the pointer, so a
+      // glyph hidden under another block is not a secret click target.
+      if (isOpenableLink(block.link) && pointInRect(worldX, worldY, getLinkGlyphRect(block.geometry, zoom), 2 / zoom)) {
+        return { type: 'link', blockId: block.id };
+      }
       return { type: 'body', blockId: block.id };
     }
   }

@@ -143,6 +143,7 @@ function blockToSlim(block) {
   // of the YAML expects it (see BlockRenderer.blockTextRows).
   if (typeof block.subtitle === 'string' && block.subtitle !== '') slim.subtitle = block.subtitle;
   if (Array.isArray(block.lines) && block.lines.length) slim.lines = block.lines.map(String);
+  if (typeof block.link === 'string' && block.link !== '') slim.link = block.link;
   if (isText) slim.kind = 'text';
   slim.x = block.geometry.x;
   slim.y = block.geometry.y;
@@ -323,6 +324,7 @@ function slimBlockToData(slimBlock) {
     },
     ...(typeof slimBlock.subtitle === 'string' && slimBlock.subtitle !== '' ? { subtitle: slimBlock.subtitle } : {}),
     ...(normalizeLines(slimBlock.lines) ? { lines: normalizeLines(slimBlock.lines) } : {}),
+    ...(typeof slimBlock.link === 'string' && slimBlock.link !== '' ? { link: slimBlock.link } : {}),
     logicalPorts,
     ports: pins,
     props: Object.entries(slimBlock.props || {}).map(([name, value]) => ({ id: generateId('prp'), name, kind: 'value', value })),

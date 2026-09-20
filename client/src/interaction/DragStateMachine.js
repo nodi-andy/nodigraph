@@ -12,6 +12,8 @@ import {
   getPortResizeHandleRects,
   getOccupiedWireIndicesExcluding,
   getBoundaryWireRelativeIndex,
+  hasSubArchitecture,
+  isOpenableLink,
 } from '../render/BlockRenderer.js';
 import {
   getConnectionGeometry,
@@ -151,7 +153,7 @@ function invertDirection(direction) {
  * a wire" vs "drag a piece of a wire" vs "pan background" unambiguous.
  */
 export class DragStateMachine {
-  constructor({ camera, project, selection, wireSelection, requestRender, persist, onEnterBlock, onRequestRename, onRequestWireLabel, onLiveUpdate, onZoomChanged }) {
+  constructor({ camera, project, selection, wireSelection, requestRender, persist, onEnterBlock, onRequestRename, onRequestWireLabel, onLiveUpdate, onZoomChanged, onResolveFocus, onOpenLink }) {
     this.camera = camera;
     this.project = project;
     this.selection = selection;
@@ -181,6 +183,16 @@ export class DragStateMachine {
     // Fired after every user zoom (wheel or pinch) with the camera already
     // moved — main.js's endless-zoom level crossing hangs off it.
     this.onZoomChanged = onZoomChanged;
+    // Called with the screen point of every press and double-click before
+    // it is hit-tested, so main.js can move the editing focus to whatever
+    // level is under the pointer (see interaction/LevelFocus.js). Returns
+    // the pointer's world point in the level now being edited, or null if
+    // the level did not change.
+    this.onResolveFocus = onResolveFocus;
+    // Opens an artifact block's link (see BlockRenderer.drawLinkGlyph) —
+    // a click on its corner glyph, or a double-click on a link block
+    // without an interior of its own.
+    this.onOpenLink = onOpenLink;
     this.state = STATES.IDLE;
     this.context = null;
     // { blockId, geometry, ports, side, offset, ready } while the cursor is
@@ -206,6 +218,15 @@ export class DragStateMachine {
       this.state = STATES.PANNING;
       this.context = { lastScreen: screen };
       return;
+    }
+
+    // The level under the pointer becomes the one being edited, and
+    // `world` moves into its coordinates. A hover ghost belongs to the
+    // level that was being edited before, so it does not survive this.
+    const refocused = this.onResolveFocus?.(screen);
+    if (refocused) {
+      world = refocused;
+      this.clearHoverGhost();
     }
 
     // A ready ghost (shown only after the hover dwell) takes this click
@@ -316,6 +337,12 @@ export class DragStateMachine {
     if (typeof window !== 'undefined' && window.__ndDebug) {
       // eslint-disable-next-line no-console
       console.log('[nd:down]', { world, hit, hoverGhostReady: Boolean(this.hoverGhost?.ready) });
+    }
+
+    if (hit?.type === 'link') {
+      const block = this.project.getBlock(hit.blockId);
+      if (block) this.onOpenLink?.(block);
+      return;
     }
 
     if (hit?.type === 'resizeHandle') {
@@ -1365,6 +1392,7 @@ export class DragStateMachine {
     // same cue for both is exactly what made the two feel interchangeable.
     if (hit?.type === 'port') return 'move';
     if (hit?.type === 'boundaryLabel') return 'text';
+    if (hit?.type === 'link') return 'pointer';
     return 'default';
   }
 
@@ -1948,13 +1976,25 @@ export class DragStateMachine {
 
   // Double-clicking a block's body drills into it — and cancels the rename
   // the first of those two clicks had queued up.
-  onDoubleClick(world) {
+  onDoubleClick(world, screen = null) {
     clearTimeout(this.renameTimer);
     this.renameTimer = null;
     clearTimeout(this.splitTimer);
     this.splitTimer = null;
-    const hit = hitTest(this.project, world.x, world.y);
-    if (hit?.type === 'body') {
+    if (screen) {
+      const refocused = this.onResolveFocus?.(screen);
+      if (refocused) world = refocused;
+    }
+    const hit = hitTest(this.project, world.x, world.y, null, null, null, this.camera.zoom);
+    if (hit?.type === 'body' || hit?.type === 'link') {
+      const block = this.project.getBlock(hit.blockId);
+      // An artifact block opens what it points at; one that also has an
+      // interior of its own is entered like any other container, its
+      // corner glyph being the way to its link.
+      if (block && isOpenableLink(block.link) && (hit.type === 'link' || !hasSubArchitecture(block))) {
+        this.onOpenLink?.(block);
+        return;
+      }
       this.onEnterBlock?.(hit.blockId);
       return;
     }

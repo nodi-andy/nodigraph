@@ -105,6 +105,7 @@ are all safe unquoted.
 | `name` | `New Block` | the title. `name: ""` draws nothing — use it for panels. |
 | `subtitle` | — | one smaller, muted line under the title |
 | `lines` | — | a block sequence of short monospace detail rows under the title (see the card recipe) |
+| `link` | — | an `http(s)` URL this block stands for — a source file on GitHub, an endpoint. Draws an ↗ glyph in the corner; clicking it (or double-clicking a link block without an interior) opens the URL in a new tab. See Artifacts. |
 | `title_pos` | `center`, or `top` once `subtitle`/`lines` are set | `top`, `center`, `bottom` — where the text stack sits |
 | `title_align` | `center` | `left`, `center`, `right` — how every row aligns |
 | `kind` | `block` | `text` = a bare label: no border, no fill, no ports. |
@@ -283,10 +284,63 @@ edge is at `x: 180` inside a 3× frame. Sizing the frame to another odd multiple
 of the block keeps that exact; any other size still works, the frame pins just
 snap to the nearest slot.
 
-Zooming into a block draws its level on its face through that same mapping,
-and once the block fills the view the editor crosses into the level without
-anything on screen moving; zooming back out crosses back. Double-clicking
-still enters a block directly.
+Every level is drawn in place: zooming into a block draws its level on its
+face through that same mapping, at full detail once there is room to read it,
+and its children can then be selected, dragged and wired right there — the
+click decides which level it edits, nothing on screen changes. Grabbing a
+container's empty space still moves the container as a whole until it fills
+the view. Double-clicking a container zooms the view to its level; the
+breadcrumb goes back up.
+
+### Artifacts: source files, endpoints, documents
+
+A system diagram ends in things that are not blocks: the source file that
+implements a driver, the endpoint a service exposes, the document that
+specifies a protocol. Put them in as child blocks with a `link`, inside the
+component they belong to, and wire them to what they implement or serve:
+
+```yaml
+  hub:
+    name: Safety Hub
+    x: 400
+    y: 80
+    w: 240
+    h: 160
+    boundary: { x: 0, y: 0, w: 720, h: 480 }
+    blocks:
+      plc:
+        name: PLC program
+        subtitle: CODESYS · IEC 61131-3
+        x: 80
+        y: 80
+        w: 200
+        h: 120
+        ports:
+          out: { name: CAN2, dir: out, offset: 60 }
+      code:
+        name: code.st
+        subtitle: cyclic task · 10 ms
+        link: https://github.com/org/repo/blob/main/plc/code.st
+        x: 400
+        y: 40
+        w: 200
+        h: 80
+        color: "#6b7280"
+      header:
+        name: header.st
+        subtitle: types · globals
+        link: https://github.com/org/repo/blob/main/plc/header.st
+        x: 400
+        y: 160
+        w: 200
+        h: 80
+        color: "#6b7280"
+```
+
+A link block renders as any other block plus the ↗ glyph, so it can carry a
+`subtitle` and `lines` (the file's role, the message it publishes, its rate)
+and ports. Point `link` at a permanent URL — a `blob/<branch>/path` on GitHub,
+an OpenAPI page — never at something that needs the reader's session.
 
 ---
 
@@ -302,6 +356,7 @@ still enters a block directly.
 - [ ] Background panels listed before what sits on them.
 - [ ] Gaps between wired blocks wide enough for their labels.
 - [ ] `boundary` set to wrap the content, ideally 3× the block's `w`/`h`.
+- [ ] Every `link` an `http(s)` URL to a stable location (`blob/<branch>/…`, not a session-bound viewer).
 
 ---
 

@@ -1,8 +1,9 @@
 const MIN_ZOOM = 0.1;
 // Deep enough that even a one-cell block can grow to fill the viewport,
-// which is what hands the view over to its own level (see main.js's
-// crossLevelsForZoom). Crossing re-bases the zoom by the frame scale, so
-// the value the camera actually sits at stays moderate in practice.
+// which is what hands the editing focus over to its own level (see
+// main.js's crossLevelsForZoom). Crossing re-bases the zoom by the frame
+// scale, so the value the camera actually sits at stays moderate in
+// practice.
 const MAX_ZOOM = 24;
 
 /**
