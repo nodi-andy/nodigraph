@@ -1319,6 +1319,7 @@ async function bootstrap() {
       connectionSource: dragHighlights.source,
       connectionTarget: dragHighlights.target,
       hiddenConnectionId: stateMachine.getRedirectingConnectionId(),
+      hiddenConnectionIds: stateMachine.getUnpluggingConnectionIds(),
       selectedBlockIds: selection.selectedBlockIds,
       wireSelection,
       remoteCursors: currentLevelCursors(),

@@ -33,6 +33,9 @@ const PALETTES = {
     // wide ambient layer and a tight contact one — without the palette
     // having to spell both out.
     blockShadowRgb: '15, 18, 24',
+    // Laid over a connected output's tab (see BlockRenderer.shadeTab): a
+    // shade darker than the face, which a free tab keeps.
+    connectedTabShade: 'rgba(15, 18, 24, 0.14)',
   },
   dark: {
     // A dot grid (see the light palette's own comment) needs more contrast
@@ -56,6 +59,9 @@ const PALETTES = {
     // reads if it is darker than the surface it falls on, and --bg-canvas
     // (#12161d) leaves almost no room below the ink colour to work with.
     blockShadowRgb: '0, 0, 0',
+    // Stronger than the light palette's: a dark face has little room left
+    // to go darker, so it needs more of it to read.
+    connectedTabShade: 'rgba(0, 0, 0, 0.35)',
   },
 };
 

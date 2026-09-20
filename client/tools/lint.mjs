@@ -28,7 +28,7 @@ const { LevelView } = await import(src('model/levelView.js'));
 const { GRID_SIZE, getPortSlotOffsets, sideAxis } = await import(src('model/grid.js'));
 const { frameToFace } = await import(src('model/levelGeometry.js'));
 const { getConnectionGeometry, getConnectionLabelPosition } = await import(src('render/ConnectionRenderer.js'));
-const { getPortPosition } = await import(src('render/BlockRenderer.js'));
+const { getPortPosition, isPluggedConnection } = await import(src('render/BlockRenderer.js'));
 const { obstaclesFor, pathHitsObstacles, segmentHitsRect } = await import(src('model/obstacleRoute.js'));
 
 const args = process.argv.slice(2);
@@ -159,6 +159,8 @@ function checkLevel(container, where, isRoot) {
   // Wires.
   const routed = [];
   for (const connection of view.listConnections()) {
+    // Two blocks plugged straight together have no wire to check.
+    if (isPluggedConnection(view, connection)) continue;
     const geometry = getConnectionGeometry(view, connection, boundary);
     if (!geometry) {
       report('error', where, 'unroutable', `wire ${connection.id} could not be resolved`);

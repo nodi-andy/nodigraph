@@ -16,6 +16,7 @@ import {
   getLinkGlyphRect,
   isOpenableLink,
   getPlugRect,
+  isPluggedConnection,
 } from '../render/BlockRenderer.js';
 
 // Handles are visually tiny, so their hit area is padded beyond what's drawn —
@@ -110,7 +111,10 @@ function hitBoundaryLine(geometry, worldX, worldY, threshold = BORDER_HIT_THRESH
 // own note on this), so there's no per-wire handle to distinguish; this is
 // what lets DragStateMachine's 'connector' handling redirect the actual
 // wire being grabbed instead of always adding a new one alongside it.
-function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsFor = () => [], connectionIdFor = () => null, zoom = 1) {
+// `isPlugged(blockId, portId)` (non-boundary calls only) says a pin is
+// plugged straight into a neighbour: it has no grip to take, and the space
+// its grip would reach into belongs to the block it is plugged into.
+function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsFor = () => [], connectionIdFor = () => null, zoom = 1, isPlugged = () => false) {
   // Divided by zoom once here rather than at each use below — a fixed
   // world-unit pad shrinks toward nothing zoomed out and balloons zoomed
   // in (see HANDLE_HIT_PADDING's own doc); this keeps both a constant,
@@ -159,6 +163,7 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
       } else {
         const pos = getPortPosition(block, port);
         if (portBodyClaims(pos, port.side)) continue;
+        if (isPlugged(block.id, port.id)) continue;
         if (pointInRect(worldX, worldY, getPlugRect(pos, port.side, false), connectorPadding)) {
           return { type: 'connector', blockId: block.id, portId: port.id, connectionId: connectionIdFor(block.id, port.id) };
         }
@@ -249,6 +254,12 @@ export function hitTest(project, worldX, worldY, boundary, resizableBlockId, res
   // border-drag zone: a port is the more specific target, so on the rare
   // occasion a handle and a port's connector reach do overlap, the port
   // still wins.
+  const pluggedPins = new Set();
+  for (const connection of project.listConnections()) {
+    if (!isPluggedConnection(project, connection)) continue;
+    pluggedPins.add(`${connection.sourceBlockId}:${connection.sourcePortId}`);
+    pluggedPins.add(`${connection.targetBlockId}:${connection.targetPortId}`);
+  }
   const portHit = hitPortsAcrossBlocks(
     blocks,
     worldX,
@@ -257,6 +268,7 @@ export function hitTest(project, worldX, worldY, boundary, resizableBlockId, res
     undefined,
     (blockId, portId) => project.findConnectionForPort(blockId, portId),
     zoom,
+    (blockId, portId) => pluggedPins.has(`${blockId}:${portId}`),
   );
   if (portHit) return portHit;
 

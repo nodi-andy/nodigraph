@@ -88,6 +88,11 @@ own client architecture, drawn and kept up to date this way.
   shows what a press will do: the socket lights up when you are about to
   move the pin along its edge, the plug when you are about to pick the
   wire up.
+- **Plug blocks straight together** — push one block up against another so
+  an output's tab slides into an input's dent, and the two are connected
+  with no wire at all: the outlines meet exactly. Pull the block away again
+  and the plug comes out with it; hold Ctrl (Cmd on a Mac) while you let go
+  and the connection stays, as an ordinary wire.
 - **Resize handles** — select a block to see four diamond handles, one
   per edge, sitting outside the block rather than on its border so they
   never fight with a port for the same touch. Click the dashed line of

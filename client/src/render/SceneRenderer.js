@@ -151,6 +151,10 @@ export function renderScene(
     // The one connection (if any) currently being picked up to redirect —
     // see DragStateMachine.getRedirectingConnectionId's own doc.
     hiddenConnectionId = null,
+    // Further connections to leave undrawn this frame: the plugs a block
+    // drag is about to pull out (see DragStateMachine
+    // .getUnpluggingConnectionIds), shown gone before the drop commits it.
+    hiddenConnectionIds = [],
     // { portId, connectionId, previewIndex } while a wire is being dragged
     // to a different slot within its own port (see
     // DragStateMachine.getWireMoveOverride) — lets it visibly follow the
@@ -217,6 +221,8 @@ export function renderScene(
     ? { block: containerBlock, geometry: containerBlock.boundaryGeometry }
     : null;
   const portHighlights = buildPortHighlights(selectedBlockId, selectedPortId, connectionSource, connectionTarget);
+  const hidden = new Set(hiddenConnectionIds);
+  if (hiddenConnectionId) hidden.add(hiddenConnectionId);
 
   // Everything the level being edited draws differently from the others
   // (see SubPreviewRenderer.drawLevel), and the blocks on the way down to
@@ -229,7 +235,7 @@ export function renderScene(
     selectedBlockId,
     portHighlights,
     wireSelection,
-    hiddenConnectionId,
+    hiddenConnectionId: hidden,
     wireMoveOverride,
     gridBlockId,
     hoverPin,
@@ -291,7 +297,7 @@ export function renderScene(
   // a grip is exactly the thing being reached for. Exports pass no
   // wireSelection, so they never carry any.
   if (wireSelection) {
-    const routed = focus.out.routed || routeConnections(project, boundary, wireMoveOverride, hiddenConnectionId);
+    const routed = focus.out.routed || routeConnections(project, boundary, wireMoveOverride, hidden);
     for (const entry of routed) {
       if (!wireSelection.isSelected(entry.connection.id)) continue;
       drawWireGrips(ctx, entry.geometry, camera.zoom, {

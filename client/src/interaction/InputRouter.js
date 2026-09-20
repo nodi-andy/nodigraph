@@ -125,6 +125,7 @@ export function attachInputRouter(canvas, camera, stateMachine) {
     if (activePointers.size >= 2) return;
 
     const world = camera.screenToWorld(screen.x, screen.y);
+    stateMachine.setKeepPlugs(event.ctrlKey || event.metaKey);
     stateMachine.onPointerMove(screen, world);
     canvas.style.cursor = stateMachine.getCursor();
   });
@@ -155,9 +156,18 @@ export function attachInputRouter(canvas, camera, stateMachine) {
 
     const screen = toScreen(event);
     const world = camera.screenToWorld(screen.x, screen.y);
+    stateMachine.setKeepPlugs(event.ctrlKey || event.metaKey);
     stateMachine.onPointerUp(world);
     canvas.style.cursor = stateMachine.getCursor();
   });
+
+  // Ctrl pressed or let go with the mouse standing still still has to
+  // reach a block drag in progress: it decides whether a plug the drag has
+  // pulled apart stays as a wire (see DragStateMachine.setKeepPlugs).
+  const trackKeepPlugs = (event) => stateMachine.setKeepPlugs(event.ctrlKey || event.metaKey);
+  window.addEventListener('keydown', trackKeepPlugs);
+  window.addEventListener('keyup', trackKeepPlugs);
+  window.addEventListener('blur', () => stateMachine.setKeepPlugs(false));
 
   canvas.addEventListener('pointercancel', (event) => {
     activePointers.delete(event.pointerId);

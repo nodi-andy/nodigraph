@@ -35,7 +35,7 @@ import {
   verticalSegmentsOf,
   FLOW_DASH,
 } from './ConnectionRenderer.js';
-import { drawBlock, drawBoundary, drawBoundaryPins, drawBlockPorts, drawExteriorSubSlots, drawOpenHeader, drawResizeHandles, hasSubArchitecture } from './BlockRenderer.js';
+import { drawBlock, drawBoundary, drawBoundaryPins, drawBlockPorts, drawExteriorSubSlots, drawOpenHeader, drawResizeHandles, hasSubArchitecture, isPluggedConnection } from './BlockRenderer.js';
 import { LevelView } from '../model/levelView.js';
 import { defaultBoundaryFor, frameToFace } from '../model/levelGeometry.js';
 import { GRID_SIZE } from '../model/grid.js';
@@ -246,8 +246,12 @@ function sharesEndpoint(a, b) {
 // (and the hopOver bow every wire needs against every other) is a purely
 // geometric question, unrelated to which of them ends up painted over
 // which block (see drawLevel's own z-ordering of this same list).
-export function routeConnections(view, boundary, wireMoveOverride = null, hiddenConnectionId = null) {
+// `hidden` is one connection id or a Set of them. A plugged connection
+// (see BlockRenderer.isPluggedConnection) is never routed: its two blocks
+// meet at the pin, and there is no wire to draw between them.
+export function routeConnections(view, boundary, wireMoveOverride = null, hidden = null) {
   const routed = [];
+  const isHidden = hidden instanceof Set ? (id) => hidden.has(id) : (id) => id === hidden;
   for (const connection of view.listConnections()) {
     // The one connection currently being picked up to redirect (see
     // DragStateMachine.getRedirectingConnectionId) is left out of its own
@@ -257,7 +261,8 @@ export function routeConnections(view, boundary, wireMoveOverride = null, hidden
     // separately, over everything — see SceneRenderer) that's standing in
     // for it. Left out of hopOver bowing too: nothing else should still
     // treat it as an obstacle once it's already "in the air."
-    if (connection.id === hiddenConnectionId) continue;
+    if (isHidden(connection.id)) continue;
+    if (isPluggedConnection(view, connection)) continue;
     const geometry = getConnectionGeometry(view, connection, boundary, wireMoveOverride);
     if (geometry) routed.push({ connection, geometry, verticals: verticalSegmentsOf(geometry.points) });
   }
@@ -276,17 +281,25 @@ function wireColorOf(connection) {
   return hostColor || connection.color || WIRE_COLOR;
 }
 
-// Map<blockId, Map<portId, colour>>: the colour of the wire on every pin
-// that has one in this level, for the plugs.
-function pinWiresOf(routed) {
+// Map<blockId, Map<portId, colour | null>>: every connected pin in this
+// level — the colour of its wire, for the grip, or null for a pin that is
+// only plugged into its neighbour (connected, no wire). A pin with both
+// keeps the wire's colour.
+function pinWiresOf(routed, plugged = []) {
   const byBlock = new Map();
+  const mark = (blockId, portId, color) => {
+    if (!byBlock.has(blockId)) byBlock.set(blockId, new Map());
+    const pins = byBlock.get(blockId);
+    if (!pins.get(portId)) pins.set(portId, color);
+  };
+  for (const connection of plugged) {
+    mark(connection.sourceBlockId, connection.sourcePortId, null);
+    mark(connection.targetBlockId, connection.targetPortId, null);
+  }
   for (const { connection } of routed) {
     const color = wireColorOf(connection);
-    for (const [blockId, portId] of [[connection.sourceBlockId, connection.sourcePortId], [connection.targetBlockId, connection.targetPortId]]) {
-      if (!byBlock.has(blockId)) byBlock.set(blockId, new Map());
-      const pins = byBlock.get(blockId);
-      if (!pins.has(portId)) pins.set(portId, color);
-    }
+    mark(connection.sourceBlockId, connection.sourcePortId, color);
+    mark(connection.targetBlockId, connection.targetPortId, color);
   }
   return byBlock;
 }
@@ -367,7 +380,8 @@ export function drawLevel(
   if (focused && focus.out) focus.out.routed = routed;
   // A wire being picked up (hiddenConnectionId) is not in `routed`, so its
   // pins show their sockets empty while it is in the air.
-  const pinWires = pinWiresOf(routed);
+  const plugged = view.listConnections().filter((connection) => isPluggedConnection(view, connection));
+  const pinWires = pinWiresOf(routed, plugged);
   const wireEntriesFor = (blockId, port) =>
     view.listBoundaryWires(blockId, port.id).map((id, rank) => {
       const connection = view.getConnection(id);

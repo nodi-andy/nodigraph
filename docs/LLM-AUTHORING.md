@@ -141,6 +141,13 @@ plugged and an unwired one as an empty socket; the plug narrows the way the
 data flows, which is the only arrow a wire has. Leave `dir` out for a two-way
 link (a bus, an Ethernet cable): a ring never points anywhere.
 
+Two blocks can also be plugged straight together, with no wire between them:
+put them edge to edge so an `out` pin and an `in` pin sit on the same point of
+the shared border, and declare the connection as usual. The tab then sits in
+the dent and no wire is drawn. Placement alone never connects anything — the
+connection still has to be in the file — but a declared connection between two
+pins that meet this way always draws as a plug.
+
 A side of length `L` has `floor(L / 40)` slots at `20, 60, 100, …`. So an
 `h: 120` block has `20 / 60 / 100`, and `60` is its vertical middle — give every
 card in a row the same height and the same offset and all the wires run dead

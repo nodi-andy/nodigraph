@@ -14,6 +14,8 @@ import {
   getBoundaryWireRelativeIndex,
   hasSubArchitecture,
   isOpenableLink,
+  isPluggedConnection,
+  pinsArePlugged,
 } from '../render/BlockRenderer.js';
 import {
   getConnectionGeometry,
@@ -200,6 +202,11 @@ export class DragStateMachine {
     this.hoverGhost = null;
     // The pin under an idle mouse, or null — see getHoverPin.
     this.hoverPin = null;
+    // Ctrl (or Cmd) held right now, tracked through a block drag rather
+    // than read once at the press — a Ctrl-press on a block already means
+    // "add it to the selection", so the choice about the plugs it pulls
+    // out is made while dragging and read at the drop (see setKeepPlugs).
+    this.keepPlugs = false;
     this.ghostTimer = null;
   }
 
@@ -598,6 +605,13 @@ export class DragStateMachine {
           .map((id) => ({ id, startGeom: { ...(this.project.getBlock(id)?.geometry || {}) } }))
           .filter((item) => item.startGeom.x !== undefined),
         routeItems: this.buildRouteFollowItems(this.selection.list()),
+        // Every connection plugged at the moment the drag starts — the ones
+        // this drag may pull apart (see getUnpluggingConnectionIds and
+        // resolvePlugsAfterDrag).
+        plugged: this.project
+          .listConnections()
+          .filter((connection) => isPluggedConnection(this.project, connection))
+          .map((connection) => connection.id),
         wasSelected,
         moved: false,
       };
@@ -754,7 +768,7 @@ export class DragStateMachine {
   // handling) rather than just a plain select. `pieceIndex` is -1 unless a
   // free piece was hit, and `pieceO` is then that piece's orientation.
   hitTestWires(worldX, worldY, boundary) {
-    const connections = this.project.listConnections();
+    const connections = this.project.listConnections().filter((connection) => !isPluggedConnection(this.project, connection));
     const geometries = connections.map((connection) => ({
       connection,
       geometry: getConnectionGeometry(this.project, connection, boundary),
@@ -1424,6 +1438,69 @@ export class DragStateMachine {
     return this.state === STATES.IDLE ? this.hoverPin : null;
   }
 
+  // Whether Ctrl/Cmd is held, fed by InputRouter on every pointer move and
+  // key change. During a block drag it decides what happens to a plug the
+  // drag pulls apart: held, the connection stays and becomes an ordinary
+  // wire; not held, it comes out with the plug, the way pulling a real
+  // plug disconnects it. Redrawn at once so the preview follows the key.
+  setKeepPlugs(on) {
+    const keep = Boolean(on);
+    if (keep === this.keepPlugs) return;
+    this.keepPlugs = keep;
+    if (this.state === STATES.DRAGGING_BLOCK) this.requestRender();
+  }
+
+  // The plugs the block drag in progress has pulled apart and is about to
+  // remove on the drop — Ctrl not held. SceneRenderer leaves them undrawn,
+  // so the canvas shows the outcome before the mouse is released; with
+  // Ctrl held this is empty and they show as the wires they will become.
+  getUnpluggingConnectionIds() {
+    if (this.state !== STATES.DRAGGING_BLOCK || this.keepPlugs) return [];
+    return (this.context.plugged || []).filter((id) => {
+      const connection = this.project.getConnection(id);
+      return connection && !isPluggedConnection(this.project, connection);
+    });
+  }
+
+  // At the end of a block drag: settle every plug the drag touched.
+  //
+  // A plug pulled apart either stays as a wire (Ctrl held) or is removed.
+  // Then every pin the dragged blocks now press exactly into a neighbour's
+  // matching socket (see BlockRenderer.pinsArePlugged) is connected, as a
+  // real connection with no wire drawn — the output as its source, the
+  // input as its target. An input something else already drives is left
+  // alone rather than given a second source, and a pair already connected
+  // is not connected twice.
+  resolvePlugsAfterDrag() {
+    for (const id of this.context.plugged || []) {
+      const connection = this.project.getConnection(id);
+      if (!connection || isPluggedConnection(this.project, connection) || this.keepPlugs) continue;
+      if (this.wireSelection.isSelected(id)) this.wireSelection.remove(id);
+      this.project.removeConnection(id);
+    }
+
+    const moving = new Set(this.context.items.map((item) => item.id));
+    const blocks = this.project.listBlocks();
+    for (const a of blocks) {
+      if (!moving.has(a.id)) continue;
+      for (const b of blocks) {
+        if (moving.has(b.id)) continue;
+        for (const pa of a.ports || []) {
+          for (const pb of b.ports || []) {
+            if (!pinsArePlugged(a, pa, b, pb)) continue;
+            const aIsOutput = logicalPortOf(a, pa)?.direction === 'out';
+            const [src, srcPort, dst, dstPort] = aIsOutput ? [a, pa, b, pb] : [b, pb, a, pa];
+            if (this.project.hasConnection(srcPort.id, dstPort.id)) continue;
+            if (this.project.findConnectionForPort(dst.id, dstPort.id)) continue;
+            this.project.addConnection(
+              createConnection({ sourceBlockId: src.id, sourcePortId: srcPort.id, targetBlockId: dst.id, targetPortId: dstPort.id }),
+            );
+          }
+        }
+      }
+    }
+  }
+
   // The mouse has left the canvas: nothing is hovered any more.
   clearHover() {
     this.hoverCursor = null;
@@ -1670,6 +1747,7 @@ export class DragStateMachine {
       // A click (not a drag) on a block that was already selected opens
       // its name editor — deferred, since this same click could turn out
       // to be the first half of a double-click that enters the block.
+      if (this.state === STATES.DRAGGING_BLOCK && this.context.moved) this.resolvePlugsAfterDrag();
       if (this.state === STATES.DRAGGING_BLOCK && this.context.wasSelected && !this.context.moved) {
         const blockId = this.context.blockId;
         clearTimeout(this.renameTimer);

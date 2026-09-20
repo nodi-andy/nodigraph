@@ -717,9 +717,11 @@ const PLUG_RADIUS = 2;
 const GRIP_FROM = SOCKET_DEPTH + 3;
 const GRIP_TO = PLUG_REACH;
 const GRIP_HALF = SOCKET_HALF_INNER + 1.5;
-// Where the arrow of a pin the data flows INTO stops: short of the border,
-// so the socket stays fully visible behind it.
-const GRIP_ARROW_TIP = 3;
+// A pin the data flows INTO gets an arrow in front of its grip: the dent's
+// own trapezoid, moved out of it, its narrow end the same gap from the
+// socket's opening as an output's grip is from its tab. It is exactly the
+// shape that would slide into the dent.
+const GRIP_ARROW_TIP = GRIP_FROM - SOCKET_DEPTH;
 // The hover outline is drawn over a plug that may well be the same blue,
 // so it sits on a white halo, which keeps it readable on any wire colour.
 const SOCKET_HOVER_COLOR = SELECTION_COLOR;
@@ -858,9 +860,9 @@ function drawSocket(ctx, p, side, shape, stroke, fill, lineWidth, halo = false) 
 // exactly as it is drawn unwired — nothing fills or caps it — and the grip
 // sits a small gap out from it: one compact rounded body, identical for
 // every pin. The socket's own shape already says which way the pin points,
-// so only a pin the data flows INTO adds an arrow, in the gap, pointing at
-// the socket and stopping short of it; an output, or a two-way ring, gets
-// the grip alone. `inverted` puts the wire inside (a frame pin seen from
+// so only a pin the data flows INTO adds an arrow — the dent's trapezoid,
+// a gap out from it (see GRIP_ARROW_TIP); an output, or a two-way ring,
+// gets the grip alone. `inverted` puts the wire inside (a frame pin seen from
 // within its container), which also flips which of in/out the data flows
 // into. `hover` draws it translucent with an outline: the grip about to be
 // picked up.
@@ -871,7 +873,8 @@ function gripPath(ctx, w, arrow) {
   const r = PLUG_RADIUS;
   const X = (v) => w * v;
   if (arrow) {
-    ctx.moveTo(X(GRIP_ARROW_TIP), 0);
+    ctx.moveTo(X(GRIP_ARROW_TIP), -SOCKET_HALF_INNER);
+    ctx.lineTo(X(a), -SOCKET_HALF_OUTER);
     ctx.lineTo(X(a), -h);
   } else {
     ctx.moveTo(X(a), -h + r);
@@ -883,6 +886,8 @@ function gripPath(ctx, w, arrow) {
   ctx.arcTo(X(b), h, X(b - r), h, r);
   if (arrow) {
     ctx.lineTo(X(a), h);
+    ctx.lineTo(X(a), SOCKET_HALF_OUTER);
+    ctx.lineTo(X(GRIP_ARROW_TIP), SOCKET_HALF_INNER);
   } else {
     ctx.lineTo(X(a + r), h);
     ctx.arcTo(X(a), h, X(a), h - r, r);
@@ -900,6 +905,45 @@ function drawPinPlug(ctx, p, side, inverted, shape, color, hover = false) {
     ctx.fill();
     if (hover) strokeWithHalo(ctx, SOCKET_HOVER_COLOR, PLUG_HOVER_WIDTH);
   });
+}
+
+// Two pins are plugged together — connected with no wire at all — when one
+// block's output tab sits exactly in another block's input dent: the same
+// point on the border, facing sides, one 'out' and one 'in'. The tab and
+// the dent are the same trapezoid, so the two outlines then meet with no
+// gap. Nothing is stored for it: a plug is an ordinary connection whose
+// two pins happen to meet, so it saves, loads, shares and exports as the
+// connection it is, and a reader that has never heard of plugs simply
+// sees a very short wire.
+const PLUG_EPSILON = 0.5;
+
+export function pinsArePlugged(blockA, portA, blockB, portB) {
+  if (!blockA || !blockB || !portA || !portB || blockA.id === blockB.id) return false;
+  if (blockA.kind === 'text' || blockB.kind === 'text') return false;
+  const na = sideNormal(portA.side);
+  const nb = sideNormal(portB.side);
+  if (na.x !== -nb.x || na.y !== -nb.y) return false;
+  const shapes = [
+    pinShapeOf(logicalPortOf(blockA, portA)?.direction ?? null),
+    pinShapeOf(logicalPortOf(blockB, portB)?.direction ?? null),
+  ].sort().join();
+  if (shapes !== 'in,out') return false;
+  const a = getPortPosition(blockA, portA);
+  const b = getPortPosition(blockB, portB);
+  return Math.abs(a.x - b.x) < PLUG_EPSILON && Math.abs(a.y - b.y) < PLUG_EPSILON;
+}
+
+// Whether `connection` is plugged rather than wired, in `view` (a Project
+// or a LevelView). A wire to the container's own frame never is: the
+// container is not a sibling that could be pushed up against a pin.
+export function isPluggedConnection(view, connection) {
+  const containerId = view.getContainerBlock?.()?.id;
+  if (connection.sourceBlockId === containerId || connection.targetBlockId === containerId) return false;
+  const a = view.getBlock(connection.sourceBlockId);
+  const b = view.getBlock(connection.targetBlockId);
+  const pa = a?.ports?.find((p) => p.id === connection.sourcePortId);
+  const pb = b?.ports?.find((p) => p.id === connection.targetPortId);
+  return pinsArePlugged(a, pa, b, pb);
 }
 
 // Where a wire's plug is grabbed: the body on the wire's side of the
@@ -928,11 +972,35 @@ export function getPlugRect(pos, side, inverted = false) {
 // plug of the wire on it, and the hover feedback — `hover` is 'slot' (the
 // socket outlined: this pin is about to be moved along its edge) or
 // 'plug' (the plug outlined: the wire is about to be picked up).
-function drawPin(ctx, pos, side, inverted, shape, { stroke, fill, lineWidth, wireColor = null, hover = null }) {
+function drawPin(ctx, pos, side, inverted, shape, { stroke, fill, lineWidth, wireColor = null, hover = null, connected = false, shade = null }) {
   if (inverted || shape === 'both') drawSocket(ctx, pos, side, shape, stroke, fill, lineWidth);
+  if (connected && shape === 'out' && !inverted && shade) shadeTab(ctx, pos, side, stroke, shade, lineWidth);
   if (wireColor) drawPinPlug(ctx, pos, side, inverted, shape, wireColor);
   if (hover === 'slot') drawSocket(ctx, pos, side, shape, SOCKET_HOVER_COLOR, null, SOCKET_HOVER_WIDTH, true);
   if (hover === 'plug') drawPinPlug(ctx, pos, side, inverted, shape, PLUG_HOVER_FILL, true);
+}
+
+// An output's tab once something is connected to it — by a wire or by a
+// block plugged straight into it — shaded a little darker than the face it
+// grows out of, so a connected output reads apart from a free one at a
+// glance. Only the tab's three outer edges are re-stroked: its base lies
+// along the block's own border, where no line is drawn.
+function shadeTab(ctx, pos, side, stroke, shade, lineWidth) {
+  withPinFrame(ctx, pos, side, () => {
+    ctx.beginPath();
+    socketPath(ctx, 'out');
+    ctx.fillStyle = shade;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(0, -SOCKET_HALF_OUTER);
+    ctx.lineTo(SOCKET_DEPTH, -SOCKET_HALF_INNER);
+    ctx.lineTo(SOCKET_DEPTH, SOCKET_HALF_INNER);
+    ctx.lineTo(0, SOCKET_HALF_OUTER);
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = lineWidth;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+  });
 }
 
 function drawPortRing(ctx, x, y, color, radius) {
@@ -1073,10 +1141,12 @@ function drawPorts(
     wireMoveOverride = null,
     // See drawPortLabel — ordinary blocks only.
     labelsOutside = 0,
-    // Ordinary blocks: Map<portId, wire colour> for every pin that has a
-    // wire on it in this level (see SubPreviewRenderer.drawLevel); the
-    // plug is drawn in that colour. A frame's wires carry their colour on
-    // the boundaryWireLabels entries instead.
+    // Ordinary blocks: Map<portId, wire colour | null> for every pin that
+    // is connected in this level (see SubPreviewRenderer.drawLevel). A
+    // colour is the wire's, for its grip; null is a pin plugged straight
+    // into another block — connected, but with no wire and so no grip. A
+    // frame's wires carry their colour on the boundaryWireLabels entries
+    // instead.
     pinWires = null,
     // { blockId, portId, part: 'slot' | 'plug', connectionId, wireIndex }
     // for the pin under the mouse (see DragStateMachine.getHoverPin), or
@@ -1118,7 +1188,7 @@ function drawPorts(
     const effectiveSide = inverted ? getPortBoundaryPlacement(port, block).side : port.side;
     const shape = pinShapeOf(portDirection);
     const hover = hoverHere && hoverHere.portId === port.id ? hoverHere : null;
-    const pinStyle = { stroke: socketStroke, fill: socketFill, lineWidth: socketWidth };
+    const pinStyle = { stroke: socketStroke, fill: socketFill, lineWidth: socketWidth, shade: palette.connectedTabShade };
 
     // A widened (or already multi-wire) boundary port reads as one visible
     // group — a light, *always-shown* outline (not gated on selection, so
@@ -1166,7 +1236,8 @@ function drawPorts(
     // has been.
     const { x: px, y: py } = inverted ? getBoundaryWirePosition(block, port, 0) : getPortPosition(block, port);
     const wireColor = inverted ? wireEntries[0]?.color || null : pinWires?.get(port.id) || null;
-    drawPin(ctx, { x: px, y: py }, effectiveSide, inverted, shape, { ...pinStyle, wireColor, hover: hover ? hover.part : null });
+    const connected = !inverted && Boolean(pinWires?.has(port.id));
+    drawPin(ctx, { x: px, y: py }, effectiveSide, inverted, shape, { ...pinStyle, wireColor, connected, hover: hover ? hover.part : null });
     const ringColor = portHighlights?.get(`${block.id}:${port.id}`);
     if (ringColor) drawPortRing(ctx, px, py, ringColor, SLOT_RING_RADIUS);
     // Selecting a still-plain boundary port shows the same two width grips
