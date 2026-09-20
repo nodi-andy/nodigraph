@@ -696,10 +696,9 @@ function drawPortLabelInside(ctx, port, pos, inverted, palette) {
 // is a ring on the border and its plug a disc, never an arrow. The socket
 // is part of the block's outline (see blockOutlinePath), in the border's
 // own colour with the face's fill, so an unwired pin is plainly an empty
-// socket. Once a wire is on the pin its plug is drawn in the wire's colour
-// (see drawPinPlug): it fills the socket and carries a short body out to
-// where the wire leaves, which is also where the plug is grabbed to
-// redirect the wire (see getPlugRect and HitTest). A frame pin, seen from
+// socket. Once a wire is on the pin, a compact grip in the wire's colour
+// sits just outside the socket, never over it (see drawPinPlug); that grip
+// is where the wire is taken to redirect it (see getPlugRect and HitTest). A frame pin, seen from
 // inside its container, keeps the exterior's shape: the wire arrives from
 // the inside, so its plug sits on that side of the same socket.
 export const SOCKET_HALF_OUTER = PORT_LENGTH / 2 + 1;
@@ -709,9 +708,18 @@ export const SOCKET_RING_RADIUS = SOCKET_HALF_OUTER - 0.5;
 // How far out from the border a plug's body reaches: the connector handle
 // (CONNECTOR_NUB_LENGTH) sits inside it.
 export const PLUG_REACH = CONNECTOR_NUB_LENGTH + CONNECTOR_ARROW_SIZE / 2;
-// The wall of the female plug that grips an output tab.
-const PLUG_CAP = 2.5;
 const PLUG_RADIUS = 2;
+// A wired pin's grip, measured out from the border on the wire's side. It
+// is the same compact body at the same place on every pin, whichever way
+// the pin points, and it never touches the socket: GRIP_FROM leaves a gap
+// past the deepest a socket reaches on that side (a tab, or a ring). The
+// wire itself attaches inside the grip (CONNECTOR_NUB_LENGTH).
+const GRIP_FROM = SOCKET_DEPTH + 3;
+const GRIP_TO = PLUG_REACH;
+const GRIP_HALF = SOCKET_HALF_INNER + 1.5;
+// Where the arrow of a pin the data flows INTO stops: short of the border,
+// so the socket stays fully visible behind it.
+const GRIP_ARROW_TIP = 3;
 // The hover outline is drawn over a plug that may well be the same blue,
 // so it sits on a white halo, which keeps it readable on any wire colour.
 const SOCKET_HOVER_COLOR = SELECTION_COLOR;
@@ -845,59 +853,50 @@ function drawSocket(ctx, p, side, shape, stroke, fill, lineWidth, halo = false) 
   });
 }
 
-function roundedPlugPath(ctx, x0, x1, h, r) {
-  ctx.moveTo(x0 + r, -h);
-  ctx.lineTo(x1 - r, -h);
-  ctx.arcTo(x1, -h, x1, -h + r, r);
-  ctx.lineTo(x1, h - r);
-  ctx.arcTo(x1, h, x1 - r, h, r);
-  ctx.lineTo(x0 + r, h);
-  ctx.arcTo(x0, h, x0, h - r, r);
-  ctx.lineTo(x0, -h + r);
-  ctx.arcTo(x0, -h, x0 + r, -h, r);
+
+// The grip a wire puts on a pin, in the wire's colour. The socket is left
+// exactly as it is drawn unwired — nothing fills or caps it — and the grip
+// sits a small gap out from it: one compact rounded body, identical for
+// every pin. The socket's own shape already says which way the pin points,
+// so only a pin the data flows INTO adds an arrow, in the gap, pointing at
+// the socket and stopping short of it; an output, or a two-way ring, gets
+// the grip alone. `inverted` puts the wire inside (a frame pin seen from
+// within its container), which also flips which of in/out the data flows
+// into. `hover` draws it translucent with an outline: the grip about to be
+// picked up.
+function gripPath(ctx, w, arrow) {
+  const a = GRIP_FROM;
+  const b = GRIP_TO;
+  const h = GRIP_HALF;
+  const r = PLUG_RADIUS;
+  const X = (v) => w * v;
+  if (arrow) {
+    ctx.moveTo(X(GRIP_ARROW_TIP), 0);
+    ctx.lineTo(X(a), -h);
+  } else {
+    ctx.moveTo(X(a), -h + r);
+    ctx.arcTo(X(a), -h, X(a + r), -h, r);
+  }
+  ctx.lineTo(X(b - r), -h);
+  ctx.arcTo(X(b), -h, X(b), -h + r, r);
+  ctx.lineTo(X(b), h - r);
+  ctx.arcTo(X(b), h, X(b - r), h, r);
+  if (arrow) {
+    ctx.lineTo(X(a), h);
+  } else {
+    ctx.lineTo(X(a + r), h);
+    ctx.arcTo(X(a), h, X(a), h - r, r);
+  }
+  ctx.closePath();
 }
 
-// The plug a wire puts in a socket, in the wire's colour: what fills the
-// socket (the dent itself, a cap over the tab, the disc in the ring) plus
-// a body from there out to PLUG_REACH on the wire's side of the border,
-// which is where the wire starts. `inverted` puts the wire inside (a
-// frame pin seen from within its container). `hover` draws it translucent
-// with an outline: the plug about to be picked up.
 function drawPinPlug(ctx, p, side, inverted, shape, color, hover = false) {
-  const HO = SOCKET_HALF_OUTER;
-  const HI = SOCKET_HALF_INNER;
-  const D = SOCKET_DEPTH;
   const w = inverted ? -1 : 1;
+  const intoPin = (shape === 'in' && !inverted) || (shape === 'out' && inverted);
   withPinFrame(ctx, p, side, () => {
+    ctx.beginPath();
+    gripPath(ctx, w, intoPin);
     ctx.fillStyle = color;
-    let bodyFrom;
-    let bodyHalf;
-    ctx.beginPath();
-    if (shape === 'both') {
-      ctx.arc(0, 0, SOCKET_RING_RADIUS - 1, 0, Math.PI * 2);
-      bodyFrom = SOCKET_RING_RADIUS - 1;
-      bodyHalf = HI + 0.5;
-    } else if (shape === 'in') {
-      socketPath(ctx, 'in');
-      // From outside the plug enters at the wide opening; from inside a
-      // frame it meets the narrow end.
-      bodyFrom = w > 0 ? 0 : D;
-      bodyHalf = w > 0 ? HO : HI + 1;
-    } else {
-      ctx.moveTo(0, -HO - PLUG_CAP);
-      ctx.lineTo(D + PLUG_CAP, -HI - PLUG_CAP);
-      ctx.lineTo(D + PLUG_CAP, HI + PLUG_CAP);
-      ctx.lineTo(0, HO + PLUG_CAP);
-      ctx.closePath();
-      bodyFrom = w > 0 ? D + PLUG_CAP : 0;
-      bodyHalf = w > 0 ? HI + PLUG_CAP : HO;
-    }
-    ctx.fill();
-    if (hover) strokeWithHalo(ctx, SOCKET_HOVER_COLOR, PLUG_HOVER_WIDTH);
-    const x0 = Math.min(w * bodyFrom, w * PLUG_REACH);
-    const x1 = Math.max(w * bodyFrom, w * PLUG_REACH);
-    ctx.beginPath();
-    roundedPlugPath(ctx, x0, x1, bodyHalf, PLUG_RADIUS);
     ctx.fill();
     if (hover) strokeWithHalo(ctx, SOCKET_HOVER_COLOR, PLUG_HOVER_WIDTH);
   });
