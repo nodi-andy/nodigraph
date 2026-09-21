@@ -1748,7 +1748,26 @@ async function bootstrap() {
   // that replaces it — a shared link, "New", opening a file — mutates the
   // existing instance in place instead, see applyRemoteRootBlock), so this
   // reference stays valid for the lifetime of the page.
-  window.nodigraph = { project, camera, selection, wireSelection, renderLoop, persist };
+  window.nodigraph = {
+    project,
+    camera,
+    selection,
+    wireSelection,
+    renderLoop,
+    persist,
+    // For a host that adds blocks from its own UI rather than the + button
+    // (noditron's palette): addTarget() is the block a new block would land
+    // in right now — the selected block, else the container of the level
+    // being edited, or null when the selection is not one place to add
+    // into — and prepareAdd() moves the editing focus there exactly as the
+    // + button does before it adds. Call prepareAdd() first, then add to
+    // project as usual: the block lands where the dotted background said.
+    addTarget: () => {
+      const target = addTargetForSelection();
+      return target === 'level' ? project.getContainerBlock() : target;
+    },
+    prepareAdd: addIntoSelection,
+  };
   // Which build this is, in the browser console (see version.js); kept on
   // window.nodigraph too, for anything that wants to read it.
   logBuildVersion().then((info) => {
