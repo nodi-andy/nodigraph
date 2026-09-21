@@ -717,11 +717,15 @@ const PLUG_RADIUS = 2;
 const GRIP_FROM = SOCKET_DEPTH + 3;
 const GRIP_TO = PLUG_REACH;
 const GRIP_HALF = SOCKET_HALF_INNER + 1.5;
-// A pin the data flows INTO gets an arrow in front of its grip: the dent's
-// own trapezoid, moved out of it, its narrow end the same gap from the
-// socket's opening as an output's grip is from its tab. It is exactly the
-// shape that would slide into the dent.
-const GRIP_ARROW_TIP = GRIP_FROM - SOCKET_DEPTH;
+// Each end of a wire has a grip, the handle a wire is connected and
+// disconnected by (see getPlugRect and HitTest). It carries a dark border
+// so it reads as something to take hold of, on any wire colour.
+const GRIP_BORDER_COLOR = '#1c2431';
+const GRIP_BORDER_WIDTH = 1.25;
+// A socket the data flows INTO shows it is filled: the socket's own
+// trapezoid in the wire's colour, set in from every one of its walls by
+// this gap, so its contour follows the socket's exactly.
+const SOCKET_FILL_GAP = 1.25;
 // The hover outline is drawn over a plug that may well be the same blue,
 // so it sits on a white halo, which keeps it readable on any wire colour.
 const SOCKET_HOVER_COLOR = SELECTION_COLOR;
@@ -856,42 +860,50 @@ function drawSocket(ctx, p, side, shape, stroke, fill, lineWidth, halo = false) 
 }
 
 
-// The grip a wire puts on a pin, in the wire's colour. The socket is left
-// exactly as it is drawn unwired — nothing fills or caps it — and the grip
-// sits a small gap out from it: one compact rounded body, identical for
-// every pin. The socket's own shape already says which way the pin points,
-// so only a pin the data flows INTO adds an arrow — the dent's trapezoid,
-// a gap out from it (see GRIP_ARROW_TIP); an output, or a two-way ring,
-// gets the grip alone. `inverted` puts the wire inside (a frame pin seen from
-// within its container), which also flips which of in/out the data flows
-// into. `hover` draws it translucent with an outline: the grip about to be
-// picked up.
-function gripPath(ctx, w, arrow) {
+// A wire at a pin, in the wire's colour. Its grip — one compact rounded
+// handle with a dark border, identical at both ends of every wire — sits a
+// small gap out from the socket and never covers it. A socket the data
+// flows INTO is also shown filled (see socketFillPath); an output's tab
+// instead turns a shade darker once connected (see shadeTab), and a two-way
+// ring stays as it is. `inverted` puts the wire inside (a frame pin seen
+// from within its container), which also flips which of in/out the data
+// flows into. `hover` draws it translucent with the hover outline: the
+// grip about to be picked up.
+function gripPath(ctx, w) {
   const a = GRIP_FROM;
   const b = GRIP_TO;
   const h = GRIP_HALF;
   const r = PLUG_RADIUS;
   const X = (v) => w * v;
-  if (arrow) {
-    ctx.moveTo(X(GRIP_ARROW_TIP), -SOCKET_HALF_INNER);
-    ctx.lineTo(X(a), -SOCKET_HALF_OUTER);
-    ctx.lineTo(X(a), -h);
-  } else {
-    ctx.moveTo(X(a), -h + r);
-    ctx.arcTo(X(a), -h, X(a + r), -h, r);
-  }
+  ctx.moveTo(X(a), -h + r);
+  ctx.arcTo(X(a), -h, X(a + r), -h, r);
   ctx.lineTo(X(b - r), -h);
   ctx.arcTo(X(b), -h, X(b), -h + r, r);
   ctx.lineTo(X(b), h - r);
   ctx.arcTo(X(b), h, X(b - r), h, r);
-  if (arrow) {
-    ctx.lineTo(X(a), h);
-    ctx.lineTo(X(a), SOCKET_HALF_OUTER);
-    ctx.lineTo(X(GRIP_ARROW_TIP), SOCKET_HALF_INNER);
-  } else {
-    ctx.lineTo(X(a + r), h);
-    ctx.arcTo(X(a), h, X(a), h - r, r);
-  }
+  ctx.lineTo(X(a + r), h);
+  ctx.arcTo(X(a), h, X(a), h - r, r);
+  ctx.closePath();
+}
+
+// The filling of a socket: the socket's trapezoid (see socketPath) with
+// every wall moved in by SOCKET_FILL_GAP, the slanted ones along their own
+// normal, so the gap is even all round and each edge stays parallel to the
+// wall behind it. `s` is the side the socket lies on: -1 for a dent into
+// the face, +1 for a tab out of it.
+function socketFillPath(ctx, s) {
+  const HO = SOCKET_HALF_OUTER;
+  const HI = SOCKET_HALF_INNER;
+  const D = SOCKET_DEPTH;
+  const g = SOCKET_FILL_GAP;
+  const slope = (HO - HI) / D;
+  const lift = (g * Math.hypot(D, HO - HI)) / D;
+  const openHalf = HO - slope * g - lift;
+  const backHalf = HI + slope * g - lift;
+  ctx.moveTo(s * g, -openHalf);
+  ctx.lineTo(s * (D - g), -backHalf);
+  ctx.lineTo(s * (D - g), backHalf);
+  ctx.lineTo(s * g, openHalf);
   ctx.closePath();
 }
 
@@ -899,11 +911,23 @@ function drawPinPlug(ctx, p, side, inverted, shape, color, hover = false) {
   const w = inverted ? -1 : 1;
   const intoPin = (shape === 'in' && !inverted) || (shape === 'out' && inverted);
   withPinFrame(ctx, p, side, () => {
-    ctx.beginPath();
-    gripPath(ctx, w, intoPin);
     ctx.fillStyle = color;
+    if (intoPin) {
+      ctx.beginPath();
+      socketFillPath(ctx, shape === 'in' ? -1 : 1);
+      ctx.fill();
+    }
+    ctx.beginPath();
+    gripPath(ctx, w);
     ctx.fill();
-    if (hover) strokeWithHalo(ctx, SOCKET_HOVER_COLOR, PLUG_HOVER_WIDTH);
+    if (hover) {
+      strokeWithHalo(ctx, SOCKET_HOVER_COLOR, PLUG_HOVER_WIDTH);
+    } else {
+      ctx.strokeStyle = GRIP_BORDER_COLOR;
+      ctx.lineWidth = GRIP_BORDER_WIDTH;
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+    }
   });
 }
 
