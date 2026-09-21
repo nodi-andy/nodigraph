@@ -723,9 +723,18 @@ const GRIP_HALF = SOCKET_HALF_INNER + 1.5;
 const GRIP_BORDER_COLOR = '#1c2431';
 const GRIP_BORDER_WIDTH = 1.25;
 // A socket the data flows INTO shows it is filled: the socket's own
-// trapezoid in the wire's colour, set in from every one of its walls by
-// this gap, so its contour follows the socket's exactly.
-const SOCKET_FILL_GAP = 1.25;
+// trapezoid in the wire's colour, reaching out to the border and set in
+// from the socket's three walls by this gap, so its contour follows the
+// socket's exactly.
+const SOCKET_FILL_GAP = 1;
+// The gap between a socket and its grip, the same on every pin: on an
+// output it is measured from the tip of the tab, on a filled input from
+// the border, where the filling ends.
+const GRIP_GAP = GRIP_FROM - SOCKET_DEPTH;
+const GRIP_LENGTH = GRIP_TO - GRIP_FROM;
+// The line from a filled socket out to its grip, as wide as the wire, so
+// the grip, the line and the filling read as one plug.
+const PLUG_STEM_HALF = 1.5;
 // The hover outline is drawn over a plug that may well be the same blue,
 // so it sits on a white halo, which keeps it readable on any wire colour.
 const SOCKET_HOVER_COLOR = SELECTION_COLOR;
@@ -861,17 +870,19 @@ function drawSocket(ctx, p, side, shape, stroke, fill, lineWidth, halo = false) 
 
 
 // A wire at a pin, in the wire's colour. Its grip — one compact rounded
-// handle with a dark border, identical at both ends of every wire — sits a
-// small gap out from the socket and never covers it. A socket the data
-// flows INTO is also shown filled (see socketFillPath); an output's tab
-// instead turns a shade darker once connected (see shadeTab), and a two-way
-// ring stays as it is. `inverted` puts the wire inside (a frame pin seen
-// from within its container), which also flips which of in/out the data
-// flows into. `hover` draws it translucent with the hover outline: the
-// grip about to be picked up.
-function gripPath(ctx, w) {
-  const a = GRIP_FROM;
-  const b = GRIP_TO;
+// handle with a dark border, identical at both ends of every wire — never
+// covers the socket. On an output it sits GRIP_GAP past the tip of the
+// tab, which turns a shade darker once connected (see shadeTab). On a pin
+// the data flows INTO, the socket itself is filled (see socketFillPath),
+// the grip sits the same GRIP_GAP out from the border where that filling
+// ends, and a wire-wide line joins the two. A two-way ring keeps just the
+// grip. `inverted` puts the wire inside (a frame pin seen from within its
+// container), which also flips which of in/out the data flows into.
+// `hover` draws it translucent with the hover outline: the grip about to
+// be picked up.
+function gripPath(ctx, w, from) {
+  const a = from;
+  const b = from + GRIP_LENGTH;
   const h = GRIP_HALF;
   const r = PLUG_RADIUS;
   const X = (v) => w * v;
@@ -886,11 +897,12 @@ function gripPath(ctx, w) {
   ctx.closePath();
 }
 
-// The filling of a socket: the socket's trapezoid (see socketPath) with
-// every wall moved in by SOCKET_FILL_GAP, the slanted ones along their own
-// normal, so the gap is even all round and each edge stays parallel to the
-// wall behind it. `s` is the side the socket lies on: -1 for a dent into
-// the face, +1 for a tab out of it.
+// The filling of a socket: the socket's trapezoid (see socketPath), open
+// end on the border, its two slanted walls and its back wall each moved in
+// by SOCKET_FILL_GAP — the slanted ones along their own normal — so the gap
+// is even all round and every edge stays parallel to the wall behind it.
+// `s` is the side the socket lies on: -1 for a dent into the face, +1 for
+// a tab out of it.
 function socketFillPath(ctx, s) {
   const HO = SOCKET_HALF_OUTER;
   const HI = SOCKET_HALF_INNER;
@@ -898,27 +910,32 @@ function socketFillPath(ctx, s) {
   const g = SOCKET_FILL_GAP;
   const slope = (HO - HI) / D;
   const lift = (g * Math.hypot(D, HO - HI)) / D;
-  const openHalf = HO - slope * g - lift;
+  const openHalf = HO - lift;
   const backHalf = HI + slope * g - lift;
-  ctx.moveTo(s * g, -openHalf);
+  ctx.moveTo(0, -openHalf);
   ctx.lineTo(s * (D - g), -backHalf);
   ctx.lineTo(s * (D - g), backHalf);
-  ctx.lineTo(s * g, openHalf);
+  ctx.lineTo(0, openHalf);
   ctx.closePath();
 }
 
 function drawPinPlug(ctx, p, side, inverted, shape, color, hover = false) {
   const w = inverted ? -1 : 1;
   const intoPin = (shape === 'in' && !inverted) || (shape === 'out' && inverted);
+  const gripFrom = intoPin ? GRIP_GAP : GRIP_FROM;
   withPinFrame(ctx, p, side, () => {
     ctx.fillStyle = color;
     if (intoPin) {
       ctx.beginPath();
       socketFillPath(ctx, shape === 'in' ? -1 : 1);
       ctx.fill();
+      // Out through the gap and on under the grip to where the wire itself
+      // attaches (CONNECTOR_NUB_LENGTH), so the line runs unbroken.
+      const x0 = Math.min(0, w * CONNECTOR_NUB_LENGTH);
+      ctx.fillRect(x0, -PLUG_STEM_HALF, CONNECTOR_NUB_LENGTH, 2 * PLUG_STEM_HALF);
     }
     ctx.beginPath();
-    gripPath(ctx, w);
+    gripPath(ctx, w, gripFrom);
     ctx.fill();
     if (hover) {
       strokeWithHalo(ctx, SOCKET_HOVER_COLOR, PLUG_HOVER_WIDTH);
