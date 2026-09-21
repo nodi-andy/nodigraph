@@ -1,0 +1,320 @@
+# An autonomous mobile robot, from sensors to wheels — robotics / mechatronics.
+# No coordinates anywhere: every level lays itself out on load (see docs/LLM-AUTHORING.md).
+# Menu > Open this file, paste it onto the canvas, or run `node client/tools/layout.mjs`.
+name: Autonomous mobile robot
+blocks:
+  lidar:
+    name: 3D LiDAR
+    subtitle: 16 channels · 10 Hz
+    lines:
+      - Ethernet · UDP
+    color: "#247e91"
+    fill: "#eaf7fa"
+    ports:
+      cloud: { name: point cloud, dir: out }
+  camera:
+    name: Depth camera
+    subtitle: RGB-D · 30 fps
+    color: "#247e91"
+    fill: "#eaf7fa"
+    ports:
+      frames: { name: frames, dir: out }
+  imu:
+    name: IMU
+    subtitle: 6-axis · 200 Hz
+    color: "#247e91"
+    fill: "#eaf7fa"
+    ports:
+      inertial: { dir: out }
+  encoders:
+    name: Wheel encoders
+    subtitle: 2 × 4096 cpr
+    color: "#247e91"
+    fill: "#eaf7fa"
+    ports:
+      ticks: { dir: out }
+  perception:
+    name: Perception
+    subtitle: Where am I · what is around me
+    color: "#16836e"
+    fill: "#e7f7ef"
+    ports:
+      cloud: { dir: in }
+      frames: { dir: in }
+      inertial: { dir: in }
+      ticks: { dir: in }
+      pose: { name: pose, dir: out }
+      costmap: { name: costmap, dir: out }
+    blocks:
+      filter:
+        name: Point cloud filter
+        lines:
+          - voxel 5 cm · crop box
+        color: "#16836e"
+        fill: "#e7f7ef"
+        ports:
+          raw: { dir: in }
+          clean: { dir: out }
+      detector:
+        name: Obstacle detection
+        subtitle: ground removal · clustering
+        color: "#16836e"
+        fill: "#e7f7ef"
+        ports:
+          cloud: { dir: in }
+          frames: { dir: in }
+          obstacles: { dir: out }
+      odometry:
+        name: Odometry fusion
+        subtitle: EKF · wheels + IMU
+        color: "#16836e"
+        fill: "#e7f7ef"
+        ports:
+          inertial: { dir: in }
+          ticks: { dir: in }
+          odom: { dir: out }
+      slam:
+        name: Localization
+        subtitle: scan matching against the map
+        color: "#16836e"
+        fill: "#e7f7ef"
+        ports:
+          cloud: { dir: in }
+          odom: { dir: in }
+          pose: { dir: out }
+      costmap:
+        name: Costmap builder
+        lines:
+          - 5 cm cells · inflation 0.4 m
+        color: "#16836e"
+        fill: "#e7f7ef"
+        ports:
+          obstacles: { dir: in }
+          pose: { dir: in }
+          grid: { dir: out }
+    wires:
+      - self.cloud -> filter.raw
+      - self.frames -> detector.frames
+      - self.inertial -> odometry.inertial
+      - self.ticks -> odometry.ticks
+      - filter.clean -> detector.cloud
+      - filter.clean -> slam.cloud
+      - odometry.odom -> slam.odom
+      - detector.obstacles -> costmap.obstacles
+      - slam.pose -> costmap.pose
+      - slam.pose -> self.pose
+      - costmap.grid -> self.costmap
+  planner:
+    name: Navigation
+    subtitle: Mission → path → velocity
+    color: "#8160af"
+    fill: "#f3eefb"
+    ports:
+      mission: { name: mission, dir: in }
+      pose: { dir: in }
+      costmap: { dir: in }
+      cmd_vel: { name: cmd_vel, dir: out }
+    blocks:
+      mission:
+        name: Mission executor
+        subtitle: waypoints · behaviour tree
+        color: "#8160af"
+        fill: "#f3eefb"
+        ports:
+          mission: { dir: in }
+          goal: { dir: out }
+      global:
+        name: Global planner
+        subtitle: A* on the static map
+        color: "#8160af"
+        fill: "#f3eefb"
+        ports:
+          goal: { dir: in }
+          pose: { dir: in }
+          path: { dir: out }
+      local:
+        name: Local planner
+        subtitle: MPC · 20 Hz
+        lines:
+          - v ≤ 1.5 m/s · ω ≤ 1 rad/s
+        color: "#8160af"
+        fill: "#f3eefb"
+        ports:
+          path: { dir: in }
+          costmap: { dir: in }
+          pose: { dir: in }
+          cmd_vel: { dir: out }
+    wires:
+      - self.mission -> mission.mission
+      - mission.goal -> global.goal
+      - self.pose -> global.pose
+      - self.pose -> local.pose
+      - self.costmap -> local.costmap
+      - { from: global.path, to: local.path, label: path }
+      - local.cmd_vel -> self.cmd_vel
+  controller:
+    name: Motion controller
+    subtitle: Twist → wheel torques
+    color: "#b47621"
+    fill: "#fff5e5"
+    ports:
+      cmd_vel: { dir: in }
+      ticks: { dir: in }
+      torque_l: { name: left, dir: out }
+      torque_r: { name: right, dir: out }
+      sto: { name: STO, dir: in, side: bottom }
+    blocks:
+      kinematics:
+        name: Differential kinematics
+        lines:
+          - track 0.52 m · r 0.1 m
+        color: "#b47621"
+        fill: "#fff5e5"
+        ports:
+          twist: { dir: in }
+          w_left: { dir: out }
+          w_right: { dir: out }
+      pid_l:
+        name: Left wheel PID
+        subtitle: 1 kHz
+        color: "#b47621"
+        fill: "#fff5e5"
+        ports:
+          setpoint: { dir: in }
+          measured: { dir: in }
+          torque: { dir: out }
+      pid_r:
+        name: Right wheel PID
+        subtitle: 1 kHz
+        color: "#b47621"
+        fill: "#fff5e5"
+        ports:
+          setpoint: { dir: in }
+          measured: { dir: in }
+          torque: { dir: out }
+      guard:
+        name: Torque limiter
+        subtitle: STO forces zero
+        color: "#c2410c"
+        fill: "#fde8dd"
+        ports:
+          left: { dir: in }
+          right: { dir: in }
+          sto: { dir: in }
+          left_out: { dir: out }
+          right_out: { dir: out }
+    wires:
+      - self.cmd_vel -> kinematics.twist
+      - kinematics.w_left -> pid_l.setpoint
+      - kinematics.w_right -> pid_r.setpoint
+      - self.ticks -> pid_l.measured
+      - self.ticks -> pid_r.measured
+      - pid_l.torque -> guard.left
+      - pid_r.torque -> guard.right
+      - self.sto -> guard.sto
+      - guard.left_out -> self.torque_l
+      - guard.right_out -> self.torque_r
+  drives:
+    name: Drive units
+    subtitle: 2 × BLDC · 48 V · 500 W
+    color: "#68798b"
+    fill: "#f0f4f8"
+    ports:
+      left: { dir: in }
+      right: { dir: in }
+      power: { name: 48 V, dir: in, side: bottom }
+      wheels: { name: wheels, dir: out }
+    blocks:
+      driver_l:
+        name: Left motor driver
+        subtitle: FOC · CAN 1 Mbit
+        lines:
+          - gate driver · 3 × half-bridge
+          - phase current sense
+        color: "#68798b"
+        fill: "#f0f4f8"
+        ports:
+          torque: { dir: in }
+          dc: { dir: in }
+          phases: { dir: out }
+      driver_r:
+        name: Right motor driver
+        subtitle: FOC · CAN 1 Mbit
+        lines:
+          - gate driver · 3 × half-bridge
+          - phase current sense
+        color: "#68798b"
+        fill: "#f0f4f8"
+        ports:
+          torque: { dir: in }
+          dc: { dir: in }
+          phases: { dir: out }
+      motor_l:
+        name: Left BLDC
+        subtitle: 1:20 gearbox
+        color: "#68798b"
+        fill: "#f0f4f8"
+        ports:
+          phases: { dir: in }
+          shaft: { dir: out }
+      motor_r:
+        name: Right BLDC
+        subtitle: 1:20 gearbox
+        color: "#68798b"
+        fill: "#f0f4f8"
+        ports:
+          phases: { dir: in }
+          shaft: { dir: out }
+    wires:
+      - self.left -> driver_l.torque
+      - self.right -> driver_r.torque
+      - self.power -> driver_l.dc
+      - self.power -> driver_r.dc
+      - driver_l.phases -> motor_l.phases
+      - driver_r.phases -> motor_r.phases
+      - motor_l.shaft -> self.wheels
+      - motor_r.shaft -> self.wheels
+  safety:
+    name: Safety controller
+    subtitle: E-stop · safety scanner fields
+    lines:
+      - dual channel · PL d
+    color: "#c2410c"
+    fill: "#fde8dd"
+    ports:
+      estop: { name: E-stop, dir: in }
+      fields: { name: fields, dir: in }
+      sto: { name: STO, dir: out }
+  fleet:
+    name: Fleet server
+    subtitle: missions · telemetry
+    lines:
+      - Wi-Fi · MQTT
+    color: "#4a6fa5"
+    fill: "#e3eaf7"
+    ports:
+      mission: { dir: out }
+      telemetry: { dir: in }
+  battery:
+    name: Battery pack
+    subtitle: 48 V · 40 Ah · BMS
+    color: "#68798b"
+    fill: "#f0f4f8"
+    ports:
+      dc: { dir: out }
+wires:
+  - lidar.cloud -> perception.cloud
+  - camera.frames -> perception.frames
+  - imu.inertial -> perception.inertial
+  - encoders.ticks -> perception.ticks
+  - encoders.ticks -> controller.ticks
+  - perception.pose -> planner.pose
+  - perception.costmap -> planner.costmap
+  - { from: fleet.mission, to: planner.mission, label: mission }
+  - { from: perception.pose, to: fleet.telemetry, label: telemetry, color: "#4a6fa5", dash: dashed }
+  - { from: planner.cmd_vel, to: controller.cmd_vel, label: cmd_vel }
+  - controller.torque_l -> drives.left
+  - controller.torque_r -> drives.right
+  - { from: safety.sto, to: controller.sto, label: STO, color: "#c2410c" }
+  - lidar.cloud -> safety.fields
+  - battery.dc -> drives.power

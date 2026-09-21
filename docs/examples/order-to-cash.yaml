@@ -1,0 +1,155 @@
+# Order-to-cash — a business process drawn the same way as a machine.
+# Blocks are process steps, coloured by the department that owns them; wires carry
+# the documents that move between them. Nesting shows what happens inside fulfilment.
+# No coordinates: every level lays itself out on load (see docs/LLM-AUTHORING.md).
+name: Order-to-cash process
+blocks:
+  legend:
+    name: Sales · Finance · Warehouse · Customer
+    subtitle: colour = owning department
+    kind: text
+    size: 11
+  customer:
+    name: Customer
+    subtitle: B2B account
+    color: "#68798b"
+    fill: "#f0f4f8"
+    ports:
+      rfq: { name: RFQ, dir: out }
+      po: { name: PO, dir: out }
+      goods: { name: goods, dir: in }
+      invoice: { dir: in }
+      payment: { name: payment, dir: out, side: bottom }
+  quote:
+    name: Quotation
+    subtitle: Sales · CRM
+    lines:
+      - price list · discounts · validity 30 d
+    color: "#4a6fa5"
+    fill: "#e3eaf7"
+    ports:
+      rfq: { dir: in }
+      quote: { name: quote, dir: out }
+  order_entry:
+    name: Order entry
+    subtitle: Sales · ERP
+    lines:
+      - SLA 1 business day
+    color: "#4a6fa5"
+    fill: "#e3eaf7"
+    ports:
+      po: { dir: in }
+      quote: { dir: in }
+      order: { name: sales order, dir: out }
+  credit:
+    name: Credit check
+    subtitle: Finance
+    lines:
+      - limit · overdue items · rating
+    color: "#b47621"
+    fill: "#fff5e5"
+    ports:
+      order: { dir: in }
+      released: { name: released, dir: out }
+      hold: { name: on hold, dir: out, side: bottom }
+  fulfilment:
+    name: Fulfilment
+    subtitle: Warehouse · WMS
+    color: "#16836e"
+    fill: "#e7f7ef"
+    ports:
+      order: { dir: in }
+      shipment: { name: shipment, dir: out }
+      goods: { name: goods, dir: out }
+    blocks:
+      allocate:
+        name: Stock allocation
+        subtitle: ATP check · backorder
+        color: "#16836e"
+        fill: "#e7f7ef"
+        ports:
+          order: { dir: in }
+          pick_list: { dir: out }
+      pick:
+        name: Picking
+        subtitle: handheld scanner
+        color: "#16836e"
+        fill: "#e7f7ef"
+        ports:
+          list: { dir: in }
+          items: { dir: out }
+      pack:
+        name: Packing
+        subtitle: packing slip · labels
+        color: "#16836e"
+        fill: "#e7f7ef"
+        ports:
+          items: { dir: in }
+          parcel: { dir: out }
+      ship:
+        name: Shipping
+        subtitle: carrier booking · tracking
+        color: "#16836e"
+        fill: "#e7f7ef"
+        ports:
+          parcel: { dir: in }
+          goods: { dir: out }
+          confirmation: { dir: out }
+    wires:
+      - self.order -> allocate.order
+      - allocate.pick_list -> pick.list
+      - pick.items -> pack.items
+      - pack.parcel -> ship.parcel
+      - ship.goods -> self.goods
+      - { from: ship.confirmation, to: self.shipment, label: goods issue }
+  invoicing:
+    name: Invoicing
+    subtitle: Finance · ERP
+    lines:
+      - e-invoice · net 30
+    color: "#b47621"
+    fill: "#fff5e5"
+    ports:
+      shipment: { dir: in }
+      invoice: { name: invoice, dir: out }
+      open_item: { dir: out, side: bottom }
+  collection:
+    name: Payment collection
+    subtitle: Finance · bank statement matching
+    lines:
+      - dunning after 30 d
+    color: "#b47621"
+    fill: "#fff5e5"
+    ports:
+      open_item: { dir: in }
+      payment: { dir: in }
+      cleared: { name: cleared, dir: out }
+  ledger:
+    name: General ledger
+    subtitle: Finance · month-end close
+    color: "#b47621"
+    fill: "#fff5e5"
+    ports:
+      cleared: { dir: in }
+  hold:
+    name: Order hold review
+    subtitle: Sales + Finance · daily
+    color: "#c2410c"
+    fill: "#fde8dd"
+    ports:
+      hold: { dir: in }
+      decision: { name: release / cancel, dir: out }
+wires:
+  - { from: customer.rfq, to: quote.rfq, label: RFQ }
+  - { from: quote.quote, to: order_entry.quote, label: quote }
+  - { from: customer.po, to: order_entry.po, label: purchase order }
+  - { from: order_entry.order, to: credit.order, label: sales order }
+  - { from: credit.released, to: fulfilment.order, label: released order }
+  - { from: credit.hold, to: hold.hold, color: "#c2410c", dash: dashed }
+  - { from: hold.decision, to: credit.order, color: "#c2410c", dash: dashed }
+  - { from: fulfilment.goods, to: customer.goods, label: delivery, color: "#16836e" }
+  - { from: fulfilment.shipment, to: invoicing.shipment, label: goods issue }
+  - { from: invoicing.invoice, to: customer.invoice, label: invoice, color: "#b47621" }
+  - invoicing.open_item -> collection.open_item
+  - { from: customer.payment, to: collection.payment, label: payment, color: "#b47621" }
+  - collection.cleared -> ledger.cleared

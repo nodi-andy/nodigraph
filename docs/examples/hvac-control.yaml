@@ -1,0 +1,161 @@
+# A heating zone with its control loop — process / building / control engineering.
+# The feedback wire from the sensor back to the controller is what makes it a loop.
+# No coordinates: every level lays itself out on load (see docs/LLM-AUTHORING.md).
+name: Zone heating control loop
+blocks:
+  setpoint:
+    name: Room thermostat
+    subtitle: setpoint 21 °C · schedule
+    color: "#4a6fa5"
+    fill: "#e3eaf7"
+    ports:
+      sp: { name: setpoint, dir: out }
+  bms:
+    name: Building management
+    subtitle: BACnet/IP · trends · alarms
+    color: "#4a6fa5"
+    fill: "#e3eaf7"
+    ports:
+      override: { dir: out }
+      status: { dir: in }
+  controller:
+    name: Zone controller
+    subtitle: PID · 1 s cycle
+    color: "#8160af"
+    fill: "#f3eefb"
+    ports:
+      sp: { dir: in }
+      pv: { name: measured, dir: in }
+      override: { dir: in }
+      status: { dir: out }
+      cv: { name: 0–10 V, dir: out }
+    blocks:
+      error:
+        name: Error
+        lines:
+          - e = SP − PV
+        color: "#8160af"
+        fill: "#f3eefb"
+        ports:
+          sp: { dir: in }
+          pv: { dir: in }
+          e: { dir: out }
+      p:
+        name: Proportional
+        lines:
+          - Kp = 4 %/K
+        color: "#8160af"
+        fill: "#f3eefb"
+        ports:
+          e: { dir: in }
+          out: { dir: out }
+      i:
+        name: Integral
+        lines:
+          - Ti = 600 s · anti-windup
+        color: "#8160af"
+        fill: "#f3eefb"
+        ports:
+          e: { dir: in }
+          out: { dir: out }
+      d:
+        name: Derivative
+        lines:
+          - Td = 30 s · filtered
+        color: "#8160af"
+        fill: "#f3eefb"
+        ports:
+          e: { dir: in }
+          out: { dir: out }
+      sum:
+        name: Sum and limit
+        lines:
+          - 0..100 % · rate 5 %/s
+        color: "#8160af"
+        fill: "#f3eefb"
+        ports:
+          p: { dir: in }
+          i: { dir: in }
+          d: { dir: in }
+          override: { dir: in }
+          cv: { dir: out }
+    wires:
+      - self.sp -> error.sp
+      - self.pv -> error.pv
+      - error.e -> p.e
+      - error.e -> i.e
+      - error.e -> d.e
+      - p.out -> sum.p
+      - i.out -> sum.i
+      - d.out -> sum.d
+      - self.override -> sum.override
+      - sum.cv -> self.cv
+      - sum.cv -> self.status
+  valve:
+    name: Mixing valve
+    subtitle: 3-way · 0–10 V actuator
+    lines:
+      - Kvs 6.3 · 90 s stroke
+    color: "#b47621"
+    fill: "#fff5e5"
+    ports:
+      cv: { dir: in }
+      supply: { dir: in }
+      flow: { name: flow, dir: out }
+  boiler:
+    name: Boiler loop
+    subtitle: 70 °C supply · pump P1
+    color: "#c2410c"
+    fill: "#fde8dd"
+    ports:
+      supply: { dir: out }
+      return: { dir: in }
+  radiators:
+    name: Radiators
+    subtitle: 4 × 1.2 kW
+    color: "#b47621"
+    fill: "#fff5e5"
+    ports:
+      flow: { dir: in }
+      heat: { name: heat, dir: out }
+      return: { dir: out, side: bottom }
+  room:
+    name: Room
+    subtitle: thermal mass · losses
+    lines:
+      - 60 m³ · U-values · solar gain
+    color: "#68798b"
+    fill: "#f0f4f8"
+    ports:
+      heat: { dir: in }
+      outdoor: { dir: in }
+      temp: { name: T_room, dir: out }
+  weather:
+    name: Outdoor conditions
+    subtitle: −10..30 °C · wind · sun
+    color: "#68798b"
+    fill: "#f0f4f8"
+    ports:
+      t: { dir: out }
+  sensor:
+    name: Temperature sensor
+    subtitle: PT1000 · 0.1 K
+    lines:
+      - τ ≈ 60 s
+    color: "#16836e"
+    fill: "#e7f7ef"
+    ports:
+      temp: { dir: in }
+      pv: { name: PV, dir: out }
+wires:
+  - { from: setpoint.sp, to: controller.sp, label: SP }
+  - bms.override -> controller.override
+  - { from: controller.status, to: bms.status, dash: dashed, color: "#4a6fa5" }
+  - { from: controller.cv, to: valve.cv, label: CV }
+  - boiler.supply -> valve.supply
+  - valve.flow -> radiators.flow
+  - radiators.heat -> room.heat
+  - { from: radiators.return, to: boiler.return, label: return, color: "#4a6fa5" }
+  - weather.t -> room.outdoor
+  - room.temp -> sensor.temp
+  - { from: sensor.pv, to: controller.pv, label: PV · feedback, color: "#16836e" }

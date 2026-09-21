@@ -14,15 +14,15 @@
 </p>
 
 <p align="center">
-  <a href="https://nodigraph.com/?github=nodi-andy/nodigraph/docs/examples/local-ai.nodigraph.json">
-    <img src="docs/examples/local-ai-walkthrough.gif" width="1000" alt="Animated walkthrough of a local AI assistant: the complete system, inside Retrieval, then inside Similarity search. Click to open the editable diagram.">
+  <a href="https://nodigraph.com/?github=nodi-andy/nodigraph/docs/examples/mobile-robot.yaml">
+    <img src="docs/examples/mobile-robot.svg" width="1000" alt="An autonomous mobile robot: sensors on the left feed Perception, then Navigation, Motion controller and Drive units; a safety controller's STO path and the fleet server's telemetry run alongside. Click to open the editable diagram.">
   </a>
 </p>
 
 <p align="center">
-  <a href="https://nodigraph.com/?github=nodi-andy/nodigraph/docs/examples/local-ai.nodigraph.json"><strong>Explore this diagram ↗</strong></a><br>
-  Open <strong>Retrieval</strong>, then <strong>Similarity search</strong>. Every block can contain another system.<br>
-  <sub>Conceptual local AI assistant · <a href="docs/examples/local-ai-overview.svg">Static overview</a> · <a href="docs/examples/local-ai.yaml">YAML source</a> · <a href="docs/examples/local-ai.md">Walkthrough and all three views</a></sub>
+  <a href="https://nodigraph.com/?github=nodi-andy/nodigraph/docs/examples/mobile-robot.yaml"><strong>Explore this diagram ↗</strong></a><br>
+  Double-click <strong>Perception</strong>, <strong>Navigation</strong> or <strong>Drive units</strong>. Every block can contain another system.<br>
+  <sub>Written as <a href="docs/examples/mobile-robot.yaml">180 lines of YAML</a> with no coordinates — the layout is automatic · <a href="docs/examples/">More examples</a> · <a href="docs/examples/local-ai.md">Walkthrough of a nested diagram</a></sub>
 </p>
 
 ---
@@ -184,16 +184,66 @@ single-user and not publicly reachable.
 | Server | ~150 lines of Node, one dependency (`ws`) |
 | Build step | None. The browser loads ES modules directly. |
 
+### Writing a diagram as text
+
+Export → YAML is a small, hand-editable text format: blocks, their ports, and
+the wires between them. Coordinates are optional — a level written without
+them is laid out on opening: blocks sized to their text, arranged left to
+right along their wires, inputs first, feedback under the row, nested levels
+first. So a diagram can be written the way you would describe it, and a
+person can then drag things around.
+
+```yaml
+name: Zone heating control loop
+blocks:
+  thermostat:
+    name: Room thermostat
+    ports:
+      sp: { dir: out }
+  controller:
+    name: Zone controller
+    subtitle: PID · 1 s cycle
+    ports:
+      sp: { dir: in }
+      pv: { dir: in }
+      cv: { dir: out }
+  valve:
+    name: Mixing valve
+    ports:
+      cv: { dir: in }
+wires:
+  - { from: thermostat.sp, to: controller.sp, label: SP }
+  - { from: controller.cv, to: valve.cv, label: CV }
+```
+
 ### Generating a diagram with an LLM
 
-Export → YAML is a small, hand-editable text format, which also makes it the
-easiest thing to have a model write for you.
-[`docs/LLM-AUTHORING.md`](docs/LLM-AUTHORING.md) is a brief you can hand to an
-LLM — the schema, the grid and port rules, and recipes for the usual shapes —
-so that what comes back is a diagram you can paste straight onto the canvas and
-keep editing, rather than a flat picture.
-[`docs/examples/pipeline-lanes.yaml`](docs/examples/pipeline-lanes.yaml) is a
-worked example of a lane-and-cards system diagram in that format.
+That format is also the easiest thing to have a model write for you.
+[`docs/LLM-AUTHORING.md`](docs/LLM-AUTHORING.md) is a brief for an LLM: link
+to it in a prompt and ask for a diagram of a repository, of the documents in
+a Drive folder, of a process you describe — what to extract, how to model it,
+the format, and how to hand back YAML, JSON or a link. What comes back is a
+diagram you can open and keep editing, rather than a flat picture.
+
+### Examples
+
+Six diagrams from different fields, all written without coordinates, in
+[`docs/examples/`](docs/examples/): an autonomous mobile robot, a battery
+storage system, a SaaS backend drilled down to source files, an HVAC control
+loop, a robot cell's safety functions, and an order-to-cash business
+process. Each opens live at
+`https://nodigraph.com/?github=nodi-andy/nodigraph/docs/examples/<file>.yaml`.
+
+### Command-line tools
+
+Three small Node scripts in `client/tools/`, no install, no browser — the same
+model, layout and rendering code the editor runs:
+
+| | |
+| --- | --- |
+| `node client/tools/lint.mjs diagram.yaml` | checks a diagram the way a reader sees it: wires through blocks, overlapping blocks, colliding labels, pins off their slots. Exit 1 on an error; `--json` for data. |
+| `node client/tools/layout.mjs diagram.yaml` | prints the YAML with every position filled in; `--json` for the full project; `--link` for a `?d=` share link with the diagram inside it. |
+| `node client/tools/svg.mjs diagram.yaml --out figure.svg` | draws a level to SVG; `--level "A/B"` for a nested one, `--all --out-dir` for every level. |
 
 ### Known limits
 
@@ -240,9 +290,3 @@ without that source-sharing obligation — the same dual-licensing model
 used by projects like MongoDB and Qt. There's no self-serve process for
 this yet; open an issue or otherwise get in touch to ask about one.
 
-## Linting a diagram
-
-`node client/tools/lint.mjs diagram.yaml` checks a diagram the way a reader
-sees it — wires through blocks, overlapping blocks, colliding labels, pins off
-their slots — using the same model and routing code as the canvas, and prints
-findings as text or, with `--json`, as data. See docs/LLM-AUTHORING.md.

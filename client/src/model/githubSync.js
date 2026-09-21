@@ -10,6 +10,8 @@
 // external setup step) and its token-exchange endpoint's CORS support is
 // unconfirmed — a PAT works today against api.github.com with nothing to
 // register.
+import { projectDataToYamlText, yamlTextToProjectData } from './slimFormat.js';
+
 const API = 'https://api.github.com';
 const TOKEN_KEY = 'nodigraph:githubToken';
 
@@ -119,20 +121,30 @@ function base64ToUtf8(b64) {
   return new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
 }
 
+// A `.yaml`/`.yml` path is the slim authoring format (see slimFormat.js),
+// so a diagram written by hand or by an LLM and committed to a repo opens
+// from a plain ?github= link too, laid out on the way in. Anything else is
+// the full project JSON.
+export function isYamlPath(path) {
+  return /\.ya?ml$/i.test(path || '');
+}
+
 export async function readDiagramFromGitHub(target, token = getStoredToken()) {
   const file = await apiFetch(contentsUrlForRead(target), {}, token);
   if (Array.isArray(file)) throw new Error(`${target.path} is a directory, not a file`);
   const text = base64ToUtf8(file.content.replace(/\n/g, ''));
+  if (isYamlPath(target.path)) return yamlTextToProjectData(text);
   const data = JSON.parse(text);
   if (!data?.rootBlock) throw new Error('Not a nodigraph project file');
   return data;
 }
 
-// foo.nodigraph.json -> foo.svg, matching the docs/architecture.* dogfooding
-// convention — regenerated on every save rather than tracked separately, so
-// there's no second path to configure or forget to update.
+// foo.nodigraph.json -> foo.svg (and foo.yaml -> foo.svg), matching the
+// docs/architecture.* dogfooding convention — regenerated on every save
+// rather than tracked separately, so there's no second path to configure
+// or forget to update.
 export function siblingSvgPath(jsonPath) {
-  return jsonPath.replace(/\.nodigraph\.json$/i, '.svg').replace(/\.json$/i, '.svg');
+  return jsonPath.replace(/\.nodigraph\.json$/i, '.svg').replace(/\.json$/i, '.svg').replace(/\.ya?ml$/i, '.svg');
 }
 
 async function currentSha(target, token) {
@@ -168,9 +180,11 @@ async function putFile(target, content, message, token) {
 // repeat save just overwrites both files rather than accumulating history
 // of its own; git already keeps that history.
 export async function writeDiagramToGitHub(target, projectData, svgString, token = getStoredToken()) {
-  const jsonText = JSON.stringify(projectData, null, 2);
+  // A diagram opened from a YAML file is written back as YAML, so the
+  // file stays in the format its author works in.
+  const text = isYamlPath(target.path) ? projectDataToYamlText(projectData) : JSON.stringify(projectData, null, 2);
   const svgPath = siblingSvgPath(target.path);
-  await putFile(target, jsonText, `Update ${target.path} (via nodigraph)`, token);
+  await putFile(target, text, `Update ${target.path} (via nodigraph)`, token);
   // A failure here is a different, more confusing situation than either
   // file failing on its own: the diagram's source already committed, so
   // whatever caused this needs its own message rather than reading as if

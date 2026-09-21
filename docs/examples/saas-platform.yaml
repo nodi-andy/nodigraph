@@ -1,0 +1,189 @@
+# An online shop's backend, as a code base would be drawn — software architecture.
+# `link` blocks point at (example) source files; nesting shows one service's internals.
+# No coordinates: every level lays itself out on load (see docs/LLM-AUTHORING.md).
+name: Shop platform
+blocks:
+  web:
+    name: Web app
+    subtitle: React · SPA
+    color: "#4a6fa5"
+    fill: "#e3eaf7"
+    ports:
+      api: { dir: out }
+  mobile:
+    name: Mobile app
+    subtitle: iOS · Android
+    color: "#4a6fa5"
+    fill: "#e3eaf7"
+    ports:
+      api: { dir: out }
+  gateway:
+    name: API gateway
+    subtitle: TLS · rate limiting · JWT
+    lines:
+      - /api/v1/*
+    color: "#68798b"
+    fill: "#f0f4f8"
+    ports:
+      clients: { dir: in }
+      orders: { dir: out }
+      catalog: { dir: out }
+      auth: { dir: out }
+  auth:
+    name: Identity
+    subtitle: OpenID Connect
+    color: "#68798b"
+    fill: "#f0f4f8"
+    ports:
+      tokens: { dir: in }
+      users: { dir: out }
+  catalog:
+    name: Catalog service
+    subtitle: Go · read-heavy
+    lines:
+      - GET /products
+    link: https://github.com/example/shop/tree/main/services/catalog
+    color: "#16836e"
+    fill: "#e7f7ef"
+    ports:
+      http: { dir: in }
+      db: { dir: out }
+      cache: { dir: out }
+  orders:
+    name: Order service
+    subtitle: Node.js · the money path
+    lines:
+      - POST /orders · GET /orders/:id
+    link: https://github.com/example/shop/tree/main/services/orders
+    color: "#8160af"
+    fill: "#f3eefb"
+    ports:
+      http: { dir: in }
+      db: { dir: out }
+      events: { dir: out }
+      payments: { dir: out }
+    blocks:
+      router:
+        name: routes/orders.ts
+        subtitle: validation · auth scopes
+        link: https://github.com/example/shop/blob/main/services/orders/src/routes/orders.ts
+        color: "#8160af"
+        fill: "#f3eefb"
+        ports:
+          http: { dir: in }
+          cmd: { dir: out }
+      domain:
+        name: domain/order.ts
+        subtitle: state machine
+        lines:
+          - draft → paid → shipped
+        link: https://github.com/example/shop/blob/main/services/orders/src/domain/order.ts
+        color: "#8160af"
+        fill: "#f3eefb"
+        ports:
+          cmd: { dir: in }
+          charge: { dir: out }
+          save: { dir: out }
+      payments:
+        name: adapters/stripe.ts
+        subtitle: idempotency keys
+        link: https://github.com/example/shop/blob/main/services/orders/src/adapters/stripe.ts
+        color: "#8160af"
+        fill: "#f3eefb"
+        ports:
+          charge: { dir: in }
+          api: { dir: out }
+      repo:
+        name: repo/orders.ts
+        subtitle: Postgres · transactional outbox
+        link: https://github.com/example/shop/blob/main/services/orders/src/repo/orders.ts
+        color: "#8160af"
+        fill: "#f3eefb"
+        ports:
+          save: { dir: in }
+          sql: { dir: out }
+          outbox: { dir: out }
+      publisher:
+        name: outbox/publisher.ts
+        subtitle: polls outbox → Kafka
+        link: https://github.com/example/shop/blob/main/services/orders/src/outbox/publisher.ts
+        color: "#8160af"
+        fill: "#f3eefb"
+        ports:
+          rows: { dir: in }
+          events: { dir: out }
+    wires:
+      - self.http -> router.http
+      - router.cmd -> domain.cmd
+      - domain.charge -> payments.charge
+      - domain.save -> repo.save
+      - repo.sql -> self.db
+      - repo.outbox -> publisher.rows
+      - { from: publisher.events, to: self.events, label: order.placed }
+      - payments.api -> self.payments
+  postgres:
+    name: PostgreSQL
+    subtitle: primary + replica
+    lines:
+      - orders · products · users
+    color: "#b47621"
+    fill: "#fff5e5"
+    ports:
+      sql: { dir: in }
+  redis:
+    name: Redis
+    subtitle: product cache · sessions
+    color: "#b47621"
+    fill: "#fff5e5"
+    ports:
+      cache: { dir: in }
+  kafka:
+    name: Kafka
+    subtitle: orders topic · 12 partitions
+    color: "#b47621"
+    fill: "#fff5e5"
+    ports:
+      produce: { dir: in }
+      consume: { dir: out }
+  stripe:
+    name: Stripe
+    subtitle: external · payments API
+    color: "#c2410c"
+    fill: "#fde8dd"
+    ports:
+      api: { dir: in }
+  worker:
+    name: Notification worker
+    subtitle: Python · e-mail · push
+    link: https://github.com/example/shop/tree/main/workers/notify
+    color: "#16836e"
+    fill: "#e7f7ef"
+    ports:
+      events: { dir: in }
+      smtp: { dir: out }
+  email:
+    name: E-mail provider
+    subtitle: external · SMTP relay
+    color: "#c2410c"
+    fill: "#fde8dd"
+    ports:
+      smtp: { dir: in }
+  observability:
+    name: Observability
+    subtitle: OpenTelemetry → Grafana · Loki · Tempo
+    kind: text
+    bold: true
+wires:
+  - { from: web.api, to: gateway.clients, label: HTTPS }
+  - mobile.api -> gateway.clients
+  - gateway.auth -> auth.tokens
+  - gateway.orders -> orders.http
+  - gateway.catalog -> catalog.http
+  - auth.users -> postgres.sql
+  - catalog.db -> postgres.sql
+  - catalog.cache -> redis.cache
+  - orders.db -> postgres.sql
+  - { from: orders.events, to: kafka.produce, label: order.placed }
+  - orders.payments -> stripe.api
+  - kafka.consume -> worker.events
+  - worker.smtp -> email.smtp

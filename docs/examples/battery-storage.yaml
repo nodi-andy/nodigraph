@@ -1,0 +1,202 @@
+# A residential battery energy storage system — electrical / power engineering.
+# No coordinates: every level lays itself out on load (see docs/LLM-AUTHORING.md).
+name: Battery energy storage system
+blocks:
+  pv:
+    name: PV array
+    subtitle: 24 modules · 9.6 kWp
+    lines:
+      - 2 strings · 600 V DC
+    color: "#b47621"
+    fill: "#fff5e5"
+    ports:
+      dc: { name: DC, dir: out }
+  mppt:
+    name: MPPT charge controller
+    subtitle: 2 × 5 kW
+    color: "#b47621"
+    fill: "#fff5e5"
+    ports:
+      pv: { dir: in }
+      bus: { dir: out }
+      ctrl: { name: Modbus, dir: in, side: bottom }
+  bus:
+    name: DC bus
+    subtitle: 400 V · fused
+    lines:
+      - pre-charge · isolation monitor
+    color: "#68798b"
+    fill: "#f0f4f8"
+    ports:
+      in_pv: { dir: in }
+      battery: { dir: in }
+      out: { dir: out }
+  battery:
+    name: Battery pack
+    subtitle: 20 kWh · LFP · 400 V
+    color: "#16836e"
+    fill: "#e7f7ef"
+    ports:
+      dc: { dir: out }
+      can: { name: CAN, dir: in, side: bottom }
+    blocks:
+      modules:
+        name: Cell modules
+        subtitle: 8 × 16S · 3.2 V cells
+        lines:
+          - NTC per module
+        color: "#16836e"
+        fill: "#e7f7ef"
+        ports:
+          taps: { dir: out }
+          temps: { dir: out }
+          power: { dir: out }
+      monitor:
+        name: Cell monitor AFE
+        subtitle: 128 voltages · 8 temps
+        color: "#16836e"
+        fill: "#e7f7ef"
+        ports:
+          taps: { dir: in }
+          temps: { dir: in }
+          data: { dir: out }
+          balance: { dir: out }
+      balancer:
+        name: Passive balancing
+        subtitle: 100 mA per cell
+        color: "#16836e"
+        fill: "#e7f7ef"
+        ports:
+          cmd: { dir: in }
+      bms:
+        name: BMS controller
+        subtitle: SoC · SoH · limits
+        lines:
+          - Kalman SoC · derating table
+        color: "#16836e"
+        fill: "#e7f7ef"
+        ports:
+          data: { dir: in }
+          host: { dir: in }
+          contactor: { dir: out }
+          limits: { dir: out }
+      contactor:
+        name: Main contactors
+        subtitle: + / − · pre-charge
+        color: "#68798b"
+        fill: "#f0f4f8"
+        ports:
+          coil: { dir: in }
+          power_in: { dir: in }
+          power_out: { dir: out }
+    wires:
+      - modules.taps -> monitor.taps
+      - modules.temps -> monitor.temps
+      - { from: monitor.data, to: bms.data, label: isoSPI }
+      - monitor.balance -> balancer.cmd
+      - bms.contactor -> contactor.coil
+      - modules.power -> contactor.power_in
+      - contactor.power_out -> self.dc
+      - self.can -> bms.host
+      - bms.limits -> self.can
+  inverter:
+    name: Hybrid inverter
+    subtitle: 10 kW · grid-tied
+    color: "#8160af"
+    fill: "#f3eefb"
+    ports:
+      dc: { dir: in }
+      ac: { name: AC, dir: out }
+      ctrl: { name: Modbus, dir: in, side: bottom }
+    blocks:
+      link:
+        name: DC link
+        subtitle: 400 V · film capacitors
+        color: "#8160af"
+        fill: "#f3eefb"
+        ports:
+          dc: { dir: in }
+          out: { dir: out }
+      bridge:
+        name: 3-phase bridge
+        subtitle: SiC MOSFETs · 20 kHz
+        color: "#8160af"
+        fill: "#f3eefb"
+        ports:
+          dc: { dir: in }
+          pwm: { dir: in }
+          ac: { dir: out }
+      filter:
+        name: LCL filter
+        color: "#8160af"
+        fill: "#f3eefb"
+        ports:
+          raw: { dir: in }
+          clean: { dir: out }
+      control:
+        name: Grid controller
+        subtitle: PLL · current loops
+        lines:
+          - anti-islanding · VDE-AR-N 4105
+        color: "#8160af"
+        fill: "#f3eefb"
+        ports:
+          setpoint: { dir: in }
+          sense: { dir: in }
+          pwm: { dir: out }
+    wires:
+      - self.dc -> link.dc
+      - link.out -> bridge.dc
+      - bridge.ac -> filter.raw
+      - filter.clean -> self.ac
+      - { from: filter.clean, to: control.sense, label: V · I, dash: dotted }
+      - control.pwm -> bridge.pwm
+      - self.ctrl -> control.setpoint
+  meter:
+    name: Grid meter
+    subtitle: bidirectional · 3-phase
+    color: "#68798b"
+    fill: "#f0f4f8"
+    ports:
+      ac_in: { dir: in }
+      ac_out: { dir: out }
+      reading: { name: RS-485, dir: out, side: bottom }
+  grid:
+    name: Utility grid
+    subtitle: 400 V · 50 Hz
+    color: "#4a6fa5"
+    fill: "#e3eaf7"
+    ports:
+      ac: { dir: in }
+  loads:
+    name: Household loads
+    subtitle: distribution board
+    color: "#4a6fa5"
+    fill: "#e3eaf7"
+    ports:
+      ac: { dir: in }
+  ems:
+    name: Energy management
+    subtitle: self-consumption · peak shaving
+    lines:
+      - Modbus TCP master
+      - MQTT → cloud
+    color: "#c2410c"
+    fill: "#fde8dd"
+    ports:
+      meter: { dir: in }
+      mppt: { dir: out }
+      battery: { dir: out }
+      inverter: { dir: out }
+wires:
+  - pv.dc -> mppt.pv
+  - mppt.bus -> bus.in_pv
+  - battery.dc -> bus.battery
+  - bus.out -> inverter.dc
+  - inverter.ac -> meter.ac_in
+  - meter.ac_out -> grid.ac
+  - meter.ac_out -> loads.ac
+  - { from: meter.reading, to: ems.meter, label: import / export, color: "#c2410c", dash: dashed }
+  - { from: ems.mppt, to: mppt.ctrl, color: "#c2410c", dash: dashed }
+  - { from: ems.battery, to: battery.can, color: "#c2410c", dash: dashed }
+  - { from: ems.inverter, to: inverter.ctrl, label: P · Q setpoints, color: "#c2410c", dash: dashed }

@@ -65,18 +65,24 @@ export function pathHitsObstacles(points, obstacles) {
 }
 
 // The blocks a wire between `stubA` and `stubB` must keep clear of: every
-// block of the level except the two it connects and any block that
-// encloses one of its ends — a lane or panel a pin sits inside is the
-// space the wire lives in, not something in its way.
+// block of the level except any that encloses one of its ends — a lane or
+// panel a pin sits inside is the space the wire lives in, not something
+// in its way. The two blocks the wire connects are obstacles like the
+// rest: their pins' stubs already stand clear of them, and a route that
+// doubled back through the block it starts from (a pin on the far side
+// from where the wire is going) reads as a wire through a block just the
+// same. Two blocks plugged edge to edge put each stub inside the other
+// block, so both are left out by the enclosure rule.
 export function obstaclesFor(blocks, sourceBlockId, targetBlockId, stubA, stubB) {
   const out = [];
   for (const block of blocks) {
-    if (block.id === sourceBlockId || block.id === targetBlockId) continue;
     const g = block.geometry;
     if (!g) continue;
     if (contains(g, stubA.x, stubA.y) || contains(g, stubB.x, stubB.y)) continue;
     out.push(g);
   }
+  void sourceBlockId;
+  void targetBlockId;
   return out;
 }
 
@@ -150,9 +156,18 @@ export function routeAroundObstacles({ stubA, sourceSide, sourceInverted = false
   const endDir = dirIndex(-tN.x * tSign, -tN.y * tSign);
   if (startDir < 0 || endDir < 0) return null;
 
-  // `lanes` are other wires' routes, already padded by the caller: kept
-  // clear of like blocks, but not counted when sizing the search box.
-  const blocked = [...obstacles.map((r) => inflate(r, OBSTACLE_MARGIN)), ...lanes];
+  // `lanes` are other wires' routes, already padded by the caller: not
+  // counted when sizing the search box, and not walls either — a wire may
+  // cross another wire, it just may not run along it. A step inside a lane
+  // is refused only when it runs the lane's own way.
+  const blocked = obstacles.map((r) => inflate(r, OBSTACLE_MARGIN));
+  const laneRects = lanes.map((r) => ({ ...r, horizontal: r.width >= r.height }));
+  const runsAlongLane = (x, y, dir) => {
+    for (const r of laneRects) {
+      if (contains(r, x, y) && r.horizontal === (dir.dx !== 0)) return true;
+    }
+    return false;
+  };
 
   // Search box: everything involved, plus room to go around the outside.
   const pad = LATTICE * 4;
@@ -213,7 +228,7 @@ export function routeAroundObstacles({ stubA, sourceSide, sourceInverted = false
       if (dir.dx === -DIRS[cur.d].dx && dir.dy === -DIRS[cur.d].dy) continue;
       const nx = cur.x + dir.dx * LATTICE;
       const ny = cur.y + dir.dy * LATTICE;
-      if (!isFree(nx, ny)) continue;
+      if (!isFree(nx, ny) || runsAlongLane(nx, ny, dir)) continue;
       const g = cur.g + LATTICE + (d === cur.d ? 0 : TURN_COST);
       const k = key(nx, ny, d);
       const prevRec = best.get(k);
@@ -237,11 +252,15 @@ export function routeAroundObstacles({ stubA, sourceSide, sourceInverted = false
     else segments.push({ o, from: nodes[i - 1], to: nodes[i] });
   }
   if (!segments.length) return null;
-  // The first segment is the source's own run and the last the target's;
-  // the pieces between them are the route. Each is one coordinate: the y
-  // of a horizontal piece, the x of a vertical one.
+  // The last segment is the target's own run (the goal is only reached
+  // heading along it). The first is the source's run when it continues
+  // the stub; a path that turned on the spot has no run of its own past
+  // the stub, and its first segment is already the first free piece. The
+  // pieces between are the route, one coordinate each: the y of a
+  // horizontal piece, the x of a vertical one.
+  const runOrientation = DIRS[startDir].dx !== 0 ? 'h' : 'v';
   const coords = [];
-  for (let i = 1; i < segments.length - 1; i += 1) {
+  for (let i = segments[0].o === runOrientation ? 1 : 0; i < segments.length - 1; i += 1) {
     const seg = segments[i];
     coords.push(seg.o === 'h' ? seg.from.y : seg.from.x);
   }

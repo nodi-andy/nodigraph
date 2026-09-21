@@ -35,6 +35,7 @@ import { generateId, hydrateBlockTree, DEFAULT_BLOCK_WIDTH, DEFAULT_BLOCK_HEIGHT
 const CODE_PROP_NAMES = new Set(['fn', 'render', 'html', 'dialog']);
 import { createDefaultBoundaryGeometry, GRID_SIZE } from './grid.js';
 import { createConnection } from './Connection.js';
+import { autoLayoutProjectData } from './autoLayout.js';
 
 // `lines:` is written as a block sequence of scalars; a single scalar
 // (`lines: 250 kbit`) is the same thing with one row, and a number the
@@ -231,6 +232,9 @@ function slimPortsToArrays(portsSlim) {
       side,
       offset: rec.offset,
       manualOffset: rec.offset !== undefined && rec.offset !== null,
+      // Import-time only (see model/autoLayout.js, which removes it): a
+      // side the author did not choose may be turned to face its wire.
+      _autoSide: !rec.side,
     };
     // Present only when the exported pin actually had one (see
     // computePortsSlim) — an ordinary pin that's never been entered and
@@ -331,6 +335,11 @@ function slimBlockToData(slimBlock) {
     hasChildren,
     boundaryGeometry: null,
     children: null,
+    // Import-time only (see model/autoLayout.js, which removes it): which
+    // of the block's coordinates the author left to the editor. A level
+    // whose blocks all have no `x`/`y` lays itself out; a `w`/`h` that was
+    // given is a minimum there, not a fixed size.
+    _auto: { place: slimBlock.x === undefined && slimBlock.y === undefined, w: slimBlock.w === undefined, h: slimBlock.h === undefined },
   };
   if (hasChildren) {
     block.boundaryGeometry = slimBlock.boundary
@@ -366,7 +375,10 @@ export function slimToProjectData(slim) {
     boundaryGeometry,
     children: { blocks: blocksArray, connections: connectionsArray },
   };
-  return { rootBlock, path: [] };
+  // Levels described without coordinates get theirs here (see
+  // model/autoLayout.js); `layout: auto` at the top asks for every level
+  // to be re-laid-out whatever coordinates it carries.
+  return autoLayoutProjectData({ rootBlock, path: [] }, { force: slim.layout === 'auto' });
 }
 
 // ---------- text ----------

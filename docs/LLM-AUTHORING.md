@@ -1,45 +1,107 @@
-# Authoring nodigraph diagrams (for an LLM)
+# Turning a codebase, a folder of documents, or a description into a nodigraph diagram
 
-You are writing **one YAML document** that a person will load into
-[nodigraph](https://nodigraph.com) and then keep editing by hand. Emit the
-YAML and nothing else — no PNG, no SVG, no Mermaid. Everything below is the
-format the editor itself exports, so anything you write here round-trips.
+**A brief for an LLM.** A person links to this file in their prompt and asks
+for a diagram of something — a repository, the files in a Google Drive
+folder, a product they describe, a business process. You read the source
+material, work out what the system is made of and how the parts connect,
+and write **one YAML document** in the format below. The person opens it in
+[nodigraph](https://nodigraph.com) and keeps editing it by hand; the editor
+lays it out.
+
+Typical prompts this brief is meant to answer:
+
+> Read https://github.com/nodi-andy/nodigraph/blob/main/docs/LLM-AUTHORING.md,
+> then go through this repository and give me its architecture as a
+> nodigraph diagram — one block per service, drill into the order service.
+
+> Following that brief, read every document in my Drive folder "Plant 3
+> retrofit" and draw the control system: sensors, PLCs, drives, networks.
+
+> Same brief: model our order-to-cash process as a nodigraph, one block per
+> step, the documents that move between them as wires.
+
+What you hand back is the YAML (and, when asked, the JSON or a link — see
+[Delivering the result](#delivering-the-result)). Emit no PNG, no Mermaid, no
+prose diagram. Everything below is the format the editor itself exports, so
+anything you write here round-trips.
+
+---
+
+## The short version
+
+1. **Read the material** and decide what the system *is*: its top level, its
+   inputs and outputs, and 5–12 main parts. Anything with real internal
+   structure becomes a block you can drill into (its own `blocks`/`wires`).
+2. **Model, don't transcribe.** Blocks are components, services, machines,
+   process steps, roles. Wires are what flows between them: a signal, a
+   message, a document, a current. Ports are the named connection points on
+   a block. Give things the names the source material uses.
+3. **Write the YAML with no coordinates.** Leave `x`, `y`, `w`, `h` and port
+   `offset` out; the editor sizes every block to its text and lays each
+   level out left to right, inputs first (see [Layout](#layout)). Only
+   place things by hand when the person asks for a particular arrangement.
+4. **Check it** if you can run commands (`node client/tools/lint.mjs`), or
+   walk the [checklist](#before-you-hand-it-over) if you cannot.
+5. **Hand it over** as a YAML code block, plus whichever of JSON / link /
+   picture the person asked for.
 
 ---
 
 ## Cheat sheet
 
-If you read only one section, read this one.
-
 ```yaml
-name: My System                       # the product / top level
-boundary: { x: 0, y: 0, w: 1200, h: 600 }   # dashed frame around the top level
-blocks:                               # a mapping, NOT a list. Key = local id.
-  b1:                                 # first key = drawn furthest back
-    name: Probe Array
-    subtitle: 3 lidars · cameras      # optional smaller line under the title
-    lines:                            # optional monospace detail rows
-      - 192.0.2.20..23
-    x: 80                             # multiples of 40 (the grid)
-    y: 80
-    w: 200                            # default 120
-    h: 120                            # default 80
-    color: "#4a8c5c"                  # BORDER colour
-    fill: "#eaf4ec"                   # background
+name: Zone heating control loop           # the product / top level
+blocks:                                   # a mapping, NOT a list. Key = local id.
+  setpoint:
+    name: Room thermostat
+    subtitle: setpoint 21 °C · schedule   # optional smaller line under the title
+    color: "#4a6fa5"                      # BORDER colour, quoted because of #
+    fill: "#e3eaf7"                       # background
     ports:
-      p1: { dir: in,  offset: 60 }    # offset must be 20, 60, 100, 140, ...
-      p2: { dir: out, offset: 60 }
-  b2:
-    name: MCU
-    x: 480
-    y: 80
-    w: 200
-    h: 120
+      sp: { name: setpoint, dir: out }    # one port per line, in `{ … }` flow style
+  controller:
+    name: Zone controller
+    subtitle: PID · 1 s cycle
+    lines:                                # optional monospace detail rows
+      - Kp 4 %/K · Ti 600 s
     ports:
-      p1: { dir: in, offset: 60 }
+      sp: { dir: in }
+      pv: { name: measured, dir: in }
+      cv: { name: 0–10 V, dir: out }
+    blocks:                               # this block can be drilled into
+      error:
+        name: Error
+        lines:
+          - e = SP − PV
+        ports:
+          sp: { dir: in }
+          pv: { dir: in }
+          e: { dir: out }
+      pid:
+        name: PID terms
+        ports:
+          e: { dir: in }
+          cv: { dir: out }
+    wires:
+      - self.sp -> error.sp               # `self` = the enclosing block's own port
+      - self.pv -> error.pv
+      - error.e -> pid.e
+      - pid.cv -> self.cv
+  valve:
+    name: Mixing valve
+    ports:
+      cv: { dir: in }
+      flow: { dir: out }
+  sensor:
+    name: Temperature sensor
+    ports:
+      t: { dir: in }
+      pv: { dir: out }
 wires:
-  - b1.p2 -> b2.p1                              # plain
-  - { from: b1.p2, to: b2.p1, label: 5V rail }  # with a label
+  - { from: setpoint.sp, to: controller.sp, label: SP }
+  - { from: controller.cv, to: valve.cv, label: CV }
+  - valve.flow -> sensor.t
+  - { from: sensor.pv, to: controller.pv, label: feedback, color: "#16836e" }
 ```
 
 Six rules that cause almost every mistake:
@@ -47,28 +109,105 @@ Six rules that cause almost every mistake:
 1. **`blocks` is a mapping keyed by id**, not a sequence. `wires` *is* a sequence.
 2. **Indent exactly 2 spaces per level.** The reader is a small purpose-built
    parser, not a full YAML implementation.
-3. **`offset` must be a cell centre**: `20, 60, 100, 140, …`. Anything else is
-   snapped and your wires stop lining up.
-4. **`color` is the border, `fill` is the background.** There is no text-colour
-   field. A `kind: text` block given a `color` grows a visible box around itself.
-5. **Never put a comma inside an unquoted value** — it splits a `{ … }` record.
-6. **A `{ … }` record cannot contain another `{ … }`.** One level of flow only:
-   `p1: { dir: in, offset: 60 }` is fine, `b1: { name: X, ports: { … } }` silently
-   turns the inner record into a meaningless string. Write blocks in block style
-   and keep flow style for ports and wires.
+3. **Never put a comma inside an unquoted value** — it splits a `{ … }` record.
+   Quote it: `label: "a, b"`.
+4. **A `{ … }` record cannot contain another `{ … }`.** One level of flow only:
+   `p1: { dir: in }` is fine, `b1: { name: X, ports: { … } }` silently turns the
+   inner record into a meaningless string. Write blocks in block style and
+   keep flow style for ports and wires.
+5. **`color` is the border, `fill` is the background.** There is no text-colour
+   field. Hex colours must be quoted, because `#` starts a comment.
+6. **Every wire endpoint is `blockKey.portKey`**, both of which must exist at
+   that level (or `self.portKey` for the enclosing block). A wire to a key that
+   does not exist is dropped without a message.
 
 ---
 
-## How the human loads it
+## Reading the source material
+
+What to extract depends on what you were given. Whatever it is, keep to the
+vocabulary the material itself uses — a reader should recognise every name.
+
+**A code base (git repository).** The top level is the deployed system, not
+the directory tree. Blocks: the services, apps, workers and packages that run
+or ship separately; the external systems they talk to (databases, queues,
+third-party APIs, the browser); the hardware they drive. Wires: the calls,
+messages, queries and files between them, labelled with the protocol or the
+message (`HTTPS`, `order.placed`, `Modbus TCP`). Drill into the one or two
+services that matter most: their modules as child blocks, each with a `link`
+to its source file on a stable URL (`blob/<branch>/path`). Read the entry
+points, the dependency manifests, the deployment files (compose, Helm, CI),
+the README — not every file.
+
+**A folder of documents (Drive, SharePoint, a wiki).** Skim for the system
+being described, then read the documents that define structure: architecture
+notes, interface lists, wiring diagrams, BOMs, process descriptions, org
+charts. Blocks: the machines, subsystems, departments or process steps. Wires:
+the signals, materials, documents or approvals that move between them. Where
+documents disagree, follow the most recent and say so in a `props` note.
+
+**A description in the conversation.** Ask nothing you can decide yourself;
+choose sensible components and name them plainly. Put anything you had to
+assume in a `props` entry (`assumed: 48 V bus`) so the person can see it.
+
+**A business process.** Blocks are steps or roles, coloured by the department
+that owns them; wires are the documents and decisions that move between them
+(`purchase order`, `released`, `on hold`); a decision with two outcomes is two
+out ports. Nest a step to show its sub-steps.
+
+Keep a level to roughly 5–12 blocks. If a level has more, group: the group
+becomes a block with its own `blocks`. Prefer depth over a crowded picture.
+
+---
+
+## Layout
+
+**You do not place anything.** A level whose blocks carry no `x`/`y` is laid
+out when the file is opened:
+
+- every block is sized to its text (title, subtitle, detail lines) and its
+  pins, never smaller than the editor's default `120×80`, on the 40 px grid;
+- blocks are arranged left to right along their wires: what feeds the level
+  (blocks with nothing before them, or fed by the enclosing block's own
+  inputs) in the left column, what it produces on the right, the most
+  connected block anchoring the middle; a level's inputs face left and its
+  outputs right;
+- columns are three cells apart (room for a wire label and a detour), rows
+  two cells apart, so a person can still drag things around afterwards;
+- wires that run against the flow (feedback) leave and arrive by the bottom
+  edge and run under the row; **dashed or dotted wires** (`dash: dashed`) are
+  treated as secondary — a control bus, telemetry — and keep their blocks near
+  each other without deciding the order;
+- blocks wired to nothing (a caption, a note, a legend) go in a row above the
+  diagram, then below it;
+- nested levels are laid out first, bottom up, and a container's face grows
+  until the level inside fits its frame, so nothing is clipped.
+
+Wires route themselves orthogonally around blocks; crossings are allowed,
+overlaps are not.
+
+**Taking over.** Give any block at a level an `x` and `y` and you own that
+whole level — nothing there moves, and blocks without `w`/`h` get the
+defaults. Coordinates are multiples of 40; port `offset` is `20, 60, 100, …`
+along the side. A `w`/`h` on an automatic level is a minimum. `layout: auto`
+at the top of the document lays every level out again even when coordinates
+are present (useful to renew a file after adding blocks by hand).
+
+To see the coordinates the layout chose — to hand-edit them, or to commit a
+fully placed file — run `node client/tools/layout.mjs diagram.yaml`: it
+prints the same YAML with every `x`, `y`, `w`, `h` and `offset` filled in.
+
+---
+
+## How the person loads it
 
 | Route | What happens |
 | --- | --- |
-| Menu → Open, pick a `.yaml` file | replaces the whole project |
+| Menu → Open, pick a `.yaml` file | replaces the whole project, laid out |
 | Select the YAML text, Ctrl/Cmd+V on the canvas | **adds** it to the level being viewed |
+| `https://nodigraph.com/?github=owner/repo/path/to/diagram.yaml` | opens a file committed to a public GitHub repo, live |
+| `https://nodigraph.com/?d=…` | the whole diagram inside the link (see Delivering) |
 | Menu → Export → YAML, or Copy as YAML | gives this same format back out |
-
-Pasting is usually what you want: it drops your blocks into an open diagram
-without destroying what is already there.
 
 ---
 
@@ -81,8 +220,7 @@ spread over more than one line. `#` starts a comment.
 
 Quote a value with `"…"` when it contains `,` `{` `}` `[` `]`, a `: ` (colon
 followed by space), or starts with a YAML indicator character. Hex colours must
-be quoted, because `#` would otherwise start a comment. `·`, `→`, `::` and `/`
-are all safe unquoted.
+be quoted. `·`, `→`, `::`, `/`, `%`, `°` and `−` are all safe unquoted.
 
 ---
 
@@ -96,62 +234,49 @@ are all safe unquoted.
 | `blocks` | mapping of local id → block (**required**) |
 | `wires` | sequence of wires between those blocks |
 | `ports` | the product's *own* interface, same shape as a block's `ports` |
-| `boundary` | `{ x, y, w, h }` of the frame the block's interior is laid out in. Default: the block's own size × 3 at the origin (the top level: `{0,0,360,240}`) — set it to wrap your content. It is grown to the block's aspect ratio on load, never shrunk, so 3× the block's `w`/`h` is the tidy choice; see Nesting. |
+| `layout` | `auto` to lay every level out even where coordinates are present |
+| `boundary` | `{ x, y, w, h }` of the frame the top level is drawn in. Leave it out with automatic layout; it is computed. |
 
 ### Block
 
 | Key | Default | Notes |
 | --- | --- | --- |
-| `name` | `New Block` | the title. `name: ""` draws nothing — use it for panels. |
+| `name` | `New Block` | the title. `name: ""` draws nothing. |
 | `subtitle` | — | one smaller, muted line under the title |
-| `lines` | — | a block sequence of short monospace detail rows under the title (see the card recipe) |
-| `link` | — | an `http(s)` URL this block stands for — a source file on GitHub, an endpoint. Draws an ↗ glyph in the corner; clicking it (or double-clicking a link block without an interior) opens the URL in a new tab. See Artifacts. |
-| `title_pos` | `center`, or `top` once `subtitle`/`lines` are set | `top`, `center`, `bottom` — where the text stack sits |
-| `title_align` | `center` | `left`, `center`, `right` — how every row aligns |
+| `lines` | — | a block sequence of short monospace detail rows under the title |
+| `link` | — | an `http(s)` URL this block stands for — a source file on GitHub, an endpoint, a document. Draws an ↗ glyph; clicking it opens the URL. |
+| `title_pos` | `center`, or `top` once `subtitle`/`lines` are set | `top`, `center`, `bottom` |
+| `title_align` | `center` | `left`, `center`, `right` |
 | `kind` | `block` | `text` = a bare label: no border, no fill, no ports. |
-| `x`, `y` | `0` | top-left, multiples of 40 |
-| `w`, `h` | `120`×`80` (text: `160`×`40`) | multiples of 40; minimum 40 |
+| `x`, `y` | automatic | top-left, multiples of 40. Leave out for automatic layout. |
+| `w`, `h` | automatic (`120×80` on a hand-placed level) | multiples of 40; minimum 40. A minimum on an automatic level. |
 | `color` | `#3b6fa0` | **border** colour. `transparent` for none. |
-| `fill` | theme paper | background. `transparent` for none. |
+| `fill` | paper | background. `transparent` for none. |
 | `font` | system | `inter`, `mono`, or `serif` |
 | `size` | `13` | font size in px |
 | `bold`, `italic` | `false` | `true` to set |
 | `ports` | — | mapping of local id → port |
-| `props` | — | `{ key: value }` free-form data, shown in the Inspector |
+| `props` | — | `{ key: value }` free-form data, shown in the Inspector. Put sources, assumptions and notes here. |
 | `blocks`, `wires`, `boundary` | — | this block's *interior* — see Nesting |
 
 A block's name doubles as an image source: give it an `http(s)` URL ending in
-`.png`/`.jpg`/`.svg`/… and the picture fills the block instead of the text.
+`.png`/`.jpg`/`.svg` and the picture fills the block instead of the text.
 
 ### Port
 
 | Key | Default | Notes |
 | --- | --- | --- |
-| `name` | — | drawn as a label beside the port. **Omit it for an unlabelled connector** — that is what you usually want on a dense diagram. |
-| `dir` | undecided | `in` or `out` |
-| `side` | `left` for `in`, `right` for `out` | `left`, `right`, `top`, `bottom` |
-| `offset` | auto | px from that side's start corner (top for left/right, left for top/bottom). **Must be `20 + 40n`.** |
+| `name` | — | drawn as a label beside the port, inside the block. Name the ports whose signal matters; leave the rest unlabelled. |
+| `dir` | undecided | `in` or `out`. Leave it out for a two-way link (a bus, an Ethernet cable). |
+| `side` | automatic (`left` for `in`, `right` for `out`) | `left`, `right`, `top`, `bottom`. Leave out; the layout turns a pin towards its wire. |
+| `offset` | automatic | px from that side's start corner, `20 + 40n`. Leave out. |
 | `desc` | — | free text |
 
 A port is drawn as a socket cut into the block's border, and `dir` is its
-shape: an `in` is a trapezoid dent into the block, an `out` the same trapezoid
-as a tab out of it, an undecided port a ring on the border. A wire fills the
-socket it reaches with a plug in the wire's own colour, so a wired pin reads as
-plugged and an unwired one as an empty socket; the plug narrows the way the
-data flows, which is the only arrow a wire has. Leave `dir` out for a two-way
-link (a bus, an Ethernet cable): a ring never points anywhere.
-
-Two blocks can also be plugged straight together, with no wire between them:
-put them edge to edge so an `out` pin and an `in` pin sit on the same point of
-the shared border, and declare the connection as usual. The tab then sits in
-the dent and no wire is drawn. Placement alone never connects anything — the
-connection still has to be in the file — but a declared connection between two
-pins that meet this way always draws as a plug.
-
-A side of length `L` has `floor(L / 40)` slots at `20, 60, 100, …`. So an
-`h: 120` block has `20 / 60 / 100`, and `60` is its vertical middle — give every
-card in a row the same height and the same offset and all the wires run dead
-straight.
+shape: an `in` is a dent, an `out` a tab, an undecided port a ring. A wire
+fills the socket it reaches with a plug in the wire's own colour, which is the
+only arrow a wire has. One port may carry several wires (a fan-out); a
+separate port per distinct signal reads better.
 
 ### Wire
 
@@ -161,244 +286,226 @@ wires:
   - { from: b1.p2, to: b2.p1, label: 250 kbit, color: "#c2410c", dash: dashed }
 ```
 
-`dash` is `dashed` or `dotted` (omit for solid). `self.pN` addresses the
-enclosing block's own port. A wire label is drawn **centred on the wire**, so
-leave a gap between the two blocks of roughly `8px × the label's length` or it
-will overlap them.
+`from` is where the flow starts. `dash` is `dashed` or `dotted` (omit for
+solid); use it for control, telemetry and status paths, so they read as
+secondary and are laid out as such. `self.pN` addresses the enclosing block's
+own port. A label is drawn centred on the wire; keep it to a few words.
 
 ---
 
-## Layout rules
+## Nesting
 
-- The grid is **40px**. Keep every `x`, `y`, `w`, `h` on a multiple of it.
-- **Order in `blocks` is z-order.** The first key is drawn furthest back. List
-  background panels before the things that sit on them.
-- Wires route themselves orthogonally; you do not place bends. Parallel wires
-  between the same two rows fan out into separate channels on their own, a
-  wire to a `self` pin keeps clear of the band along the frame, and a wire
-  whose straight route would run through a block is routed around it (and
-  around the wires already routed around that block). A lane or panel a pin
-  sits inside is not an obstacle. Leaving a free lane still gives the shortest
-  wires.
-- Nothing auto-layouts. You are responsible for every coordinate, so work out
-  your column and row positions before you start emitting.
+Give a block its own `blocks`/`wires` and it can be drilled into. Children
+wire to the parent's own ports through `self`:
+
+```yaml
+  psu:
+    name: Power supply
+    ports:
+      ac: { name: 230 V, dir: in }
+      dc: { name: 48 V, dir: out }
+    blocks:
+      rectifier:
+        name: Rectifier
+        ports:
+          ac: { dir: in }
+          raw: { dir: out }
+      regulator:
+        name: Regulator
+        subtitle: buck · 48 V · 20 A
+        ports:
+          raw: { dir: in }
+          dc: { dir: out }
+    wires:
+      - self.ac -> rectifier.ac
+      - rectifier.raw -> regulator.raw
+      - regulator.dc -> self.dc
+```
+
+Child keys are scoped to their own level, so reusing `rectifier` in another
+block is fine. Nest as deep as the material goes; three levels is common.
+
+**The frame is a scaled picture of the block.** A level is drawn inside a
+dashed frame that has the block's shape; `self` ports sit on the frame where
+the block's own ports sit on its face. With automatic layout the frame is
+computed (3× the face, or more for a big level) and the level is centred in
+it — you never write `boundary`. When you place a level by hand, set
+`boundary` to wrap your content, ideally 3× the block's `w`/`h`; a frame of a
+different aspect ratio is grown to the block's on load.
+
+Every level is drawn in place: zooming into a block draws its level on its
+face, and its children can be selected and wired right there. Double-clicking
+a container zooms the view to its level; the breadcrumb goes back up.
 
 ---
 
 ## Recipes
 
-### A card with detail lines under its title
+### A card with detail lines
 
-A block carries its own text stack: the `name` as title, an optional
-`subtitle`, and `lines` — short monospace rows for the things a system
-diagram actually needs to say (a bus, a rate, a package). Rows are squeezed
-to the block width, never wrapped, so keep them short and size the block to
-hold them: title + subtitle + three lines need about `h: 120`.
+A block carries its own text stack: `name` as title, an optional `subtitle`,
+and `lines` — short monospace rows for what a system diagram needs to say (a
+bus, a rate, a package, an address). Rows are never wrapped; keep them short.
+The block is sized to hold them.
 
 ```yaml
-  b1:
+  motion:
     name: Motion unit
     subtitle: Compute Node A
     lines:
       - motion_controller
       - 20 ms cycle
       - "3 frames / 20 ms"           # quote a row that has a `: ` or `#`
-    x: 560
-    y: 240
-    w: 200
-    h: 120
     fill: "#eaf4ec"
     color: "#4a8c5c"
     bold: true                        # applies to the title
-    title_align: left                 # optional; default centred
     ports:
-      p1: { dir: in,  offset: 60 }
-      p2: { dir: out, offset: 60 }
+      cmd: { dir: in }
+      joints: { dir: out }
 ```
 
-`title_pos` moves the stack (`top` is the default as soon as a subtitle or
-lines exist; a bare `name` stays centred as before). The older way — an
-empty block as the card plus stacked `kind: text` blocks — still loads, but
-those text blocks do not move with the card and fight the sub-architecture
-miniature a container draws on its face, so prefer the fields above.
+### Colour by domain
 
-### A lane / group panel
+Pick one border/fill pair per kind of thing and keep to it across the whole
+diagram — sensors, compute, actuators, external systems; or sales, finance,
+warehouse. Muted fills with a darker border of the same hue read best:
 
-A big, empty, pale block listed **before** its contents, plus a text block for
-the lane title:
+| Role | `color` | `fill` |
+| --- | --- | --- |
+| inputs / sensors | `"#247e91"` | `"#eaf7fa"` |
+| processing / software | `"#16836e"` | `"#e7f7ef"` |
+| planning / logic | `"#8160af"` | `"#f3eefb"` |
+| actuation / power | `"#b47621"` | `"#fff5e5"` |
+| safety / external / alerts | `"#c2410c"` | `"#fde8dd"` |
+| infrastructure / passive | `"#68798b"` | `"#f0f4f8"` |
+| people / clients / business | `"#4a6fa5"` | `"#e3eaf7"` |
+
+Give a `kind: text` block with a one-line legend when the colours carry
+meaning (see `examples/order-to-cash.yaml`).
+
+### A feedback path
+
+Just wire it; the layout puts a wire that runs against the flow under the
+row, and a colour makes it read as a return path:
 
 ```yaml
-  b1:
-    name: ""
-    x: 520
-    y: 80
-    w: 1480
-    h: 520
-    fill: "#f7f8fa"
-    color: "#ccd2dc"
-  b2:
-    name: COMPUTE NODE A · 192.0.2.10
-    kind: text
-    x: 540
-    y: 100
-    w: 520
-    bold: true
-    size: 11
+  - { from: sensor.pv, to: controller.pv, label: PV · feedback, color: "#16836e" }
 ```
 
-Text is centred in its own box, so size the box to control where the title
-appears.
+### Secondary paths: control, telemetry, status
 
-### A feedback path that runs back around
-
-Give the source a `bottom` port and the destination a `bottom` port; the router
-takes it under the row. Colour it so it reads as a return path:
+Draw them dashed. They are laid out as secondary — the blocks they join are
+placed by the main flow — and they read as such:
 
 ```yaml
-  - { from: b46.p2, to: b26.p3, label: status · back over the same hops, color: "#c2410c" }
+  - { from: ems.inverter, to: inverter.ctrl, label: P · Q setpoints, color: "#c2410c", dash: dashed }
 ```
-
-### A sub-system you can drill into
-
-Give a block its own `blocks`/`wires`/`boundary`. Children wire to the parent's
-own ports through `self`:
-
-```yaml
-  b1:
-    name: Power Supply
-    x: 80
-    y: 80
-    w: 240
-    h: 160
-    ports:
-      p1: { name: 5V, dir: out, offset: 60 }
-    boundary: { x: 0, y: 0, w: 520, h: 280 }
-    blocks:
-      c1:
-        name: Rectifier
-        x: 40
-        y: 40
-        ports:
-          q1: { dir: out, offset: 20 }
-      c2:
-        name: Regulator
-        x: 280
-        y: 40
-        ports:
-          q1: { dir: in,  offset: 20 }
-          q2: { dir: out, offset: 20 }
-    wires:
-      - c1.q1 -> c2.q1
-      - c2.q2 -> self.p1
-```
-
-Child keys are scoped to their own level, so reusing `c1` in another block is
-fine.
-
-**The frame is a scaled picture of the block.** `self` ports sit on the frame
-exactly where the block's own ports sit on its face — same side, same
-proportional position. You do not place them separately (an older
-`inSide`/`inOffset` on a port is read and ignored). A frame whose aspect ratio
-differs from the block's is grown to match on load, so its edges always
-coincide with the block's. To wire a child straight to a `self` port, put the
-child's port at k× the parent port's offset when the frame is k× the block: a
-parent pin at `offset: 60` on the top edge is at `x: 180` inside a 3× frame.
-Odd multiples (3×, 5×) put those points on the child grid's own slots.
-
-Every level is drawn in place: zooming into a block draws its level on its
-face through that same mapping as soon as its contents reach half size on
-screen (so a snug frame, 3× the block, opens much earlier than a sprawling one),
-and its children can then be selected, dragged and wired right there — the
-click decides which level it edits, nothing on screen changes. The block's
-pin labels move out beside the pins while its level is shown, so they never
-sit where the level's wires reach the frame. A `self` pin
-that carries several wires inside shows one sub-slot per wire on the frame:
-one plug outside, its individual pins inside. Grabbing a
-container's empty space still moves the container as a whole until it fills
-the view. Double-clicking a container zooms the view to its level; the
-breadcrumb goes back up.
 
 ### Artifacts: source files, endpoints, documents
 
 A system diagram ends in things that are not blocks: the source file that
 implements a driver, the endpoint a service exposes, the document that
 specifies a protocol. Put them in as child blocks with a `link`, inside the
-component they belong to, and wire them to what they implement or serve:
+component they belong to, and wire them to what they implement or serve.
+Point `link` at a permanent URL — a `blob/<branch>/path` on GitHub, an
+OpenAPI page, a Drive file link — never at something that needs the reader's
+session.
 
 ```yaml
-  hub:
-    name: Safety Hub
-    x: 400
-    y: 80
-    w: 240
-    h: 160
-    boundary: { x: 0, y: 0, w: 720, h: 480 }
+  orders:
+    name: Order service
+    link: https://github.com/example/shop/tree/main/services/orders
+    ports:
+      http: { dir: in }
+      db: { dir: out }
     blocks:
-      plc:
-        name: PLC program
-        subtitle: CODESYS · IEC 61131-3
-        x: 80
-        y: 80
-        w: 200
-        h: 120
+      router:
+        name: routes/orders.ts
+        subtitle: validation · auth scopes
+        link: https://github.com/example/shop/blob/main/services/orders/src/routes/orders.ts
         ports:
-          out: { name: CAN2, dir: out, offset: 60 }
-      code:
-        name: code.st
-        subtitle: cyclic task · 10 ms
-        link: https://github.com/org/repo/blob/main/plc/code.st
-        x: 400
-        y: 40
-        w: 200
-        h: 80
-        color: "#6b7280"
-      header:
-        name: header.st
-        subtitle: types · globals
-        link: https://github.com/org/repo/blob/main/plc/header.st
-        x: 400
-        y: 160
-        w: 200
-        h: 80
-        color: "#6b7280"
+          http: { dir: in }
+          cmd: { dir: out }
+      repo:
+        name: repo/orders.ts
+        subtitle: Postgres · transactional outbox
+        link: https://github.com/example/shop/blob/main/services/orders/src/repo/orders.ts
+        ports:
+          cmd: { dir: in }
+          sql: { dir: out }
+    wires:
+      - self.http -> router.http
+      - router.cmd -> repo.cmd
+      - repo.sql -> self.db
 ```
 
-A link block renders as any other block plus the ↗ glyph, so it can carry a
-`subtitle` and `lines` (the file's role, the message it publishes, its rate)
-and ports. Point `link` at a permanent URL — a `blob/<branch>/path` on GitHub,
-an OpenAPI page — never at something that needs the reader's session.
+### Groups
+
+Do not draw lanes or background panels on an automatic level; a panel is
+just a big block that nothing is wired to, and it will be placed as one.
+Group by nesting instead: the group is a block, its members are its children.
+Hand-placed levels may still use an empty pale block listed first as a panel
+(see `examples/card-layout.yaml`).
 
 ---
 
-## Before you emit, check
+## Delivering the result
 
-Run the lint on the file: it walks every level with the editor's own model
-and routing and reports, as text or `--json`, what a reader would trip over —
-a wire through a block, blocks on top of each other, a pin off its slots,
-labels colliding, wires lying on one line, a frame that is not the block's
-shape. Exit code 1 means at least one error.
+The person asked for a diagram; give them the thing they can open.
+
+| They want | Give them |
+| --- | --- |
+| the diagram | the YAML in one code block, and a sentence on how to open it (Menu → Open, or paste onto the canvas) |
+| a file in their repo | the YAML committed as `docs/<name>.yaml`; opens live at `https://nodigraph.com/?github=owner/repo/docs/<name>.yaml` (public repos, or with a token in the editor) |
+| a link | `node client/tools/layout.mjs diagram.yaml --link` prints a `https://nodigraph.com/?d=…` link with the whole laid-out diagram inside it — nothing to host. About a hundred blocks fit. |
+| JSON | `node client/tools/layout.mjs diagram.yaml --json` prints the full project JSON (what Download gives) |
+| a picture | `node client/tools/svg.mjs diagram.yaml --out diagram.svg`, or `--all --out-dir figures` for every level |
+| the coordinates | `node client/tools/layout.mjs diagram.yaml` prints the YAML with every position filled in |
+
+The tools live in the nodigraph repository (`git clone
+https://github.com/nodi-andy/nodigraph`, Node 18+, no install) and run
+without a browser. Without them, the YAML alone is a complete deliverable:
+the editor does the layout on opening.
+
+---
+
+## Before you hand it over
+
+If you can run commands, lint the file: it walks every level with the
+editor's own model and routing and reports what a reader would trip over — a
+wire through a block, blocks on top of each other, labels colliding. Exit
+code 1 means at least one error.
 
 ```
 node client/tools/lint.mjs diagram.yaml [--json]
 ```
 
-- [ ] `blocks` is a mapping; `wires` is a sequence.
-- [ ] 2-space indentation throughout; every `{ … }` on one line.
-- [ ] Every hex colour quoted.
-- [ ] No commas inside unquoted labels or names.
-- [ ] Every `x`/`y`/`w`/`h` a multiple of 40.
-- [ ] Every `offset` one of `20, 60, 100, 140, …` **and** less than that side's length.
-- [ ] Every `wires` endpoint names a block key and a port key that exist at that level.
-- [ ] Background panels listed before what sits on them.
-- [ ] Gaps between wired blocks wide enough for their labels.
-- [ ] `boundary` set to wrap the content, ideally 3× the block's `w`/`h`.
-- [ ] Every `link` an `http(s)` URL to a stable location (`blob/<branch>/…`, not a session-bound viewer).
+Whether or not you can run it:
+
+- [ ] `blocks` is a mapping; `wires` is a sequence; 2-space indentation; every `{ … }` on one line.
+- [ ] Every hex colour quoted; no commas inside unquoted labels or names.
+- [ ] Every wire endpoint names a block key and a port key that exist at that level (`self.x` names a port of the enclosing block).
+- [ ] Wires point the way the thing flows; secondary paths are `dash: dashed`.
+- [ ] No coordinates unless the person asked for a particular arrangement — and then every `x`/`y`/`w`/`h` a multiple of 40 and every `offset` one of `20, 60, 100, …`.
+- [ ] 5–12 blocks per level; more than that is a level to nest.
+- [ ] Names, labels and detail lines use the source material's own terms; assumptions noted in `props`.
+- [ ] Every `link` an `http(s)` URL to a stable location.
 
 ---
 
-## Full worked example
+## Worked examples
 
-[`examples/pipeline-lanes.yaml`](examples/pipeline-lanes.yaml) is a complete
-lane-and-cards system diagram — five lanes, ten cards with monospace detail
-lines, labelled wires between them, and a coloured feedback path running back
-underneath. Copy its structure when you are asked for anything of that shape.
+All in [`examples/`](examples/), all written without coordinates, all
+lint-clean. Open any of them at
+`https://nodigraph.com/?github=nodi-andy/nodigraph/docs/examples/<file>`.
+
+| File | Field | Shows |
+| --- | --- | --- |
+| [`mobile-robot.yaml`](examples/mobile-robot.yaml) | robotics / mechatronics | sensors → perception → planning → control → drives, three levels deep, a safety path, dashed telemetry |
+| [`battery-storage.yaml`](examples/battery-storage.yaml) | electrical / power | PV, battery with BMS inside, inverter inside, grid; a dashed Modbus control layer |
+| [`saas-platform.yaml`](examples/saas-platform.yaml) | software | clients, gateway, services, stores, external APIs; one service drilled into its source files with `link`s |
+| [`hvac-control.yaml`](examples/hvac-control.yaml) | process / control | a closed loop with the PID controller drilled into its terms, a feedback wire |
+| [`safety-cell.yaml`](examples/safety-cell.yaml) | machine safety | dual-channel inputs, safety PLC internals, contactors, STO; safety path in red |
+| [`order-to-cash.yaml`](examples/order-to-cash.yaml) | business process | steps by department, documents as wires, fulfilment drilled into pick/pack/ship |
+| [`local-ai.yaml`](examples/local-ai.yaml) | software (hand-placed) | the README walkthrough, three levels, every coordinate written by hand |
+| [`card-layout.yaml`](examples/card-layout.yaml) | — (hand-placed) | `subtitle`, `lines`, `title_pos`, `title_align`, a panel |

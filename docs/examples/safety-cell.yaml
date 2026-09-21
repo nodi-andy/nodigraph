@@ -1,0 +1,199 @@
+# The safety-related control of a robot cell — machine safety / functional safety.
+# Safety signals are red; the standard control path is grey. Nesting shows the
+# safety PLC's dual-channel structure. No coordinates: the layout is automatic.
+name: Robot cell safety functions
+blocks:
+  estop:
+    name: Emergency stop
+    subtitle: 3 × mushroom button
+    lines:
+      - 2 NC contacts each
+    color: "#c2410c"
+    fill: "#fde8dd"
+    ports:
+      ch: { name: 2 ch, dir: out }
+  curtain:
+    name: Light curtain
+    subtitle: Type 4 · 30 mm resolution
+    lines:
+      - OSSD1 / OSSD2
+    color: "#c2410c"
+    fill: "#fde8dd"
+    ports:
+      ossd: { name: OSSD, dir: out }
+  door:
+    name: Guard door
+    subtitle: interlock with guard locking
+    color: "#c2410c"
+    fill: "#fde8dd"
+    ports:
+      ch: { name: 2 ch, dir: out }
+      lock: { name: unlock, dir: in, side: bottom }
+  reset:
+    name: Reset button
+    subtitle: outside the cell · manual
+    color: "#68798b"
+    fill: "#f0f4f8"
+    ports:
+      pulse: { dir: out }
+  splc:
+    name: Safety PLC
+    subtitle: designed to PL d · Cat. 3
+    lines:
+      - ISO 13849-1 · cycle 4 ms
+    color: "#c2410c"
+    fill: "#fde8dd"
+    ports:
+      estop: { dir: in }
+      curtain: { dir: in }
+      door: { dir: in }
+      reset: { dir: in }
+      sto: { name: STO, dir: out }
+      contactors: { name: K1 · K2, dir: out }
+      unlock: { name: unlock, dir: out, side: bottom }
+      diag: { name: diag, dir: out, side: top }
+    blocks:
+      in_estop:
+        name: E-stop input
+        subtitle: 2-channel · discrepancy 500 ms
+        lines:
+          - cross-circuit detection
+        color: "#c2410c"
+        fill: "#fde8dd"
+        ports:
+          raw: { dir: in }
+          ok: { dir: out }
+      in_curtain:
+        name: OSSD input
+        subtitle: 2-channel · test pulses
+        color: "#c2410c"
+        fill: "#fde8dd"
+        ports:
+          raw: { dir: in }
+          ok: { dir: out }
+      in_door:
+        name: Door input
+        subtitle: 2-channel · discrepancy
+        color: "#c2410c"
+        fill: "#fde8dd"
+        ports:
+          raw: { dir: in }
+          ok: { dir: out }
+      logic:
+        name: Safety logic
+        subtitle: AND of all conditions
+        lines:
+          - muting · restart interlock
+        color: "#c2410c"
+        fill: "#fde8dd"
+        ports:
+          estop: { dir: in }
+          curtain: { dir: in }
+          door: { dir: in }
+          reset: { dir: in }
+          run: { dir: out }
+          diag: { dir: out }
+      out_sto:
+        name: STO output
+        subtitle: 2 × OSSD · readback
+        color: "#c2410c"
+        fill: "#fde8dd"
+        ports:
+          run: { dir: in }
+          sto: { dir: out }
+      out_k:
+        name: Contactor output
+        subtitle: 2 × OSSD · EDM feedback
+        color: "#c2410c"
+        fill: "#fde8dd"
+        ports:
+          run: { dir: in }
+          coils: { dir: out }
+      unlock:
+        name: Guard unlock
+        subtitle: only at standstill
+        color: "#68798b"
+        fill: "#f0f4f8"
+        ports:
+          run: { dir: in }
+          unlock: { dir: out }
+    wires:
+      - self.estop -> in_estop.raw
+      - self.curtain -> in_curtain.raw
+      - self.door -> in_door.raw
+      - in_estop.ok -> logic.estop
+      - in_curtain.ok -> logic.curtain
+      - in_door.ok -> logic.door
+      - self.reset -> logic.reset
+      - logic.run -> out_sto.run
+      - logic.run -> out_k.run
+      - logic.run -> unlock.run
+      - out_sto.sto -> self.sto
+      - out_k.coils -> self.contactors
+      - unlock.unlock -> self.unlock
+      - logic.diag -> self.diag
+  k1k2:
+    name: Safety contactors
+    subtitle: K1 · K2 in series
+    lines:
+      - mirror contacts → EDM
+    color: "#c2410c"
+    fill: "#fde8dd"
+    ports:
+      coils: { dir: in }
+      mains: { dir: in }
+      power: { dir: out }
+  drive:
+    name: Robot drives
+    subtitle: 6 axes · servo amplifiers
+    color: "#68798b"
+    fill: "#f0f4f8"
+    ports:
+      sto: { name: STO, dir: in }
+      power: { dir: in }
+      motion: { dir: in, side: top }
+      torque: { dir: out }
+  robot:
+    name: Robot arm
+    subtitle: 6-axis · 10 kg payload
+    color: "#68798b"
+    fill: "#f0f4f8"
+    ports:
+      torque: { dir: in }
+  mains:
+    name: Mains
+    subtitle: 400 V · 3-phase
+    color: "#68798b"
+    fill: "#f0f4f8"
+    ports:
+      out: { dir: out }
+  plc:
+    name: Standard PLC
+    subtitle: cell sequence · not safety-rated
+    color: "#68798b"
+    fill: "#f0f4f8"
+    ports:
+      diag: { dir: in }
+      motion: { dir: out }
+      hmi: { dir: out, side: top }
+  hmi:
+    name: HMI
+    subtitle: status · fault messages
+    color: "#68798b"
+    fill: "#f0f4f8"
+    ports:
+      data: { dir: in }
+wires:
+  - { from: estop.ch, to: splc.estop, color: "#c2410c" }
+  - { from: curtain.ossd, to: splc.curtain, color: "#c2410c" }
+  - { from: door.ch, to: splc.door, color: "#c2410c" }
+  - reset.pulse -> splc.reset
+  - { from: splc.sto, to: drive.sto, label: STO, color: "#c2410c" }
+  - { from: splc.contactors, to: k1k2.coils, color: "#c2410c" }
+  - { from: splc.unlock, to: door.lock, label: unlock, color: "#68798b", dash: dashed }
+  - mains.out -> k1k2.mains
+  - k1k2.power -> drive.power
+  - drive.torque -> robot.torque
+  - { from: splc.diag, to: plc.diag, label: status, dash: dashed }
+  - { from: plc.motion, to: drive.motion, label: motion commands }
+  - plc.hmi -> hmi.data

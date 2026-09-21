@@ -172,8 +172,10 @@ function checkLevel(container, where, isRoot) {
     routed.push({ connection, geometry, name });
     const obstacles = obstaclesFor(blocks, connection.sourceBlockId, connection.targetBlockId, geometry.stubA, geometry.stubB);
     const inflated = obstacles.map((r) => ({ x: r.x - 2, y: r.y - 2, width: r.width + 4, height: r.height + 4 }));
-    const free = geometry.points.slice(1, -1);
-    if (free.length >= 2 && pathHitsObstacles(free, inflated)) {
+    // From stub to stub: a stub collinear with its corner is dropped from
+    // `points`, so the run between them is named explicitly.
+    const free = [geometry.stubA, ...geometry.points.slice(1, -1), geometry.stubB];
+    if (pathHitsObstacles(free, inflated)) {
       const hit = blocks.find((bl) => bl.id !== connection.sourceBlockId && bl.id !== connection.targetBlockId && inflated.some((r) => r.x + 2 === bl.geometry.x && r.y + 2 === bl.geometry.y && free.some((p, k) => k < free.length - 1 && segmentHitsRect(p, free[k + 1], r))));
       report('error', where, 'wire-through-block', `wire ${name} runs through "${hit ? labelOf(hit) : 'a block'}" and no detour was found`);
     }
@@ -250,7 +252,7 @@ function checkLevel(container, where, isRoot) {
   }
   // Wires through pin labels of blocks they do not belong to.
   for (const { geometry, name, connection } of routed) {
-    const free = geometry.points.slice(1, -1);
+    const free = [geometry.stubA, ...geometry.points.slice(1, -1), geometry.stubB];
     for (const pin of pinLabelBoxes) {
       for (let k = 0; k < free.length - 1; k += 1) {
         if (segmentHitsRect(free[k], free[k + 1], pin)) {

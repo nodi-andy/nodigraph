@@ -171,6 +171,19 @@ function wireLanes(geometry) {
   return lanes;
 }
 
+// Whether the free run of `geometry` (stub to stub) passes through a block
+// of the level — the condition for routing the wire around it.
+function hitsBlocks(project, connection, geometry) {
+  const blocks = obstaclesFor(project.listBlocks(), connection.sourceBlockId, connection.targetBlockId, geometry.stubA, geometry.stubB)
+    .map((r) => ({ x: r.x - OBSTACLE_MARGIN, y: r.y - OBSTACLE_MARGIN, width: r.width + 2 * OBSTACLE_MARGIN, height: r.height + 2 * OBSTACLE_MARGIN }));
+  return pathHitsObstacles([geometry.stubA, ...geometry.points.slice(1, -1), geometry.stubB], blocks);
+}
+
+function sharesPin(a, b) {
+  const pins = [a.sourcePortId, a.targetPortId];
+  return pins.includes(b.sourcePortId) || pins.includes(b.targetPortId);
+}
+
 // Guards the recursion below: a wire being routed never asks for itself.
 const routing = new Set();
 
@@ -189,17 +202,26 @@ export function getConnectionGeometry(project, connection, boundary, wireMoveOve
   const obstacles = obstaclesFor(project.listBlocks(), connection.sourceBlockId, connection.targetBlockId, base.stubA, base.stubB);
   const inflated = obstacles.map((r) => ({ x: r.x - OBSTACLE_MARGIN, y: r.y - OBSTACLE_MARGIN, width: r.width + 2 * OBSTACLE_MARGIN, height: r.height + 2 * OBSTACLE_MARGIN }));
   // Only the free part of the route is judged: the stubs and the pins they
-  // belong to may legitimately sit against a neighbouring block.
-  const free = base.points.slice(1, -1);
-  if (free.length >= 2 && pathHitsObstacles(free, inflated) && !routing.has(connection.id)) {
+  // belong to may legitimately sit against a neighbouring block. The stub
+  // ends are named explicitly because simplifyPath drops a stub point that
+  // is collinear with its corner — a dead-straight wire is just [pin, pin]
+  // — and the run between the stubs is exactly what has to stay clear.
+  const free = [base.stubA, ...base.points.slice(1, -1), base.stubB];
+  if (pathHitsObstacles(free, inflated) && !routing.has(connection.id)) {
     routing.add(connection.id);
     try {
       const lanes = [];
       for (const other of project.listConnections()) {
         if (other.id === connection.id) break;
         if (routing.has(other.id)) continue;
+        // A wire on one of this wire's own pins shares its approach to
+        // that pin by nature; its lane there is not something to dodge.
+        if (sharesPin(other, connection)) continue;
+        // Every earlier wire's free run is a lane, detoured or not: a
+        // detour laid along a plain wire's trunk is as unreadable as one
+        // laid along another detour.
         const g = getConnectionGeometry(project, other, boundary, wireMoveOverride);
-        if (g?.avoided) lanes.push(...wireLanes(g));
+        if (g && !g.manual) lanes.push(...wireLanes(g));
       }
       const k = detourKey(base, [...obstacles, ...lanes]);
       let cached = detours.get(connection.id);
@@ -238,21 +260,45 @@ export function getConnectionGeometry(project, connection, boundary, wireMoveOve
   const along = key === 'x' ? 'y' : 'x';
   const spanOf = (g) => [Math.min(g.stubA[along], g.stubB[along]), Math.max(g.stubA[along], g.stubB[along])];
   const mySpan = spanOf(base);
-  const cluster = [{ id: connection.id, mid: (mySpan[0] + mySpan[1]) / 2 }];
+  const cluster = [{ id: connection.id, connection, mid: (mySpan[0] + mySpan[1]) / 2 }];
   for (const other of project.listConnections()) {
     if (other.id === connection.id) continue;
     const g = computeGeometry(project, other, boundary, wireMoveOverride);
     if (!g || g.manual || g.coords.length !== 1 || g.first !== base.first) continue;
+    // A wire whose plain trunk runs through a block is drawn along a
+    // detour instead (see above), so it does not lie on this trunk.
+    if (hitsBlocks(project, other, g)) continue;
     if (Math.abs(g.coords[0] - base.coords[0]) >= CHANNEL_STEP) continue;
     const span = spanOf(g);
     if (span[0] > mySpan[1] + CHANNEL_STEP || span[1] < mySpan[0] - CHANNEL_STEP) continue;
-    cluster.push({ id: other.id, mid: (span[0] + span[1]) / 2 });
+    cluster.push({ id: other.id, connection: other, mid: (span[0] + span[1]) / 2 });
   }
   if (cluster.length === 1) return base;
   cluster.sort((a, b) => a.mid - b.mid || (a.id < b.id ? -1 : 1));
   const index = cluster.findIndex((entry) => entry.id === connection.id);
-  const trunk = base.coords[0] + (index - (cluster.length - 1) / 2) * CHANNEL_STEP;
-  return computeGeometry(project, connection, boundary, wireMoveOverride, trunk);
+  // The fan is centred on the shared trunk when every wire of the cluster
+  // stays clear of the blocks at its new trunk, and spread to one side of
+  // it otherwise, moved outwards a step at a time — a trunk that was clear
+  // can be pushed onto a block's edge by the fan. Every wire of the
+  // cluster judges the same spreads in the same order from the same data,
+  // so they all pick the same one. When none is clear the wires keep the
+  // shared trunk and overlap rather than cross a block.
+  const n = cluster.length;
+  const spreads = [(i) => base.coords[0] + (i - (n - 1) / 2) * CHANNEL_STEP];
+  for (let k = 0; k < 4; k += 1) {
+    spreads.push((i) => base.coords[0] + (i + k) * CHANNEL_STEP);
+    spreads.push((i) => base.coords[0] - (n - 1 - i + k) * CHANNEL_STEP);
+  }
+  const clearAt = (entry, trunk) => {
+    const g = computeGeometry(project, entry.connection, boundary, wireMoveOverride, trunk);
+    return Boolean(g) && !hitsBlocks(project, entry.connection, g);
+  };
+  for (const spread of spreads) {
+    if (cluster.every((entry, i) => clearAt(entry, spread(i)))) {
+      return computeGeometry(project, connection, boundary, wireMoveOverride, spread(index));
+    }
+  }
+  return base;
 }
 
 function computeGeometry(project, connection, boundary, wireMoveOverride, autoTrunk = null, detour = null) {
