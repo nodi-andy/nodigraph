@@ -51,6 +51,7 @@ import { createGitHubConnectDialog } from './ui/GitHubConnectDialog.js';
 import { serializeSelection, pasteSelection, isClipboardPayload } from './model/clipboard.js';
 import { History } from './model/History.js';
 import { createPeerSession } from './model/peerSession.js';
+import { logBuildVersion } from './version.js';
 
 const canvas = document.getElementById('scene-canvas');
 const ctx = canvas.getContext('2d');
@@ -1743,6 +1744,11 @@ async function bootstrap() {
   // existing instance in place instead, see applyRemoteRootBlock), so this
   // reference stays valid for the lifetime of the page.
   window.nodigraph = { project, camera, selection, wireSelection, renderLoop, persist };
+  // Which build this is, in the browser console (see version.js); kept on
+  // window.nodigraph too, for anything that wants to read it.
+  logBuildVersion().then((info) => {
+    if (info) window.nodigraph.version = info;
+  });
 
   // joinId/isLiveGuest were resolved back at the top of bootstrap(), before
   // `project` was chosen. There's nothing on screen yet worth keeping if

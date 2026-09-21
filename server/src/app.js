@@ -34,6 +34,51 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
 const PERSISTENCE_DISABLED =
   process.env.NODIGRAPH_DISABLE_PERSISTENCE === 'true' || process.env.NODIGRAPH_DISABLE_PERSISTENCE === '1';
 
+// Which build this server is, for /api/version. In the Docker image the
+// build stamps build-info.json (see the Dockerfile); a local `node
+// src/app.js` run has no stamp but does have the checkout, so the commit is
+// read from .git instead. On Cloud Run, K_REVISION names the revision
+// serving the request — a new one per deploy. Read once: none of it
+// changes while the process runs.
+const APP_ROOT = path.join(here, '..', '..');
+const STARTED_AT = new Date().toISOString();
+
+function readGitCommit() {
+  try {
+    const gitDir = path.join(APP_ROOT, '.git');
+    const head = fs.readFileSync(path.join(gitDir, 'HEAD'), 'utf8').trim();
+    if (!head.startsWith('ref: ')) return head;
+    const ref = head.slice(5);
+    try {
+      return fs.readFileSync(path.join(gitDir, ref), 'utf8').trim();
+    } catch {
+      const packed = fs.readFileSync(path.join(gitDir, 'packed-refs'), 'utf8');
+      const line = packed.split('\n').find((l) => l.endsWith(` ${ref}`));
+      return line ? line.split(' ')[0] : null;
+    }
+  } catch {
+    return null;
+  }
+}
+
+function readBuildInfo() {
+  let stamped = {};
+  try {
+    stamped = JSON.parse(fs.readFileSync(path.join(APP_ROOT, 'build-info.json'), 'utf8'));
+  } catch {
+    // Not built by the Dockerfile — a local run.
+  }
+  return {
+    commit: stamped.commit && stamped.commit !== 'unknown' ? stamped.commit : readGitCommit() || 'unknown',
+    builtAt: stamped.builtAt || null,
+    revision: process.env.K_REVISION || null,
+    service: process.env.K_SERVICE || null,
+    startedAt: STARTED_AT,
+  };
+}
+
+const BUILD_INFO = readBuildInfo();
+
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -155,6 +200,11 @@ const server = http.createServer((req, res) => {
   }
   if (urlPath === '/api/project' && req.method === 'PUT') {
     handlePutProject(req, res);
+    return;
+  }
+  if (urlPath === '/api/version' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(BUILD_INFO));
     return;
   }
   if (req.method === 'GET') {
