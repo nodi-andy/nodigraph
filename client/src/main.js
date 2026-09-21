@@ -826,11 +826,13 @@ async function bootstrap() {
     },
   });
 
-  // Marching dashes along every wire, to show which way things flow. Purely
-  // a way of looking at the diagram: nothing about it is stored, shared or
-  // undoable, so it lives here as a plain flag rather than in the project.
+  // Marching dashes along every wire, to show which way things flow — on
+  // from the start, since the flow is much of what a diagram says; Settings
+  // turns it off. Purely a way of looking at the diagram: nothing about it
+  // is stored, shared or undoable, so it lives here as a plain flag rather
+  // than in the project.
   const FLOW_SPEED = 55; // world units per second
-  let animating = false;
+  let animating = true;
 
   function toggleAnimation() {
     animating = !animating;
@@ -1574,6 +1576,9 @@ async function bootstrap() {
   headerActionsApi.refreshSession(peerSession.getState());
   appMenuApi.refreshSaved(urlSnapshot === null ? null : true);
   appMenuApi.refreshAnimating(animating);
+  // The render loop is dirty-gated (see toggleAnimation): an animation that
+  // starts on has to ask for continuous frames from the outset.
+  renderLoop.setContinuous(animating);
   document.title = project.name ? `${project.name} · nodigraph` : 'nodigraph';
 
   // A diagram opened from a link lives nowhere but this tab until it is

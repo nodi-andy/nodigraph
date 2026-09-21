@@ -37,6 +37,7 @@ import {
 } from './ConnectionRenderer.js';
 import { drawBlock, drawBoundary, drawBoundaryPins, drawBlockPorts, drawExteriorSubSlots, drawOpenHeader, drawResizeHandles, hasSubArchitecture, isPluggedConnection } from './BlockRenderer.js';
 import { LevelView } from '../model/levelView.js';
+import { logicalPortOf } from '../model/BlockDescription.js';
 import { defaultBoundaryFor, frameToFace } from '../model/levelGeometry.js';
 import { GRID_SIZE } from '../model/grid.js';
 import { getCanvasPalette } from './canvasPalette.js';
@@ -304,7 +305,31 @@ function pinWiresOf(routed, plugged = []) {
   return byBlock;
 }
 
-function drawOneConnection(ctx, entry, routed, wireSelection, flowOffset, palette) {
+// A wire neither of whose pins has a direction set (IN/OUT in the
+// Inspector — see BlockRenderer.pinShapeOf's two-way ring) carries nothing
+// in either particular direction, so its animation swings back and forth
+// instead of marching one way: SWING_AMPLITUDE world units either side,
+// one full swing every SWING_PERIOD world units of the ordinary march —
+// about 2.4 s at main.js's FLOW_SPEED.
+const SWING_AMPLITUDE = 12;
+const SWING_PERIOD = 132;
+
+function isTwoWayConnection(view, connection) {
+  const directionOf = (blockId, portId) => {
+    const block = view.getBlock(blockId);
+    const pin = block?.ports?.find((p) => p.id === portId);
+    return logicalPortOf(block, pin)?.direction ?? null;
+  };
+  return !directionOf(connection.sourceBlockId, connection.sourcePortId) && !directionOf(connection.targetBlockId, connection.targetPortId);
+}
+
+function flowDashOffset(view, connection, flowOffset) {
+  if (flowOffset === null) return 0;
+  if (!isTwoWayConnection(view, connection)) return flowOffset;
+  return SWING_AMPLITUDE * Math.sin((2 * Math.PI * flowOffset) / SWING_PERIOD);
+}
+
+function drawOneConnection(ctx, entry, routed, wireSelection, flowOffset, palette, view) {
   const hopOver = routed
     .filter((other) => other !== entry && !sharesEndpoint(other.connection, entry.connection))
     .flatMap((other) => other.verticals);
@@ -326,7 +351,7 @@ function drawOneConnection(ctx, entry, routed, wireSelection, flowOffset, palett
     width: 3,
     hopOver,
     dash: flowOffset === null ? getDashPattern(entry.connection.dashStyle) : FLOW_DASH,
-    dashOffset: flowOffset ?? 0,
+    dashOffset: flowDashOffset(view, entry.connection, flowOffset),
   });
   drawConnectionLabel(ctx, entry.geometry, entry.connection.label, palette);
 }
@@ -464,7 +489,7 @@ export function drawLevel(
 
   for (const item of drawItems) {
     if (item.kind === 'connection') {
-      drawOneConnection(ctx, item.entry, routed, wireSelection, flowOffset, palette);
+      drawOneConnection(ctx, item.entry, routed, wireSelection, flowOffset, palette, view);
       continue;
     }
     const block = item.block;

@@ -401,9 +401,11 @@ export function mountInspector(
       const dirSelect = document.createElement('select');
       dirSelect.className = 'port-dir-select';
       // '' stands in for null here — <option> values are always strings,
-      // so the empty string is the only way to give "undecided" a value at
-      // all, and the change handler below maps it back to null on the way out.
-      for (const [value, label] of [['', '?'], ['in', 'IN'], ['out', 'OUT']]) {
+      // so the empty string is the only way to give "no direction" a value
+      // at all, and the change handler below maps it back to null on the way
+      // out. Shown as IN/OUT: such a pin is drawn as a two-way ring, and a
+      // wire between two of them animates both ways.
+      for (const [value, label] of [['', 'IN/OUT'], ['in', 'IN'], ['out', 'OUT']]) {
         const option = document.createElement('option');
         option.value = value;
         option.textContent = label;
