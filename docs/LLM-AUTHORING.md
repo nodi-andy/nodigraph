@@ -206,7 +206,7 @@ prints the same YAML with every `x`, `y`, `w`, `h` and `offset` filled in.
 | Menu → Open, pick a `.yaml` file | replaces the whole project, laid out |
 | Select the YAML text, Ctrl/Cmd+V on the canvas | **adds** it to the level being viewed |
 | `https://nodigraph.com/?github=owner/repo/path/to/diagram.yaml` | opens a file committed to a public GitHub repo, live |
-| `https://nodigraph.com/?d=…` | the whole diagram inside the link (see Delivering) |
+| `https://nodigraph.com/#d=…` | the whole diagram inside the link (see Delivering) |
 | Menu → Export → YAML, or Copy as YAML | gives this same format back out |
 
 ---
@@ -457,7 +457,7 @@ The person asked for a diagram; give them the thing they can open.
 | --- | --- |
 | the diagram | the YAML in one code block, and a sentence on how to open it (Menu → Open, or paste onto the canvas) |
 | a file in their repo | the YAML committed as `docs/<name>.yaml`; opens live at `https://nodigraph.com/?github=owner/repo/docs/<name>.yaml` (public repos, or with a token in the editor) |
-| a link | `node client/tools/layout.mjs diagram.yaml --link` prints a `https://nodigraph.com/?d=…` link with the whole laid-out diagram inside it — nothing to host. About a hundred blocks fit. |
+| a link | `node client/tools/layout.mjs diagram.yaml --link` prints a `https://nodigraph.com/#d=…` link with the whole laid-out diagram inside it — nothing to host. About a hundred blocks fit. |
 | JSON | `node client/tools/layout.mjs diagram.yaml --json` prints the full project JSON (what Download gives) |
 | a picture | `node client/tools/svg.mjs diagram.yaml --out diagram.svg`, or `--all --out-dir figures` for every level |
 | the coordinates | `node client/tools/layout.mjs diagram.yaml` prints the YAML with every position filled in |

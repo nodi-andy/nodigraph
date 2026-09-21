@@ -10,7 +10,7 @@ const LOCAL_STORAGE_KEY = 'nodigraph:project';
 // exist — a plain static deployment (or a dropped connection) still keeps
 // every edit through the local layer alone, rather than losing work on
 // the next reload just because there was no server to answer. A link's
-// own `?d=` snapshot outranks both (see main.js's isSharedView) and is
+// own `#d=` snapshot outranks both (see main.js's isSharedView) and is
 // never written into either — this module never sees that case at all.
 
 export async function loadProject() {

@@ -67,7 +67,7 @@ export class Project {
 
   toJSON() {
     // `path` travels with the tree everywhere this gets serialized — a
-    // `?d=` share link, "Save to URL", and the local/server autosave alike
+    // `#d=` share link, "Save to URL", and the local/server autosave alike
     // — so opening any of them lands back on the block you were actually
     // looking at instead of always resetting to the top level.
     return { rootBlock: serializeBlockTree(this.rootBlock), path: this.path };

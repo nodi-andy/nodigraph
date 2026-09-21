@@ -1,6 +1,13 @@
-// Packs the whole project into a URL query param (?d=...) so a diagram can
-// be shared as a link with no server round-trip and no account needed —
-// the recipient's browser decodes it straight from the URL. Compression is
+// Packs the whole project into the URL (#d=...) so a diagram can be shared
+// as a link with no server round-trip and no account needed — the
+// recipient's browser decodes it straight from the URL.
+//
+// It rides in the fragment, after the #, because a browser never sends the
+// fragment to the server. In the query (?d=, which links made before this
+// used) the whole diagram went out with every request for the page, and a
+// large one outgrew the server's limit on the request line and headers —
+// Node answers that with HTTP 431 before the page can even load. Links
+// with ?d= still open; readSharedParam reads both. Compression is
 // the browser's own native gzip (CompressionStream/DecompressionStream —
 // supported in every evergreen browser, no library needed) rather than
 // plain base64 of the raw JSON: a good general-purpose starting point: if
@@ -54,4 +61,17 @@ export async function decodeProjectFromParam(param) {
   const compressed = base64UrlToBytes(param);
   const bytes = await gunzip(compressed);
   return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+// The encoded diagram a page was opened with, or null: from #d= first,
+// else from an older ?d= link.
+export function readSharedParam(location = window.location) {
+  const fromHash = new URLSearchParams(location.hash.replace(/^#/, '')).get('d');
+  return fromHash || new URLSearchParams(location.search).get('d');
+}
+
+// The link that opens `encoded` (see encodeProjectToParam) on the page at
+// `base` — origin plus path, no query of its own.
+export function shareUrlFor(base, encoded) {
+  return `${base}#d=${encoded}`;
 }

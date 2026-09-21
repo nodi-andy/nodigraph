@@ -4,7 +4,7 @@
 //
 //   node client/tools/layout.mjs diagram.yaml                 # placed YAML on stdout
 //   node client/tools/layout.mjs diagram.yaml --json          # full project JSON
-//   node client/tools/layout.mjs diagram.yaml --link          # https://nodigraph.com/?d=…
+//   node client/tools/layout.mjs diagram.yaml --link          # https://nodigraph.com/#d=…
 //   node client/tools/layout.mjs diagram.yaml --out placed.yaml
 //   node client/tools/layout.mjs diagram.yaml --force         # re-lay-out every level
 //
@@ -56,7 +56,8 @@ let out;
 if (flag('--link')) {
   const base = option('--base') || 'https://nodigraph.com/';
   const param = await encodeProjectToParam({ toJSON: () => data });
-  out = `${base}${base.includes('?') ? '&' : '?'}d=${param}\n`;
+  // In the fragment, never sent to the server (see model/shareLink.js).
+  out = `${base.replace(/#.*$/, '')}#d=${param}\n`;
 } else if (flag('--json')) {
   out = JSON.stringify(data, null, 2) + '\n';
 } else {

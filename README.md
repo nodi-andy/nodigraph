@@ -35,7 +35,7 @@ named ports, wire them together, and drill into any block to describe how
 a block with its own interface, the top-level product included.
 
 When you share a diagram, the entire thing is compressed into the URL
-(`nodigraph.com/?d=…`). Opening that link needs nothing but a browser: no
+(`nodigraph.com/#d=…`). Opening that link needs nothing but a browser: no
 sign-up, no server round-trip, nothing of yours retained anywhere. Roughly
 100 blocks fit comfortably in a link.
 
@@ -180,7 +180,7 @@ single-user and not publicly reachable.
 | --- | --- |
 | Rendering | One `<canvas>`, drawn by `client/src/render/` |
 | State | A plain block tree (`client/src/model/Project.js`) |
-| Sharing | `JSON → gzip → base64url → ?d=` (`model/shareLink.js`) |
+| Sharing | `JSON → gzip → base64url → #d=` (`model/shareLink.js`) |
 | Server | ~150 lines of Node, one dependency (`ws`) |
 | Build step | None. The browser loads ES modules directly. |
 
@@ -242,7 +242,7 @@ model, layout and rendering code the editor runs:
 | | |
 | --- | --- |
 | `node client/tools/lint.mjs diagram.yaml` | checks a diagram the way a reader sees it: wires through blocks, overlapping blocks, colliding labels, pins off their slots. Exit 1 on an error; `--json` for data. |
-| `node client/tools/layout.mjs diagram.yaml` | prints the YAML with every position filled in; `--json` for the full project; `--link` for a `?d=` share link with the diagram inside it. |
+| `node client/tools/layout.mjs diagram.yaml` | prints the YAML with every position filled in; `--json` for the full project; `--link` for a `#d=` share link with the diagram inside it. |
 | `node client/tools/svg.mjs diagram.yaml --out figure.svg` | draws a level to SVG; `--level "A/B"` for a nested one, `--all --out-dir` for every level. |
 
 ### Known limits

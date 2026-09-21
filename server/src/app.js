@@ -191,7 +191,14 @@ function handlePutProject(req, res) {
   });
 }
 
-const server = http.createServer((req, res) => {
+// Share links now carry a diagram after the #, which never reaches the
+// server (see client/src/model/shareLink.js). Links made before carried it
+// in ?d=, inside the request line, and a large diagram outgrew Node's
+// default 16 KB limit on the request line plus headers — HTTP 431 before
+// the page could load. Raised so those links keep opening.
+const MAX_HEADER_SIZE = 1024 * 1024;
+
+const server = http.createServer({ maxHeaderSize: MAX_HEADER_SIZE }, (req, res) => {
   const [urlPath] = req.url.split('?');
 
   if (urlPath === '/api/project' && req.method === 'GET') {

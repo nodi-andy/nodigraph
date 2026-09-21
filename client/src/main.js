@@ -40,7 +40,7 @@ import { getConnectionGeometry, getConnectionLabelPosition } from './render/Conn
 import { downloadProjectFile, readProjectFile, safeFileStem } from './model/localFile.js';
 import { projectDataToYamlText, pasteSlimYamlText } from './model/slimFormat.js';
 import { downloadCurrentLevelSvg, renderCurrentLevelSvgBlob, renderCurrentLevelSvgString } from './model/diagramSvg.js';
-import { encodeProjectToParam, decodeProjectFromParam } from './model/shareLink.js';
+import { encodeProjectToParam, decodeProjectFromParam, readSharedParam, shareUrlFor } from './model/shareLink.js';
 import {
   readDiagramFromGitHub,
   writeDiagramToGitHub,
@@ -94,12 +94,12 @@ function pathsEqual(a, b) {
 if (typeof window !== 'undefined') window.__ndVersion = 'port-resize-2026-08-25-m';
 
 async function bootstrap() {
-  // A diagram opened via a shared link (?d=...) is a self-contained
+  // A diagram opened via a shared link (#d=..., or an older ?d=) is a self-contained
   // snapshot, not this browser's connection to the live server project —
   // editing it locally is fine, but it must never silently overwrite (via
   // persist()) or get overwritten by (via liveSync) whatever the server's
   // own project currently is. See model/shareLink.js.
-  const sharedParam = new URLSearchParams(window.location.search).get('d');
+  const sharedParam = readSharedParam();
   // An invite link (?join=) carries only the session id, not the diagram —
   // the host pushes that over the data channel the moment this browser's
   // connection opens (see peerSession.join() near the end of this
@@ -128,7 +128,7 @@ async function bootstrap() {
       project = Project.fromJSON(await decodeProjectFromParam(sharedParam));
       isSharedView = true;
     } catch {
-      // A truncated or otherwise mangled ?d= — there's nothing in it worth
+      // A truncated or otherwise mangled #d= — there's nothing in it worth
       // salvaging, so fall through to a blank diagram rather than the
       // blocking alert() this used to be: an empty canvas is still
       // something to work with, and a toast says what happened without
@@ -882,12 +882,22 @@ async function bootstrap() {
   }
 
   // A shareable link, not a save — the whole diagram packed into the URL's
-  // own ?d= param (see model/shareLink.js), so opening it needs nothing
+  // own #d= fragment (see model/shareLink.js), so opening it needs nothing
   // but a browser: no server, no account.
   async function buildShareUrl() {
     const encoded = await encodeProjectToParam(project);
-    return `${window.location.origin}${window.location.pathname}?d=${encoded}`;
+    return shareUrlFor(`${window.location.origin}${window.location.pathname}`, encoded);
   }
+
+  // A different diagram pasted into this tab's address bar changes only
+  // the fragment, and a browser does not reload a page for that — so it
+  // would otherwise be ignored. Saving (handleSaveToUrl) rewrites the
+  // fragment with replaceState, which fires no hashchange, so only a
+  // genuinely new link gets here.
+  window.addEventListener('hashchange', () => {
+    const next = readSharedParam();
+    if (next && next !== sharedParam) window.location.reload();
+  });
 
   const buildShareUrlOrError = async () => {
     try {
