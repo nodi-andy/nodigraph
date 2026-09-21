@@ -38,9 +38,45 @@ const BORDER_MAX_SCREEN_WIDTH = 6;
 // blockShadowRgb): the same ink that reads on a light canvas disappears
 // on a dark one.
 const PAPER_SHADOW_LAYERS = [
-  { alpha: 0.18, blur: 20, offsetY: 8 },
-  { alpha: 0.16, blur: 5, offsetY: 2 },
+  { alpha: 0.16, blur: 16, offsetY: 6 },
+  { alpha: 0.2, blur: 3, offsetY: 1 },
 ];
+// A block is a chip, not a sheet: a thin slab with a visible side wall
+// under its face, CHIP_DEPTH screen pixels deep at any zoom (divided by
+// zoom before use, like the shadow). The side is the block's own outline,
+// sockets and all, dropped by that depth, in the face's colour darkened by
+// CHIP_SIDE_SHADE and edged in the border colour — so a tab has a side
+// under it and a dent shows its wall. The shadow is cast by the whole chip
+// rather than by the face alone.
+const CHIP_DEPTH = 3.5;
+const CHIP_SIDE_SHADE = 'rgba(15, 18, 24, 0.2)';
+
+// Where a chip's side wall must not show: around every socket plugged
+// straight into a neighbour (see pinsArePlugged). A tab seated in a dent
+// fills it through the chip's whole depth, so neither the dent's wall nor
+// the tab's own side can be seen there. The box covers the socket and the
+// strip below it that the side wall, dropped by `depth`, would reach.
+function pluggedSocketBox(pos, side, shape, depth) {
+  const n = sideNormal(side);
+  const along = shape === 'in' ? -SOCKET_DEPTH : SOCKET_DEPTH;
+  const pad = 0.5;
+  let x0;
+  let x1;
+  let y0;
+  let y1;
+  if (n.x !== 0) {
+    x0 = Math.min(pos.x, pos.x + n.x * along);
+    x1 = Math.max(pos.x, pos.x + n.x * along);
+    y0 = pos.y - SOCKET_HALF_OUTER;
+    y1 = pos.y + SOCKET_HALF_OUTER;
+  } else {
+    x0 = pos.x - SOCKET_HALF_OUTER;
+    x1 = pos.x + SOCKET_HALF_OUTER;
+    y0 = Math.min(pos.y, pos.y + n.y * along);
+    y1 = Math.max(pos.y, pos.y + n.y * along);
+  }
+  return { x: x0 - pad, y: y0 - pad, width: x1 - x0 + 2 * pad, height: y1 - y0 + depth + 2 * pad };
+}
 // The drawn arrowhead is smaller than this — it's the hit-test radius
 // around the handle's tip, padded like every other small handle.
 export const CONNECTOR_HANDLE_RADIUS = 4;
@@ -1513,16 +1549,37 @@ export function drawBlock(
   // The outline carries the pins' sockets (see blockOutlinePath): the
   // fill, the shadow, the border and the content clip all follow it.
   const sockets = socketsOf(block);
-  blockOutlinePath(ctx, block.geometry, sockets);
-  ctx.fillStyle = fillColor;
-  // A card lying flat casts a shadow; a deliberately paint-nothing block
-  // (fillColor === 'transparent', see SelectionFabs' transparent swatch)
-  // is meant to read as bare floating text with no card at all, so it
-  // skips the shadow rather than getting a ghost of one.
-  // The SVG recording context (render/svgContext.js) has no shadow support
-  // at all, so a second fill there would buy nothing and emit a duplicate
-  // path per block — it gets the single plain fill it always did.
+  // World units, so the border scales with the block like everything
+  // else — capped in screen pixels, because the block you are editing
+  // inside of (see SubPreviewRenderer.drawLevel) is drawn at three times
+  // the zoom of its own level per nesting step, and its border would
+  // otherwise turn into a wall around the level.
+  const borderWidth = Math.min(BORDER_WIDTH, BORDER_MAX_SCREEN_WIDTH / zoom);
+
+  // The chip's side wall and the shadow under it (see CHIP_DEPTH). A
+  // deliberately paint-nothing block (fillColor === 'transparent', see
+  // SelectionFabs' transparent swatch) is meant to read as bare floating
+  // text with no chip at all, so it gets neither. Nor does the SVG
+  // recording context (render/svgContext.js): it has no shadows, and an
+  // exported figure is a flat drawing — it gets the plain face alone.
   if (fillColor !== 'transparent' && 'shadowColor' in ctx) {
+    const depth = CHIP_DEPTH / zoom;
+    ctx.save();
+    // A pin with a null entry in pinWires is plugged, not wired (see
+    // drawPorts); its socket keeps the side wall out (see pluggedSocketBox).
+    const plugged = (block.ports || []).filter((port) => pinWires?.has(port.id) && pinWires.get(port.id) === null);
+    if (plugged.length) {
+      ctx.beginPath();
+      ctx.rect(x - 1e5, y - 1e5, 2e5, 2e5);
+      for (const port of plugged) {
+        const box = pluggedSocketBox(getPortPosition(block, port), port.side, pinShapeOf(logicalPortOf(block, port)?.direction ?? null), depth);
+        ctx.rect(box.x, box.y, box.width, box.height);
+      }
+      ctx.clip('evenodd');
+    }
+    ctx.translate(0, depth);
+    blockOutlinePath(ctx, block.geometry, sockets);
+    ctx.fillStyle = fillColor;
     for (const layer of PAPER_SHADOW_LAYERS) {
       ctx.save();
       ctx.shadowColor = `rgba(${palette.blockShadowRgb}, ${layer.alpha})`;
@@ -1531,15 +1588,20 @@ export function drawBlock(
       ctx.fill();
       ctx.restore();
     }
-  } else {
+    ctx.fillStyle = CHIP_SIDE_SHADE;
     ctx.fill();
+    ctx.lineWidth = borderWidth;
+    ctx.strokeStyle = accentColor;
+    ctx.stroke();
+    ctx.restore();
   }
-  // World units, so the border scales with the block like everything
-  // else — capped in screen pixels, because the block you are editing
-  // inside of (see SubPreviewRenderer.drawLevel) is drawn at three times
-  // the zoom of its own level per nesting step, and its border would
-  // otherwise turn into a wall around the level.
-  ctx.lineWidth = Math.min(BORDER_WIDTH, BORDER_MAX_SCREEN_WIDTH / zoom);
+
+  // The face, over the side wall: what is left showing of the side is the
+  // thin band under the face's bottom edge and under every tab.
+  blockOutlinePath(ctx, block.geometry, sockets);
+  ctx.fillStyle = fillColor;
+  ctx.fill();
+  ctx.lineWidth = borderWidth;
   ctx.strokeStyle = accentColor;
   ctx.stroke();
 
