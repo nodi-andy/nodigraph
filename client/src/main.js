@@ -826,13 +826,12 @@ async function bootstrap() {
     },
   });
 
-  // Marching dashes along every wire, to show which way things flow — on
-  // from the start, since the flow is much of what a diagram says; Settings
-  // turns it off. Purely a way of looking at the diagram: nothing about it
-  // is stored, shared or undoable, so it lives here as a plain flag rather
-  // than in the project.
+  // Marching dashes along every wire, to show which way things flow — off
+  // from the start; Settings turns it on. Purely a way of looking at the
+  // diagram: nothing about it is stored, shared or undoable, so it lives
+  // here as a plain flag rather than in the project.
   const FLOW_SPEED = 55; // world units per second
-  let animating = true;
+  let animating = false;
 
   function toggleAnimation() {
     animating = !animating;
