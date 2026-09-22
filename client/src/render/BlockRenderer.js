@@ -535,7 +535,10 @@ export function drawResizeHandles(ctx, geometry, palette = DEFAULT_PALETTE, zoom
 // is *entered* even if nothing was ever placed inside it (same "real
 // content" check the Inspector's own "Enter block (N inside)" label uses).
 export function hasSubArchitecture(block) {
-  return Boolean(block.children?.blocks?.size);
+  // Empty declared containers are still levels you can zoom into to add
+  // their first component. Serialization omits their empty children maps,
+  // but keeps hasChildren and the frame. Boundary-only wiring also counts.
+  return Boolean(block.hasChildren || block.children?.blocks?.size || block.children?.connections?.size);
 }
 
 // A block with a `link` is a reference to an artifact that lives

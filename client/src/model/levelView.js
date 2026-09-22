@@ -86,10 +86,9 @@ export function boundsOf(view) {
 }
 
 export class LevelView {
-  // `container` is the block whose interior this view exposes; it must
-  // already have a children level (see BlockRenderer.hasSubArchitecture —
-  // the only caller today checks that first), since nothing here ever
-  // creates one the way Project.getLevel does.
+  // An empty declared container may have no children maps after loading.
+  // Expose its empty interior without mutating it; Project.getLevel creates
+  // the maps when someone starts editing there.
   constructor(container) {
     this.container = container;
     this.level = container.children || { blocks: new Map(), connections: new Map() };

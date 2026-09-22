@@ -525,7 +525,7 @@ export function drawLevel(
     }
     // The host's per-block drawing hook (see SceneRenderer.renderScene)
     // fires for the level being edited only — what it always drew on.
-    if (focused) onDrawBlock(ctx, block);
+    if (focused) onDrawBlock(ctx, block, { contentAlpha: contentAlphaFor(previewT) });
   }
 
   // Pins over wires. A wire's z-index is its front endpoint's, so it paints

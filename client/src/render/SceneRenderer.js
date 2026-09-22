@@ -207,6 +207,8 @@ export function renderScene(
     // after it is drawn — `ctx` is under that level's camera transform at
     // that point, so the callback can draw straight in world coordinates
     // (block.geometry) with no transform math of its own to get right. A
+    // third argument carries contentAlpha: hosts can fade their custom
+    // face/DOM with the title instead of covering the opened interior. A
     // no-op by default, which is every caller today except a host that's
     // set one up.
     onDrawBlock = () => {},
