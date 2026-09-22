@@ -105,6 +105,14 @@ export function mountInspector(
     // defaults to always allowing it, so this button behaves exactly as
     // before for a page that never sets the hook.
     canEnterBlock = () => true,
+    // Prop names a host page keeps out of the Properties list — its own
+    // machinery rather than anything a user should be typing into, e.g.
+    // noditron's `fn`/`render`/`html`/`dialog` code props, which it edits
+    // through a tab of its own (see `extraTabs`) and would otherwise show
+    // twice: once as a proper code editor, once as a one-line text field
+    // holding a whole function body. Hiding is display-only; the props
+    // themselves are untouched and still serialize as they always did.
+    hiddenPropNames = [],
   },
 ) {
   // Shows either the structured Inspector or the raw Description editor at
@@ -332,9 +340,10 @@ export function mountInspector(
     // editor alone can't give): flipping an enum prop like state re-renders
     // immediately, and if it's named "state" the block's output ports
     // recolor to match (see BlockDescription.getStateColor).
-    if (block.props.length) {
+    const shownProps = block.props.filter((prop) => !hiddenPropNames.includes(prop.name));
+    if (shownProps.length) {
       container_.appendChild(sectionHeading('Properties'));
-      for (const prop of block.props) {
+      for (const prop of shownProps) {
         if (prop.kind === 'enum') {
           const select = document.createElement('select');
           for (const option of prop.options) {
@@ -437,6 +446,33 @@ export function mountInspector(
         syncPortChange(block, requestRender, persist);
       });
 
+      // The only way back for a port shipped hidden (see
+      // BlockDescription.isPortHidden) — it's drawn nowhere on the canvas,
+      // so this row is where it can be seen and revealed at all. `hidden`
+      // is deleted rather than set to false when turned off, keeping an
+      // ordinary port's serialized shape identical to one that never
+      // touched this button.
+      const hideButton = document.createElement('button');
+      hideButton.type = 'button';
+      hideButton.className = 'port-hide-button';
+      const syncHideButton = () => {
+        const hidden = logical.hidden === true;
+        hideButton.textContent = hidden ? '🙈' : '👁';
+        hideButton.classList.toggle('port-hidden', hidden);
+        hideButton.title = hidden
+          ? 'Hidden on the canvas — click to show this port'
+          : 'Shown on the canvas — click to hide this port';
+        hideButton.setAttribute('aria-label', hideButton.title);
+        row.classList.toggle('port-row-hidden', hidden);
+      };
+      hideButton.addEventListener('click', () => {
+        if (logical.hidden) delete logical.hidden;
+        else logical.hidden = true;
+        syncHideButton();
+        syncPortChange(block, requestRender, persist);
+      });
+      syncHideButton();
+
       const deleteButton = document.createElement('button');
       deleteButton.type = 'button';
       deleteButton.className = 'port-delete-button';
@@ -457,6 +493,7 @@ export function mountInspector(
         countBadge.title = `${pinIds.length} pins on the canvas — cloned with Alt-drag`;
         row.appendChild(countBadge);
       }
+      row.appendChild(hideButton);
       row.appendChild(deleteButton);
       container_.appendChild(row);
 

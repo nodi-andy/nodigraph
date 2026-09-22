@@ -224,12 +224,20 @@ export function assignDefaultPortOffsets(block) {
     if (!autoPins.length) continue;
 
     const sideLength = sideAxis(side) === 'x' ? height : width;
-    // Manually-placed pins on this side are fixed points auto-layout has
-    // to dodge, not just other auto pins to space evenly against —
-    // compared by resolved slot (nearestPortSlot), not raw offset, so a
-    // pin saved before slots existed still correctly reserves whichever
-    // slot it now actually renders at (see BlockRenderer.getPortPosition).
-    const taken = new Set(sidePins.filter((p) => p.manualOffset).map((p) => nearestPortSlot(sideLength, p.offset)));
+    // Every pin on this side that already sits somewhere is a fixed point
+    // auto-layout has to dodge, not just other auto pins to space evenly
+    // against — compared by resolved slot (nearestPortSlot), not raw
+    // offset, so a pin saved before slots existed still correctly reserves
+    // whichever slot it now actually renders at (see
+    // BlockRenderer.getPortPosition).
+    //
+    // "Already sits somewhere" is any pin with a concrete offset, not just
+    // a manually dragged one: this runs once per addPort, so by the second
+    // port on a side the first is no longer up for placement (it has an
+    // offset) — counting only manual pins as taken left it invisible to
+    // this, and every auto pin on a side piled onto that side's first free
+    // slot, exactly on top of each other.
+    const taken = new Set(sidePins.filter((p) => !autoPins.includes(p)).map((p) => nearestPortSlot(sideLength, p.offset)));
     const freeSlots = getPortSlotOffsets(sideLength).filter((s) => !taken.has(s));
 
     autoPins.forEach((pin, i) => {
@@ -255,7 +263,7 @@ export function assignDefaultPortOffsets(block) {
 // before it's actually an input would be a claim it hasn't earned; leaving
 // both name and direction blank means there's nothing to contradict once
 // the user does pick one, in the Inspector, whenever — or never — they want to.
-export function addPort(block, { direction = null, side, offset } = {}) {
+export function addPort(block, { direction = null, side, offset, hidden = false } = {}) {
   // A text block is a plain floating label (see Block.createBlock) — it
   // has no sockets to wire, regardless of which UI gesture asked for one.
   if (block.kind === 'text') return null;
@@ -266,6 +274,11 @@ export function addPort(block, { direction = null, side, offset } = {}) {
     direction,
     name: direction ? `${direction === 'out' ? 'Out' : 'In'}${countSameDirection + 1}` : '',
     description: '',
+    // Written only when actually hidden (see isPortHidden), so every
+    // ordinary port serializes byte-for-byte as it did before this
+    // existed — the same rule `subtitle`/`lines`/`link` follow on the
+    // block itself (see Block.hydrateBlock).
+    ...(hidden ? { hidden: true } : {}),
   };
   block.logicalPorts = [...(block.logicalPorts || []), logical];
   const pin = {
@@ -351,6 +364,24 @@ export function removeLogicalPort(block, logicalId) {
 // any other id-lookup in this codebase).
 export function logicalPortOf(block, pin) {
   return (block?.logicalPorts || []).find((lp) => lp.id === pin?.logicalId) || null;
+}
+
+// A logical port marked `hidden` is a real part of the block's interface —
+// it keeps its name, direction, pins and any wires already on them — that
+// the block simply doesn't *show*: not drawn, not hit-tested, and not cut
+// into the block's own outline (see BlockRenderer.socketsOf). It exists
+// for a block with an interface most users never touch, where showing
+// every pin up front would bury the two that matter: the secondary one
+// ships hidden and the Inspector's own eye toggle on that port's row is
+// what reveals it (see InspectorPanel's port list).
+//
+// Hiding is purely cosmetic: a hidden port still evaluates, and a wire
+// already attached to one still carries data and still draws — it just
+// runs to the block's edge with no socket to meet it, which is the honest
+// picture of what's there. Nothing hides a port automatically; only an
+// explicit `hidden: true` (from addPort, or the Inspector) ever does.
+export function isPortHidden(block, pin) {
+  return logicalPortOf(block, pin)?.hidden === true;
 }
 
 // The first available "base", "base 2", "base 3", ... against every other

@@ -291,7 +291,16 @@ export class Project {
   // "inside" for a wire to fan out into, so it keeps the older, unlimited
   // fan-in/fan-out behaviour — this only ever tightens wiring onto a block
   // that's actually being used as a container.
-  addConnection(connection) {
+  // `replacing` is the id of a wire this one is about to take the place of
+  // (see DragStateMachine.tryCompleteConnection, which adds the
+  // replacement before dropping the original so a rejected drop leaves the
+  // original untouched). That wire must not count against the cap below:
+  // it is still in the project only because it has not been removed *yet*,
+  // and counting it meant a wire with one end on a container's port could
+  // never be moved at all — the wire being dragged was itself what made
+  // every drop look like it would exceed the cap, so the drop was refused
+  // and the wire snapped back, every time.
+  addConnection(connection, { replacing = null } = {}) {
     if (this.hasConnection(connection.sourcePortId, connection.targetPortId)) return null;
     const container = this.getContainerBlock();
     const endpoints = [
@@ -303,8 +312,9 @@ export class Project {
       if (!this.current.blocks.get(blockId)?.hasChildren) continue;
       const alreadyWired = this.listConnections().some(
         (c) =>
-          (c.sourceBlockId === blockId && c.sourcePortId === portId) ||
-          (c.targetBlockId === blockId && c.targetPortId === portId),
+          c.id !== replacing &&
+          ((c.sourceBlockId === blockId && c.sourcePortId === portId) ||
+            (c.targetBlockId === blockId && c.targetPortId === portId)),
       );
       if (alreadyWired) return null;
     }

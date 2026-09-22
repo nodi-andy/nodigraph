@@ -9,7 +9,7 @@ import {
   PORT_SLOT_SPACING,
   SIDES,
 } from '../model/grid.js';
-import { getStateColor, logicalPortOf } from '../model/BlockDescription.js';
+import { getStateColor, logicalPortOf, isPortHidden } from '../model/BlockDescription.js';
 import { DEFAULT_BLOCK_COLOR, TITLE_POSITIONS, TITLE_ALIGNMENTS } from '../model/Block.js';
 import { boundaryPlacementFor, exteriorPlacementFor, frameToFace } from '../model/levelGeometry.js';
 import { isImageUrl, getCachedImage } from './imageCache.js';
@@ -803,6 +803,9 @@ export function pinShapeOf(direction) {
 export function socketsOf(block) {
   const sockets = [];
   for (const port of block.ports || []) {
+    // A hidden port cuts no socket: the outline has to stay solid where a
+    // pin isn't drawn, or hiding one would just turn it into a notch.
+    if (isPortHidden(block, port)) continue;
     const { x, y } = getPortPosition(block, port);
     sockets.push({ side: port.side, x, y, shape: pinShapeOf(logicalPortOf(block, port)?.direction ?? null) });
   }
@@ -1255,6 +1258,11 @@ function drawPorts(
     // doc) — resolved once here rather than threading `block` any deeper
     // into the drawing helpers below.
     const logical = logicalPortOf(block, port);
+    // Hidden (see BlockDescription.isPortHidden): the pin's slot stays
+    // reserved in every offset/occupancy calculation around this loop, so
+    // revealing it later puts it back exactly where it always was — it
+    // just isn't painted, here or on a container's boundary frame.
+    if (logical?.hidden) continue;
     const portName = logical?.name || '';
     const portDirection = logical?.direction ?? null;
     // Boundary-only: [{ id, rank, label }] for every wire currently on
@@ -1570,7 +1578,7 @@ export function drawBlock(
     ctx.save();
     // A pin with a null entry in pinWires is plugged, not wired (see
     // drawPorts); its socket keeps the side wall out (see pluggedSocketBox).
-    const plugged = (block.ports || []).filter((port) => pinWires?.has(port.id) && pinWires.get(port.id) === null);
+    const plugged = (block.ports || []).filter((port) => pinWires?.has(port.id) && pinWires.get(port.id) === null && !isPortHidden(block, port));
     if (plugged.length) {
       ctx.beginPath();
       ctx.rect(x - 1e5, y - 1e5, 2e5, 2e5);
@@ -1667,6 +1675,7 @@ export function drawExteriorSubSlots(ctx, block, wireCounts, { palette = DEFAULT
   for (const port of block.ports || []) {
     const count = wireCounts.get(port.id) || 0;
     if (count < 2) continue;
+    if (isPortHidden(block, port)) continue;
     const view = asBoundaryView(block, frame, [port]);
     const side = getPortBoundaryPlacement(port, view).side;
     const shape = pinShapeOf(logicalPortOf(block, port)?.direction ?? null);

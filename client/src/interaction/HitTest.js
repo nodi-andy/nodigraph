@@ -18,6 +18,7 @@ import {
   getPlugRect,
   isPluggedConnection,
 } from '../render/BlockRenderer.js';
+import { isPortHidden } from '../model/BlockDescription.js';
 
 // Handles are visually tiny, so their hit area is padded beyond what's drawn —
 // a standard diagramming-tool trick, independent of render technology. Both
@@ -137,6 +138,10 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const block = blocks[i];
     for (const port of block.ports || []) {
+      // Nothing is drawn for a hidden port (see BlockRenderer.drawPorts),
+      // so nothing here may claim the empty space where it would have
+      // been — the block's own body owns that area instead.
+      if (isPortHidden(block, port)) continue;
       if (inverted) {
         // Every wire the port already holds gets its own grabbable handle
         // — grabbing one picks *that* wire up to redirect it (see
@@ -183,6 +188,7 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
       // port — a reserved-but-empty slot has nothing drawn here at all
       // (see the portWireGhost check above for reaching it instead).
       for (const port of block.ports || []) {
+        if (isPortHidden(block, port)) continue;
         const side = getPortBoundaryPlacement(port, block).side;
         const wireIds = wireIdsFor(port.id);
         // A totally unwired port still draws (and must hit-test) its one
@@ -218,6 +224,7 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
       }
     } else {
       for (const { port } of getAllPortPositions(block)) {
+        if (isPortHidden(block, port)) continue;
         // A port is drawn as a rect, not a dot on the border — hit-test
         // the actual rect drawn, not just a small circle at its outer
         // edge, or most of the visible shape wouldn't be clickable.

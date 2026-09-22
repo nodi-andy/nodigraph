@@ -1520,6 +1520,10 @@ async function bootstrap() {
     // "read whatever's already there, no host required" contract as
     // window.nodigraph's own note just below.
     extraTabs: window.nodigraphExtraTabs || [],
+    // Same pre-set-global contract as `extraTabs` just above, for the same
+    // reason — a host page naming its own internal props so the Inspector
+    // doesn't offer them as ordinary editable fields.
+    hiddenPropNames: window.nodigraphHiddenProps || [],
   });
 
   breadcrumbApi = mountBreadcrumb(breadcrumbEl, {

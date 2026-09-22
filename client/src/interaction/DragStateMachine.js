@@ -1981,6 +1981,10 @@ export class DragStateMachine {
         targetBlockId: target.inSide.blockId,
         targetPortId: target.inSide.portId,
       }),
+      // The wire being redirected is still here (it is dropped just below,
+      // only once this replacement actually lands) — so it must not be
+      // counted as competition for its own port's one-wire cap.
+      { replacing: this.context.redirectingConnectionId || null },
     );
     // Only removed once a replacement actually lands — a drop rejected as
     // a duplicate, or anywhere invalid, leaves the wire being redirected

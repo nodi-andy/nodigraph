@@ -62,6 +62,11 @@ function computePortsSlim(block) {
     if (logical?.name) rec.name = logical.name;
     if (logical?.direction) rec.dir = logical.direction;
     if (logical?.description) rec.desc = logical.description;
+    // Part of the interface, not of a pin's placement (see
+    // BlockDescription.isPortHidden) — a port the block deliberately
+    // doesn't show has to come back hidden, or every reload would reveal
+    // it again.
+    if (logical?.hidden) rec.hidden = true;
     const naturalSide = logical?.direction === 'out' ? 'right' : 'left';
     if (pin.side && pin.side !== naturalSide) rec.side = pin.side;
     if (pin.manualOffset && pin.offset !== undefined && pin.offset !== null) rec.offset = pin.offset;
@@ -220,7 +225,7 @@ function slimPortsToArrays(portsSlim) {
     // clonePort actually produces.
     let logical = name ? logicalPorts.find((lp) => lp.name === name && lp.direction === direction) : null;
     if (!logical) {
-      logical = { id: generateId('io'), name, direction, description: rec.desc || '' };
+      logical = { id: generateId('io'), name, direction, description: rec.desc || '', ...(rec.hidden ? { hidden: true } : {}) };
       logicalPorts.push(logical);
     }
     const pinId = generateId('prt');

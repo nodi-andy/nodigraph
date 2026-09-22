@@ -1187,6 +1187,33 @@ body.inspector-open .control-bar {
   color: var(--text-secondary);
 }
 
+/* Reveals/hides this port on the canvas (see BlockDescription.isPortHidden).
+   A hidden row dims its name/direction to match what the canvas shows —
+   the port is still fully there, just not painted. */
+#inspector .port-hide-button {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+#inspector .port-hide-button:hover,
+#inspector .port-hide-button.port-hidden {
+  opacity: 1;
+  border-color: var(--text-secondary);
+}
+
+#inspector .port-row-hidden .port-name-input,
+#inspector .port-row-hidden .port-dir-select {
+  opacity: 0.55;
+}
+
 #inspector .port-delete-button {
   flex-shrink: 0;
   width: 24px;
