@@ -6,7 +6,7 @@ import {
   addPort,
   removeLogicalPort,
   serializeBlockDescription,
-  uniqueLogicalPortName,
+  mergeSameNamedLogicalPort,
 } from '../model/BlockDescription.js';
 import { DASH_STYLES } from '../render/ConnectionRenderer.js';
 
@@ -446,6 +446,7 @@ export function mountInspector(
       }
       dirSelect.addEventListener('change', () => {
         logical.direction = dirSelect.value || null;
+        mergeSameNamedLogicalPort(block, logical.id);
         syncPortChange(block, requestRender, persist);
       });
 
@@ -459,13 +460,9 @@ export function mountInspector(
         syncPortChange(block, requestRender);
       });
       nameInput.addEventListener('change', () => {
-        // Disambiguated only on commit, not on every keystroke — two
-        // logical ports are never allowed to end up with the same name
-        // (see BlockDescription.uniqueLogicalPortName), but fighting the
-        // user's cursor mid-type would be worse than the rare case of two
-        // *different* interfaces actually colliding on a name.
-        logical.name = uniqueLogicalPortName(block, logical.name, logical.id);
-        nameInput.value = logical.name;
+        // Repeating a name exposes the same logical wire at another
+        // physical socket. Keep every pin and merge their identity.
+        mergeSameNamedLogicalPort(block, logical.id);
         syncPortChange(block, requestRender, persist);
       });
 

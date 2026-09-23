@@ -1,5 +1,6 @@
 import { GRID_SIZE, snap, createDefaultBoundaryGeometry } from './grid.js';
 import { normalizeFrame } from './levelGeometry.js';
+import { coalesceSameNamedPorts } from './portIdentity.js';
 
 let counter = 0;
 
@@ -127,6 +128,9 @@ export function hydrateBlock(raw) {
     description: raw.description || `Block: ${raw.name || 'Block'}`,
     boundaryGeometry: raw.hasChildren ? raw.boundaryGeometry || createDefaultBoundaryGeometry(raw.geometry) : raw.boundaryGeometry || null,
   };
+  // Repeated named ports are separate sockets on the face but one wire
+  // inside the module (for example VCC, GND, or API Call).
+  coalesceSameNamedPorts(block);
   // `subtitle` and `lines` (see BlockRenderer.blockTextRows) are optional
   // and stay absent rather than becoming `''`/`[]` on every block, so a
   // save from before they existed serializes byte-for-byte as it did.

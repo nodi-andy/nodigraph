@@ -1,5 +1,6 @@
 import { generateId } from './Block.js';
 import { sideAxis, getPortSlotOffsets, nearestPortSlot } from './grid.js';
+import { coalesceSameNamedPorts } from './portIdentity.js';
 
 /**
  * A block's interface is a `logicalPorts` list — each entry a named,
@@ -400,6 +401,12 @@ export function uniqueLogicalPortName(block, baseName, excludeId) {
   let n = 2;
   while (taken.has(`${baseName} ${n}`)) n += 1;
   return `${baseName} ${n}`;
+}
+
+// Commits a port edit using the same identity rule as module loading:
+// matching name+direction means another physical socket on the same net.
+export function mergeSameNamedLogicalPort(block, logicalId) {
+  return coalesceSameNamedPorts(block, logicalId);
 }
 
 export function setPropValue(block, propId, value) {
