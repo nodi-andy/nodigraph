@@ -26,6 +26,34 @@
  */
 
 const STORAGE_KEY = 'nodigraph.improvedView';
+const OPEN_ZOOM_KEY = 'nodigraph.levelOpenZoom';
+
+/**
+ * How big a level's own contents have to be drawn before that level is
+ * shown on its block's face, in screen pixels per world unit of the level
+ * inside (see SubPreviewRenderer.isLevelOpen, which compares the block's
+ * own interior scale against this).
+ *
+ * 0.5 — contents at half size — is where this sat as a constant. It is a
+ * judgement about legibility, not a fact, and which side of it you want
+ * depends on what you are doing: reading a whole system at a glance wants
+ * levels to open early, even if each one is a smudge, while editing one
+ * level wants the others to stay shut and out of the way. So it is a
+ * setting, remembered per browser like the rest of them.
+ *
+ * Lower opens sooner and draws more of the diagram at once, which costs
+ * more per frame — every open level is another level's worth of blocks
+ * and wires being drawn.
+ */
+export const LEVEL_OPEN_ZOOMS = [
+  { value: 0.15, label: 'Much sooner' },
+  { value: 0.25, label: 'Sooner' },
+  { value: 0.5, label: 'Normal' },
+  { value: 1, label: 'Later' },
+];
+const DEFAULT_OPEN_ZOOM = 0.5;
+
+let levelOpenZoom = DEFAULT_OPEN_ZOOM;
 
 // Off by default: a first-time visitor with a large diagram should see it
 // move, and someone who wants the nicer blocks can say so once.
@@ -33,9 +61,11 @@ let improvedView = false;
 
 try {
   improvedView = globalThis.localStorage?.getItem(STORAGE_KEY) === '1';
+  const saved = Number(globalThis.localStorage?.getItem(OPEN_ZOOM_KEY));
+  if (Number.isFinite(saved) && saved > 0) levelOpenZoom = saved;
 } catch {
   // Storage can be refused outright (private mode, blocked cookies). The
-  // setting is a preference, not data — defaulting it is a complete answer.
+  // settings are preferences, not data — defaulting them is a complete answer.
 }
 
 export function isImprovedView() {
@@ -50,4 +80,21 @@ export function setImprovedView(on) {
     // Same as above: it just won't be remembered next time.
   }
   return improvedView;
+}
+
+export function getLevelOpenZoom() {
+  return levelOpenZoom;
+}
+
+export function setLevelOpenZoom(value) {
+  const next = Number(value);
+  // Anything unrecognised falls back to the default rather than leaving
+  // levels that never open (0) or open always (a negative).
+  levelOpenZoom = Number.isFinite(next) && next > 0 ? next : DEFAULT_OPEN_ZOOM;
+  try {
+    globalThis.localStorage?.setItem(OPEN_ZOOM_KEY, String(levelOpenZoom));
+  } catch {
+    // As above.
+  }
+  return levelOpenZoom;
 }

@@ -76,14 +76,26 @@ own client architecture, drawn and kept up to date this way.
   plain named box again. A block inside a preview opens up too, once
   you're in far enough. Exported figures always read at one level,
   whatever size they're dropped in at.
-- **Every block sets its own interior scale** — Ctrl (Cmd on a Mac) and
-  scroll over a container to give it more or less room inside. A block
-  holding a dozen children needs a roomier interior than one holding two,
-  and that same setting is what decides how far you have to zoom in
-  before its level draws itself: a roomy block holds out longer, a tight
-  one opens almost as soon as you lean in. Scroll without Ctrl and you
-  are zooming the canvas as always — as is a trackpad pinch, which the
-  browser reports as a Ctrl+wheel but which never resizes anything.
+- **Every block sets its own interior view** — Ctrl (Cmd on a Mac) and
+  scroll over a container to give it more or less room inside; Ctrl and
+  drag with the middle button to pan what its face shows of the level in
+  it. A block holding a dozen children needs a roomier interior than one
+  holding two, and that same scale is what decides how far you have to
+  zoom in before its level draws itself: a roomy block holds out longer,
+  a tight one opens almost as soon as you lean in. Without Ctrl, the
+  wheel and the middle button move the camera as always — as does a
+  trackpad pinch, which the browser reports as a Ctrl+wheel but which
+  never resizes anything.
+- **Settings › Show contents** — how early every block opens up, from
+  *Much sooner* to *Later*. Sooner draws more of the system at once, each
+  level smaller; later keeps the level you are working in clear of
+  everything underneath it.
+- **Invisible wires** — a connection that is real but would bury the
+  picture (a clock into every block, a common ground, the bus everything
+  talks to) can be set invisible in the Inspector. The line goes; the
+  plugs stay, so each block still shows that it *is* connected, and
+  hovering either of its pins brings that one wire back. Nothing is
+  deleted, so the diagram never lies about what is wired to what.
 - **Ports on a grid** — connectors snap to fixed slots on every edge, so
   wires between blocks line up instead of almost lining up. A new port
   starts undecided — no name, no in/out direction — until you set one in

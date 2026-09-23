@@ -100,11 +100,15 @@ function boundaryToSlim(boundaryGeometry, faceGeometry) {
 function wireToSlim(conn, endpoint) {
   const from = `${endpoint(conn.sourceBlockId)}.${endpoint(conn.sourceBlockId, conn.sourcePortId)}`;
   const to = `${endpoint(conn.targetBlockId)}.${endpoint(conn.targetBlockId, conn.targetPortId)}`;
-  if (conn.label || conn.color || conn.dashStyle) {
+  if (conn.label || conn.color || conn.dashStyle || conn.invisible) {
     const rec = { from, to };
     if (conn.label) rec.label = conn.label;
     if (conn.color) rec.color = conn.color;
     if (conn.dashStyle) rec.dash = conn.dashStyle;
+    // A wire kept out of the picture until one of its own pins is hovered
+    // (see SubPreviewRenderer's isWireShown) — absent for the ordinary
+    // case, like every other field here.
+    if (conn.invisible) rec.invisible = true;
     return flow(rec);
   }
   return `${from} -> ${to}`;
@@ -262,7 +266,7 @@ function parseWireEntry(entry) {
   const [fromBlockKey, fromPinKey] = match[1].trim().split('.');
   const [toBlockKey, toPinKey] = match[2].trim().split('.');
   if (!fromBlockKey || !fromPinKey || !toBlockKey || !toPinKey) return null;
-  return { fromBlockKey, fromPinKey, toBlockKey, toPinKey, label: raw.label, color: raw.color, dash: raw.dash };
+  return { fromBlockKey, fromPinKey, toBlockKey, toPinKey, label: raw.label, color: raw.color, dash: raw.dash, invisible: raw.invisible };
 }
 
 function slimLevelToData(blocksSlim, wiresSlim, selfBlockId, selfPinIdByKey) {
@@ -290,6 +294,7 @@ function slimLevelToData(blocksSlim, wiresSlim, selfBlockId, selfPinIdByKey) {
     if (parsed.label) conn.label = parsed.label;
     if (parsed.color) conn.color = parsed.color;
     if (parsed.dash) conn.dashStyle = parsed.dash;
+    if (parsed.invisible) conn.invisible = true;
     connectionsArray.push(conn);
   }
 

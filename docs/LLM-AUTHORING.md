@@ -294,6 +294,15 @@ solid); use it for control, telemetry and status paths, so they read as
 secondary and are laid out as such. `self.pN` addresses the enclosing block's
 own port. A label is drawn centred on the wire; keep it to a few words.
 
+`invisible: true` keeps a wire out of the picture until one of its own pins
+is hovered — the pins still show their plugs, so the blocks say they are
+connected. Use it for a connection that is genuinely there and would
+otherwise bury the diagram: a clock or reset into every block, a common
+ground, the bus every service talks to. Reach for it instead of leaving
+such a wire out, which would make the diagram claim things are unconnected
+when they are not. A handful per level at most; if most of a level is
+invisible, the thing they all meet at probably wants to be a block.
+
 ---
 
 ## Nesting

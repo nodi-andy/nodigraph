@@ -461,6 +461,22 @@ html, body {
   accent-color: var(--accent);
 }
 
+/* A settings row whose control is a choice rather than a switch (see
+   AppMenu's "Show contents"): the label takes the space a checkbox row
+   gives its text, and the control sits at the end of the row. */
+.app-menu-toggle-row select {
+  margin-left: auto;
+  max-width: 50%;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elevated, var(--bg-panel));
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 /* A sub-item inside an expandable body (see AppMenu.js's expandable/
    subItem) — same indentation as a toggle row, so Export's JSON/YAML
    choices line up under "Export" the same way Animate/Dark mode line up
@@ -1528,6 +1544,26 @@ body.inspector-open .control-bar {
   font-size: 11px;
   line-height: 1.45;
   color: var(--text-faint);
+}
+
+/* A checkbox with its label beside it, inside an Inspector field row (see
+   InspectorPanel's Invisible toggle) — the field already supplies the
+   heading above, so this is just the control and what it does. */
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.checkbox-row input[type='checkbox'] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  flex: none;
 }
 
 .share-checkbox-row {

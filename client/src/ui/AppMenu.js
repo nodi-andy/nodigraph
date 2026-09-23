@@ -1,4 +1,5 @@
 import { showToast } from './Toast.js';
+import { LEVEL_OPEN_ZOOMS } from '../render/viewOptions.js';
 
 // Icons are raw inner-<svg> markup rather than a single fill path — several
 // of these (the folded-corner page, the settings sliders) need more than
@@ -40,6 +41,7 @@ export function mountAppMenu(
     onSaveToGitHub,
     onAnimate,
     onImprovedView,
+    onLevelOpenZoom,
   },
 ) {
   container.innerHTML = '';
@@ -183,7 +185,26 @@ export function mountAppMenu(
   improvedText.textContent = 'Improved view';
   improvedLabel.append(improvedCheckbox, improvedText);
 
-  settingsBody.append(animateLabel, improvedLabel);
+  // How early a block's level appears on its face. The blocks inside are
+  // drawn smaller the sooner it opens, so this is a trade between seeing
+  // the whole system at once and keeping the level you are editing clear
+  // of everything below it (see render/viewOptions.js).
+  const openRow = document.createElement('label');
+  openRow.className = 'app-menu-toggle-row';
+  openRow.title = 'How far you have to zoom in before a block shows what is inside it.';
+  const openSelect = document.createElement('select');
+  for (const { value, label } of LEVEL_OPEN_ZOOMS) {
+    const option = document.createElement('option');
+    option.value = String(value);
+    option.textContent = label;
+    openSelect.appendChild(option);
+  }
+  openSelect.addEventListener('change', () => onLevelOpenZoom(Number(openSelect.value)));
+  const openText = document.createElement('span');
+  openText.textContent = 'Show contents';
+  openRow.append(openText, openSelect);
+
+  settingsBody.append(animateLabel, improvedLabel, openRow);
 
   return {
     // The dot marks edits made since the address bar was last written, so
@@ -204,6 +225,10 @@ export function mountAppMenu(
 
     refreshImprovedView(on) {
       improvedCheckbox.checked = on;
+    },
+
+    refreshLevelOpenZoom(value) {
+      openSelect.value = String(value);
     },
 
     // Ctrl/Cmd+S routes through the button rather than duplicating its

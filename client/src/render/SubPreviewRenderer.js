@@ -44,6 +44,7 @@ import { logicalPortOf } from '../model/BlockDescription.js';
 import { defaultBoundaryFor, frameToFace } from '../model/levelGeometry.js';
 import { GRID_SIZE } from '../model/grid.js';
 import { getCanvasPalette } from './canvasPalette.js';
+import { getLevelOpenZoom } from './viewOptions.js';
 
 // A block's level opens once its contents would be drawn at this many
 // screen pixels per world unit of the level — half size — whatever the
@@ -55,9 +56,19 @@ import { getCanvasPalette } from './canvasPalette.js';
 // arriving rather than popping. Shown and editable are the same
 // threshold (see isLevelEditable); it is also where main.js hands the
 // editing focus back to the parent on zooming out.
-const OPEN_ZOOM = 0.5;
+//
+// No longer a constant: how early a level should open is a preference
+// (see render/viewOptions.js), so this reads it per call. The two names
+// stay because they mean different things at the call sites even though
+// they are the same number — one is "is this level drawn", the other is
+// "is the view deep enough to be editing in it".
 const FADE_MS = 160;
-export const MIN_EDIT_ZOOM = OPEN_ZOOM;
+export function openZoom() {
+  return getLevelOpenZoom();
+}
+export function minEditZoom() {
+  return getLevelOpenZoom();
+}
 
 // Position within a [start, end] window, clamped to 0..1 at both ends.
 function ramp(t, [start, end]) {
@@ -174,7 +185,7 @@ function now() {
 // the level `block` sits in).
 export function isLevelOpen(block, zoom) {
   if (block.kind === 'text' || !hasSubArchitecture(block) || !block.boundaryGeometry) return false;
-  return zoom * frameToFace(block.geometry, block.boundaryGeometry).scale >= OPEN_ZOOM;
+  return zoom * frameToFace(block.geometry, block.boundaryGeometry).scale >= openZoom();
 }
 
 // Kept for callers that only need the target state: 1 when the level is
@@ -237,6 +248,30 @@ function intersects(a, b) {
 // Two wires that leave or arrive at the same port are the same signal, so
 // where they meet is a junction, not a crossing — bowing there would claim
 // the opposite of what's true.
+/**
+ * Whether an invisible wire is being shown right now.
+ *
+ * A wire set invisible (see the Inspector's own toggle) is a connection
+ * that is real but not worth drawing all the time — a clock line into
+ * every block, a common ground, a bus every service talks to. Left drawn
+ * they bury the diagram; deleted, the diagram lies about what is
+ * connected. So the wire stays and the line does not, until you ask for
+ * it by hovering one of the pins it lands on — the pin still carries its
+ * plug, so a block always shows that it *is* connected.
+ *
+ * A selected one shows too, whatever the pointer is doing: the Inspector
+ * is open on it, and a wire you are editing has to be on screen.
+ */
+export function isWireShown(connection, hoverPin = null, wireSelection = null) {
+  if (!connection.invisible) return true;
+  if (wireSelection?.isSelected(connection.id)) return true;
+  if (!hoverPin) return false;
+  return (
+    (hoverPin.blockId === connection.sourceBlockId && hoverPin.portId === connection.sourcePortId)
+    || (hoverPin.blockId === connection.targetBlockId && hoverPin.portId === connection.targetPortId)
+  );
+}
+
 function sharesEndpoint(a, b) {
   return (
     a.sourcePortId === b.sourcePortId
@@ -574,13 +609,23 @@ export function drawLevel(
   // reorder) — a wire touching it just inherits its one real, ordinary
   // endpoint's z-index outright, and the frame itself keeps drawing before
   // every wire regardless (see below), same as always.
+  // A wire marked invisible is kept out of the picture until one of its
+  // own pins is hovered — for the connections that are real but would
+  // otherwise bury the diagram (a clock into everything, a common
+  // ground). Its pins still show their plugs, so the block says it is
+  // connected; hovering one is what asks where to.
+  //
+  // Filtered here rather than skipped at the draw call, because the
+  // hop-over index is built from this list: a wire nobody can see must
+  // not make its neighbours bow over it.
+  const visibleRouted = routed.filter((entry) => isWireShown(entry.connection, hoverPin, wireSelection));
   // Every wire's vertical runs, indexed once for the whole level — see
   // ConnectionRenderer.buildHopIndex for why this isn't per wire.
-  const hopIndex = buildHopIndex(routed);
+  const hopIndex = buildHopIndex(visibleRouted);
   const blockZIndex = new Map(blocks.map((block, i) => [block.id, i]));
   const zIndexOfEndpoint = (blockId) => blockZIndex.get(blockId) ?? -1;
   const drawItems = [
-    ...routed.map((entry, entryIndex) => ({
+    ...visibleRouted.map((entry, entryIndex) => ({
       kind: 'connection',
       z: Math.max(zIndexOfEndpoint(entry.connection.sourceBlockId), zIndexOfEndpoint(entry.connection.targetBlockId)),
       entry,
@@ -637,7 +682,7 @@ export function drawLevel(
 
   for (const item of drawItems) {
     if (item.kind === 'connection') {
-      drawOneConnection(ctx, item.entry, item.entryIndex, routed, hopIndex, wireSelection, flowOffset, palette, view);
+      drawOneConnection(ctx, item.entry, item.entryIndex, visibleRouted, hopIndex, wireSelection, flowOffset, palette, view);
       continue;
     }
     const block = item.block;

@@ -1,6 +1,6 @@
 import { hitTest } from './HitTest.js';
 import { MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT, normalizeBoundary } from '../model/Block.js';
-import { defaultBoundaryFor, frameAtFactor, frameFactorOf, normalizeFrame } from '../model/levelGeometry.js';
+import { defaultBoundaryFor, frameAtFactor, frameFactorOf, frameToFace, normalizeFrame } from '../model/levelGeometry.js';
 import { snap, snapToCellCenter, GRID_SIZE, sideAxis, nearestPortSlot, getPortSlotOffsets } from '../model/grid.js';
 import {
   findConnectorPosition,
@@ -92,6 +92,11 @@ function cursorForPiece(o) {
 const STATES = {
   IDLE: 'idle',
   PANNING: 'panning',
+  // Ctrl and the middle button over a container: pans what its face shows
+  // of the level inside it, the companion to Ctrl+wheel scaling that same
+  // view (see scaleInteriorAt). Moves the block's frame over its children
+  // rather than moving the children, so nothing in the level is edited.
+  PANNING_INTERIOR: 'panningInterior',
   DRAGGING_BLOCK: 'draggingBlock',
   DRAGGING_PORT: 'draggingPort',
   // Dragging one of a boundary port's own two resize handles — grows or
@@ -234,6 +239,15 @@ export class DragStateMachine {
     // port, or the boundary — it bypasses hit-testing entirely rather than
     // doing whatever a left-click there would do.
     if (modifiers.button === 1) {
+      // Ctrl held aims the same drag at the interior of the container
+      // under the pointer instead of at the canvas — the pan to
+      // Ctrl+wheel's zoom. With no container there it pans as usual.
+      const block = modifiers.ctrlKey ? this.containerAt(world) : null;
+      if (block) {
+        this.state = STATES.PANNING_INTERIOR;
+        this.context = { blockId: block.id, lastWorld: world };
+        return;
+      }
       this.state = STATES.PANNING;
       this.context = { lastScreen: screen };
       return;
@@ -991,6 +1005,25 @@ export class DragStateMachine {
         this.camera.pan(dx, dy);
         this.context.lastScreen = screen;
         this.requestRender();
+        break;
+      }
+      case STATES.PANNING_INTERIOR: {
+        const block = this.project.getBlock(this.context.blockId);
+        const frame = block?.boundaryGeometry;
+        if (!frame) break;
+        // The pointer has moved this far across the block's face; the
+        // level inside is drawn at `scale`, so this is the same distance
+        // in the level's own units.
+        const { scale } = frameToFace(block.geometry, frame);
+        if (!(scale > 0)) break;
+        // Moving the frame one way shows the children the other way (the
+        // frame is the window, not the content), so dragging right pulls
+        // the contents right, the way dragging a map does.
+        frame.x -= (world.x - this.context.lastWorld.x) / scale;
+        frame.y -= (world.y - this.context.lastWorld.y) / scale;
+        this.context.lastWorld = world;
+        this.requestRender();
+        this.onLiveUpdate?.({ kind: 'boundary', blockId: block.id, boundaryGeometry: frame });
         break;
       }
       case STATES.DRAGGING_BLOCK: {
@@ -1767,6 +1800,10 @@ export class DragStateMachine {
         }, RENAME_CLICK_DELAY_MS);
       }
       this.persist();
+    } else if (this.state === STATES.PANNING_INTERIOR) {
+      // Where a block's face is looking is part of the diagram, so the
+      // drag is one undo step like any other.
+      this.persist();
     } else if (this.state === STATES.DRAWING_CONNECTION) {
       this.tryCompleteConnection(world);
     } else if (this.state === STATES.DRAGGING_WIRE_PIECE) {
@@ -2149,6 +2186,21 @@ export class DragStateMachine {
     this.requestRender();
   }
 
+  // The container under `world`, or null — front to back, so it is the
+  // block a click there would land on. Shared by the two interior-view
+  // gestures (Ctrl+wheel to scale, Ctrl+middle-drag to pan).
+  containerAt(world) {
+    const blocks = this.project.listBlocks();
+    for (let i = blocks.length - 1; i >= 0; i -= 1) {
+      const block = blocks[i];
+      if (block.kind === 'text' || !hasSubArchitecture(block)) continue;
+      const g = block.geometry;
+      if (!g || world.x < g.x || world.x > g.x + g.width || world.y < g.y || world.y > g.y + g.height) continue;
+      return block;
+    }
+    return null;
+  }
+
   /**
    * Scales the interior of whichever container the cursor is over.
    *
@@ -2168,13 +2220,9 @@ export class DragStateMachine {
    * Returns whether it took the gesture.
    */
   scaleInteriorAt(world, factor) {
-    const blocks = this.project.listBlocks();
-    // Front to back, so the gesture lands on the block a click would.
-    for (let i = blocks.length - 1; i >= 0; i -= 1) {
-      const block = blocks[i];
-      if (block.kind === 'text' || !hasSubArchitecture(block)) continue;
+    const block = this.containerAt(world);
+    if (block) {
       const g = block.geometry;
-      if (!g || world.x < g.x || world.x > g.x + g.width || world.y < g.y || world.y > g.y + g.height) continue;
       const frame = block.boundaryGeometry || defaultBoundaryFor(g);
       const next = frameAtFactor(g, frame, frameFactorOf(g, frame) / factor);
       // At either end of the range the clamp hands back the frame it was

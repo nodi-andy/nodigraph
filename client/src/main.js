@@ -11,7 +11,7 @@ import { pickGoogleDoc } from './model/googlePicker.js';
 import { Camera } from './render/Camera.js';
 import { RenderLoop } from './render/RenderLoop.js';
 import { renderScene } from './render/SceneRenderer.js';
-import { isImprovedView, setImprovedView } from './render/viewOptions.js';
+import { isImprovedView, setImprovedView, getLevelOpenZoom, setLevelOpenZoom } from './render/viewOptions.js';
 import { SelectionManager } from './interaction/SelectionManager.js';
 import { WireSelection } from './interaction/WireSelection.js';
 import { DragStateMachine } from './interaction/DragStateMachine.js';
@@ -35,7 +35,7 @@ import { maybeShowOnboarding } from './ui/Onboarding.js';
 import { renderCurrentLevelDataUrl, renderCurrentLevelBlob } from './model/diagramImage.js';
 import { getBoundaryLabelRect, hasSubArchitecture, isOpenableLink } from './render/BlockRenderer.js';
 import { chainToRoot, childCameraFor, rootCameraFor } from './render/levelTransform.js';
-import { isLevelEditable, isLevelOpen, MIN_EDIT_ZOOM } from './render/SubPreviewRenderer.js';
+import { isLevelEditable, isLevelOpen, minEditZoom } from './render/SubPreviewRenderer.js';
 import { resolveFocus } from './interaction/LevelFocus.js';
 import { getConnectionGeometry, getConnectionLabelPosition } from './render/ConnectionRenderer.js';
 import { downloadProjectFile, readProjectFile, safeFileStem } from './model/localFile.js';
@@ -713,7 +713,7 @@ async function bootstrap() {
       const frame = container?.boundaryGeometry;
       if (!frame) return;
       const tooSmall = Math.max(frame.width, frame.height) * camera.zoom <= EXIT_FRACTION * viewMin;
-      if (camera.zoom >= MIN_EDIT_ZOOM && !tooSmall) return;
+      if (camera.zoom >= minEditZoom() && !tooSmall) return;
       const parentCamera = rootCameraFor(camera, chainToRoot([container]));
       if (!focusLevel(project.path.slice(0, -1), parentCamera)) return;
     }
@@ -850,6 +850,18 @@ async function bootstrap() {
   function setImprovedViewOption(on) {
     setImprovedView(on);
     appMenuApi?.refreshImprovedView(isImprovedView());
+    renderLoop.requestRender();
+  }
+
+  // How early a block shows what is inside it (see render/viewOptions.js).
+  // Like the other two Settings rows this is a way of looking at the
+  // diagram, not part of it — remembered per browser, never stored in the
+  // project. Crossing levels is judged against the same number, so the
+  // view is re-tested right away rather than at the next wheel tick.
+  function setLevelOpenZoomOption(value) {
+    setLevelOpenZoom(value);
+    appMenuApi?.refreshLevelOpenZoom(getLevelOpenZoom());
+    crossLevelsForZoom();
     renderLoop.requestRender();
   }
 
@@ -1596,6 +1608,7 @@ async function bootstrap() {
     onSaveToGitHub: handleSaveToGitHub,
     onAnimate: toggleAnimation,
     onImprovedView: setImprovedViewOption,
+    onLevelOpenZoom: setLevelOpenZoomOption,
   });
   headerActionsApi.refreshHistory();
   headerActionsApi.refreshSession(peerSession.getState());
@@ -1604,6 +1617,7 @@ async function bootstrap() {
   // Remembered from last time (see render/viewOptions.js), so the checkbox
   // has to start out saying what the canvas is already drawing.
   appMenuApi.refreshImprovedView(isImprovedView());
+  appMenuApi.refreshLevelOpenZoom(getLevelOpenZoom());
   // The render loop is dirty-gated (see toggleAnimation): an animation that
   // starts on has to ask for continuous frames from the outset.
   renderLoop.setContinuous(animating);

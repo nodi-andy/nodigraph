@@ -205,6 +205,29 @@ export function mountInspector(
     colorInput.addEventListener('change', persist);
     container.appendChild(field('Colour', colorInput));
 
+    // A wire that is real but not worth drawing all the time — a clock
+    // into every block, a common ground. The pins keep their plugs, so
+    // the blocks still show they are connected; the line itself comes
+    // back while either pin is hovered (see SubPreviewRenderer's
+    // isWireShown).
+    const invisibleRow = document.createElement('label');
+    invisibleRow.className = 'checkbox-row';
+    const invisibleInput = document.createElement('input');
+    invisibleInput.type = 'checkbox';
+    invisibleInput.checked = Boolean(connection.invisible);
+    invisibleInput.addEventListener('change', () => {
+      // Absent rather than false for an ordinary wire, the same as every
+      // other field here — nothing to say means nothing in the share link.
+      if (invisibleInput.checked) connection.invisible = true;
+      else delete connection.invisible;
+      requestRender();
+      persist();
+    });
+    const invisibleText = document.createElement('span');
+    invisibleText.textContent = 'Hide until a pin is hovered';
+    invisibleRow.append(invisibleInput, invisibleText);
+    container.appendChild(field('Invisible', invisibleRow));
+
     // A wire's route is edited on the canvas, not here: its grips are the
     // whole interface (see DragStateMachine's piece drag). This is the way
     // back to automatic once it's been routed by hand, plus the one line
