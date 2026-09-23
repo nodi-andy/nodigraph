@@ -1272,6 +1272,18 @@ function drawPorts(
     // (see getBoundaryWireRelativeIndex).
     const wireEntries = inverted ? boundaryWireLabels?.get(port.id) || [] : [];
     const reservedWidth = inverted ? getPortBoundaryPlacement(port, block).width || 1 : 1;
+    // One slot per wire on the INSIDE — the fan the interface actually
+    // has — even when the port was never explicitly widened. This is the
+    // interior view (`inverted`), and it is the half that should split:
+    // seen from in here, a container's single outer pin is exactly a
+    // bundle of the individual wires attached to it, each with its own
+    // child-side label. The EXTERIOR face is the half that must stay one
+    // pin, and that is handled separately (see drawExteriorSubSlots).
+    //
+    // Wires have to be counted here and not just the reserved width: wire
+    // routing positions each wire at its own slot index regardless, so
+    // drawing fewer pins than there are wires left the extra wires running
+    // to a point with no pin on it.
     const rectCount = Math.max(1, wireEntries.length, reservedWidth);
     const effectiveSide = inverted ? getPortBoundaryPlacement(port, block).side : port.side;
     const shape = pinShapeOf(portDirection);
@@ -1673,10 +1685,17 @@ export function drawExteriorSubSlots(ctx, block, wireCounts, { palette = DEFAULT
   ctx.save();
   ctx.globalAlpha *= alpha;
   for (const port of block.ports || []) {
-    const count = wireCounts.get(port.id) || 0;
-    if (count < 2) continue;
     if (isPortHidden(block, port)) continue;
     const view = asBoundaryView(block, frame, [port]);
+    // The reserved width, not the wire count — same rule as drawPorts (see
+    // its own rectCount note). A port that was never widened is one pin
+    // however many wires reach it from inside, so wiring a second thing to
+    // it must not sprout a second socket on the face and wrap the pair in
+    // a group outline: that made a single interface point look like two,
+    // one of which nothing could be connected to.
+    const count = Math.max(1, getPortBoundaryPlacement(port, view).width || 1, 0);
+    if (count < 2) continue;
+    if (!wireCounts.get(port.id)) continue;
     const side = getPortBoundaryPlacement(port, view).side;
     const shape = pinShapeOf(logicalPortOf(block, port)?.direction ?? null);
     for (let i = 1; i < count; i += 1) {

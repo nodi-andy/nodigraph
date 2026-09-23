@@ -152,6 +152,8 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
         // not by grabbing a phantom connector at some point along it.
         const side = getPortBoundaryPlacement(port, block).side;
         const wireIds = wireIdsFor(port.id);
+        // One per wire, matching the fan drawn on the inside (see
+        // BlockRenderer's own rectCount note).
         const count = Math.max(1, wireIds.length);
         for (let wireIndex = 0; wireIndex < count; wireIndex += 1) {
           // Resolved against this specific wire's own pinned slot (see
@@ -194,7 +196,9 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
         // A totally unwired port still draws (and must hit-test) its one
         // default slot at index 0 — same Math.max(1, ...) drawPorts itself
         // uses for `count` — or a fresh, wireless port would have no body
-        // to grab at all.
+        // to grab at all. One slot per wire otherwise, matching the fan
+        // drawn on the inside.
+        const width = getPortBoundaryPlacement(port, block).width || 1;
         const count = Math.max(1, wireIds.length);
         let hitWire = null;
         for (let wireIndex = 0; wireIndex < count; wireIndex += 1) {
@@ -206,14 +210,13 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
           }
         }
         if (hitWire) return hitWire;
-        // Missed every individual wire, but a container (more than one
-        // real wire, or reserved past just one) still reads as one group —
-        // a click anywhere else within that group's own outline (see
+        // Missed every individual wire, but a port reserved past a single
+        // slot still reads as one group — a click anywhere else within
+        // that group's own outline (see
         // BlockRenderer.drawContainerGroupOutline) grabs the WHOLE port to
         // relocate it, `wireIndex` left undefined so DragStateMachine's
         // 'port' handling falls to its plain whole-port move rather than
         // MOVING_PORT_WIRE (which requires a specific wire).
-        const width = getPortBoundaryPlacement(port, block).width || 1;
         const rectCount = Math.max(1, wireIds.length, width);
         if (rectCount > 1) {
           const groupRect = getBoundaryPortBlockRect(block, port, rectCount);
