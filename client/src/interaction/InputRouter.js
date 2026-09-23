@@ -1,5 +1,36 @@
 const ZOOM_SPEED = 0.0015;
 
+/**
+ * Whether a wheel event came from someone actually turning a wheel.
+ *
+ * A trackpad pinch does not arrive as a gesture: the browser synthesises
+ * a wheel event with `ctrlKey` set, exactly as if Ctrl were held down, and
+ * offers nothing that says which it was. That matters here because Ctrl
+ * and the wheel scales a block's interior (see
+ * DragStateMachine.scaleInteriorAt) while a pinch must always just zoom
+ * the camera — so the two have to be told apart on evidence.
+ *
+ * Only positive evidence of a wheel counts, and anything else is treated
+ * as a pinch. Getting it wrong in that direction costs a user with an
+ * unusual mouse the Ctrl+wheel gesture, which is a feature that quietly
+ * does nothing; getting it wrong in the other direction would have a
+ * pinch silently resize whatever block it happened to be over, which is
+ * an edit to the document.
+ *
+ * The two signals:
+ *  - `deltaMode` above 0 means lines or pages, which only a real wheel
+ *    ever reports (Firefox scrolls a mouse wheel this way).
+ *  - `wheelDeltaY` in whole steps of 120 is the old mouse-wheel notch,
+ *    which every engine still reports for a real wheel and no trackpad
+ *    produces. It is non-standard and simply absent in Firefox, which is
+ *    why it is a second signal rather than the only one.
+ */
+export function isWheelNotch(event) {
+  if (event.deltaMode !== 0) return true;
+  const notch = event.wheelDeltaY;
+  return typeof notch === 'number' && notch !== 0 && notch % 120 === 0;
+}
+
 function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
@@ -189,10 +220,14 @@ export function attachInputRouter(canvas, camera, stateMachine) {
       const factor = Math.exp(-event.deltaY * ZOOM_SPEED);
       // Ctrl (Cmd on a Mac) aims the wheel at the interior of the block
       // under the cursor instead of at the canvas — see
-      // DragStateMachine.scaleInteriorAt. The world point is in the level
-      // being edited, the same coordinates its blocks are in.
+      // DragStateMachine.scaleInteriorAt. A trackpad pinch arrives here
+      // wearing the same ctrlKey (see isWheelNotch) and must always just
+      // zoom, so it has to be a real wheel as well as a held Ctrl. The
+      // world point is in the level being edited, the same coordinates
+      // its blocks are in.
       const world = camera.screenToWorld(screen.x, screen.y);
-      stateMachine.onWheelZoom(screen, factor, world, { scaleInterior: event.ctrlKey || event.metaKey });
+      const scaleInterior = (event.ctrlKey || event.metaKey) && isWheelNotch(event);
+      stateMachine.onWheelZoom(screen, factor, world, { scaleInterior });
     },
     { passive: false },
   );

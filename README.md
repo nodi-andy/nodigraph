@@ -82,7 +82,8 @@ own client architecture, drawn and kept up to date this way.
   and that same setting is what decides how far you have to zoom in
   before its level draws itself: a roomy block holds out longer, a tight
   one opens almost as soon as you lean in. Scroll without Ctrl and you
-  are zooming the canvas as always.
+  are zooming the canvas as always — as is a trackpad pinch, which the
+  browser reports as a Ctrl+wheel but which never resizes anything.
 - **Ports on a grid** — connectors snap to fixed slots on every edge, so
   wires between blocks line up instead of almost lining up. A new port
   starts undecided — no name, no in/out direction — until you set one in
