@@ -1,5 +1,6 @@
 import { hitTest } from './HitTest.js';
 import { MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT, normalizeBoundary } from '../model/Block.js';
+import { defaultBoundaryFor, frameAtFactor, frameFactorOf, normalizeFrame } from '../model/levelGeometry.js';
 import { snap, snapToCellCenter, GRID_SIZE, sideAxis, nearestPortSlot, getPortSlotOffsets } from '../model/grid.js';
 import {
   findConnectorPosition,
@@ -121,6 +122,12 @@ const STATES = {
 
 const BOUNDARY_MIN_SIZE = GRID_SIZE * 3;
 
+// How long after the last Ctrl+wheel tick the new interior scale is
+// committed as one undo step — long enough to cover the gap between
+// turns of a wheel, short enough that it lands before you reach for
+// anything else.
+const INTERIOR_SCALE_COMMIT_MS = 400;
+
 // Decomposes every resize-handle side (see BlockRenderer.getResizeHandleRects)
 // into which single-axis edge(s) it drags — a plain edge only ever runs one,
 // a corner runs both from the one gesture. resizeEdge below reads this
@@ -208,6 +215,9 @@ export class DragStateMachine {
     // out is made while dragging and read at the drop (see setKeepPlugs).
     this.keepPlugs = false;
     this.ghostTimer = null;
+    // Pending commit of a Ctrl+wheel interior scale (see
+    // scheduleInteriorScalePersist).
+    this.interiorScaleTimer = null;
   }
 
   // The block you're currently inside, with whatever boundary geometry the
@@ -2128,10 +2138,66 @@ export class DragStateMachine {
     if (wireHit) this.onRequestWireLabel?.(wireHit.connectionId);
   }
 
-  onWheelZoom(screen, factor) {
+  // Ctrl held turns the wheel from "zoom the canvas" into "give the block
+  // under the cursor more or less room inside it" — see scaleInteriorAt.
+  // With no container under the cursor there is nothing to scale, so it
+  // falls back to the ordinary zoom rather than doing nothing at all.
+  onWheelZoom(screen, factor, world = null, { scaleInterior = false } = {}) {
+    if (scaleInterior && world && this.scaleInteriorAt(world, factor)) return;
     this.camera.zoomAt(screen.x, screen.y, factor);
     this.onZoomChanged?.();
     this.requestRender();
+  }
+
+  /**
+   * Scales the interior of whichever container the cursor is over.
+   *
+   * A block's level is drawn on its face through one fixed transform (see
+   * model/levelGeometry.js): the frame is a scaled picture of the face,
+   * and how much bigger the frame is than the face is how much room there
+   * is inside. That ratio was only ever the 3× default or whatever a
+   * frame-edge drag from *inside* the block left it at, so a block with a
+   * dozen children stayed cramped unless you first went in and resized its
+   * frame by hand. This is that same number, on the wheel, from outside.
+   *
+   * Scrolling up reads as zooming in, so the level is drawn larger on the
+   * face — which is a *smaller* frame, hence the division. The block has
+   * to have an interior for this to show anything; over anything else the
+   * caller falls back to zooming the canvas.
+   *
+   * Returns whether it took the gesture.
+   */
+  scaleInteriorAt(world, factor) {
+    const blocks = this.project.listBlocks();
+    // Front to back, so the gesture lands on the block a click would.
+    for (let i = blocks.length - 1; i >= 0; i -= 1) {
+      const block = blocks[i];
+      if (block.kind === 'text' || !hasSubArchitecture(block)) continue;
+      const g = block.geometry;
+      if (!g || world.x < g.x || world.x > g.x + g.width || world.y < g.y || world.y > g.y + g.height) continue;
+      const frame = block.boundaryGeometry || defaultBoundaryFor(g);
+      const next = frameAtFactor(g, frame, frameFactorOf(g, frame) / factor);
+      // At either end of the range the clamp hands back the frame it was
+      // given; taking the gesture anyway is what stops a scroll that can
+      // go no further from silently zooming the canvas instead.
+      block.boundaryGeometry = normalizeFrame(g, next);
+      this.requestRender();
+      this.onLiveUpdate?.({ kind: 'boundary', blockId: block.id, boundaryGeometry: block.boundaryGeometry });
+      this.scheduleInteriorScalePersist();
+      return true;
+    }
+    return false;
+  }
+
+  // A wheel gesture has no release to commit on, and one history entry per
+  // tick would bury everything else in the undo stack — so the whole
+  // scroll settles into a single entry a moment after it stops.
+  scheduleInteriorScalePersist() {
+    clearTimeout(this.interiorScaleTimer);
+    this.interiorScaleTimer = setTimeout(() => {
+      this.interiorScaleTimer = null;
+      this.persist();
+    }, INTERIOR_SCALE_COMMIT_MS);
   }
 
   // A two-finger pinch: zooms around the pinch's own center point (same

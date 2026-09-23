@@ -187,7 +187,12 @@ export function attachInputRouter(canvas, camera, stateMachine) {
       event.preventDefault();
       const screen = toScreen(event);
       const factor = Math.exp(-event.deltaY * ZOOM_SPEED);
-      stateMachine.onWheelZoom(screen, factor);
+      // Ctrl (Cmd on a Mac) aims the wheel at the interior of the block
+      // under the cursor instead of at the canvas — see
+      // DragStateMachine.scaleInteriorAt. The world point is in the level
+      // being edited, the same coordinates its blocks are in.
+      const world = camera.screenToWorld(screen.x, screen.y);
+      stateMachine.onWheelZoom(screen, factor, world, { scaleInterior: event.ctrlKey || event.metaKey });
     },
     { passive: false },
   );

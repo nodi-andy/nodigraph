@@ -42,6 +42,46 @@ export function sideLengthOf(geometry, side) {
   return sideAxis(side) === 'x' ? geometry.height : geometry.width;
 }
 
+// How much room a block has inside it, as a multiple of its own face —
+// the one number that says how big its level is drawn on that face, and
+// so also how far you have to zoom in before it opens at all (see
+// SubPreviewRenderer.isLevelOpen, which compares zoom × 1/factor against
+// OPEN_ZOOM).
+//
+// A frame left at DEFAULT_FRAME_FACTOR fits about three blocks across.
+// That is right for most things and wrong for the two ends of the range:
+// a block holding a dozen children is cramped at 3×, and one holding a
+// single note wastes most of its face. MIN is the frame exactly on the
+// face — a level drawn at its true size, as tight as the geometry allows.
+// MAX is where a child of ordinary size is still a few pixels across when
+// the parent fills the viewport; past that there is nothing to see.
+export const MIN_FRAME_FACTOR = 1;
+export const MAX_FRAME_FACTOR = 24;
+
+export function frameFactorOf(face, frame) {
+  if (!face || !frame || frame.width <= 0 || frame.height <= 0) return DEFAULT_FRAME_FACTOR;
+  const { scale } = frameToFace(face, frame);
+  return scale > 0 ? 1 / scale : DEFAULT_FRAME_FACTOR;
+}
+
+// The same frame at a different factor, grown or shrunk about its own
+// centre so the children keep their coordinates and simply end up with
+// more (or less) room around them. Clamped to the range above, which is
+// also what makes a scroll that has hit the end a no-op rather than a
+// number that keeps climbing invisibly.
+export function frameAtFactor(face, frame, factor) {
+  if (!face || !frame) return frame;
+  const target = clamp(factor, MIN_FRAME_FACTOR, MAX_FRAME_FACTOR);
+  const current = frameFactorOf(face, frame);
+  if (current <= 0) return frame;
+  const k = target / current;
+  const centreX = frame.x + frame.width / 2;
+  const centreY = frame.y + frame.height / 2;
+  const width = frame.width * k;
+  const height = frame.height * k;
+  return { x: centreX - width / 2, y: centreY - height / 2, width, height };
+}
+
 // Maps a point in the frame's own level coordinates onto the face:
 // facePoint = framePoint * scale + offset. Uniform scale so nothing is
 // distorted; when the two aspect ratios differ the frame is centred in

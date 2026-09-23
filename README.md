@@ -76,6 +76,13 @@ own client architecture, drawn and kept up to date this way.
   plain named box again. A block inside a preview opens up too, once
   you're in far enough. Exported figures always read at one level,
   whatever size they're dropped in at.
+- **Every block sets its own interior scale** — Ctrl (Cmd on a Mac) and
+  scroll over a container to give it more or less room inside. A block
+  holding a dozen children needs a roomier interior than one holding two,
+  and that same setting is what decides how far you have to zoom in
+  before its level draws itself: a roomy block holds out longer, a tight
+  one opens almost as soon as you lean in. Scroll without Ctrl and you
+  are zooming the canvas as always.
 - **Ports on a grid** — connectors snap to fixed slots on every edge, so
   wires between blocks line up instead of almost lining up. A new port
   starts undecided — no name, no in/out direction — until you set one in
