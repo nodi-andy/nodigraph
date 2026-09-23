@@ -523,9 +523,27 @@ export function drawLevel(
       // the case where "the next block goes in here" most needs saying.
       drawFaceGrid(ctx, block, { zoom, palette, visible });
     }
-    // The host's per-block drawing hook (see SceneRenderer.renderScene)
-    // fires for the level being edited only — what it always drew on.
-    if (focused) onDrawBlock(ctx, block, { contentAlpha: contentAlphaFor(previewT) });
+    // The host's per-block drawing hook (see SceneRenderer.renderScene).
+    // Fires for every level drawn, not only the one being edited: a host
+    // that draws a block's own face (noditron's live values) had no way to
+    // show it for a container's children while you stood outside it, or
+    // for the level above while you stood inside one — so the two could
+    // never be read at the same time, which is the whole point of drawing
+    // a level inside its block.
+    //
+    // `ctx` is already under this level's own transform here, so anything
+    // drawn straight onto it needs nothing extra. A host placing real DOM
+    // instead has to know where that lands on screen, and deriving it from
+    // the live canvas matrix is exact at any nesting depth — composing the
+    // chain of level transforms by hand would be a second, drift-prone
+    // copy of what the canvas already tracks. Absent on a recording
+    // context that has no matrix (see render/svgContext.js), where a host
+    // should fall back to its own camera math.
+    onDrawBlock(ctx, block, {
+      contentAlpha: contentAlphaFor(previewT),
+      focused,
+      transform: typeof ctx.getTransform === 'function' ? ctx.getTransform() : null,
+    });
   }
 
   // Pins over wires. A wire's z-index is its front endpoint's, so it paints
