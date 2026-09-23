@@ -40,8 +40,11 @@ anything you write here round-trips.
    `offset` out; the editor sizes every block to its text and lays each
    level out left to right, inputs first (see [Layout](#layout)). Only
    place things by hand when the person asks for a particular arrangement.
-4. **Check it** if you can run commands (`node client/tools/lint.mjs`), or
-   walk the [checklist](#before-you-hand-it-over) if you cannot.
+4. **Check it with the linter, not with one of your own.** It lives in the
+   nodigraph repository, not in whatever repository you are reading, so
+   fetch it first — see
+   [Before you hand it over](#before-you-hand-it-over). If you genuinely
+   cannot run it, walk the checklist there; do not write your own checker.
 5. **Hand it over** as a YAML code block, plus whichever of JSON / link /
    picture the person asked for.
 
@@ -462,23 +465,40 @@ The person asked for a diagram; give them the thing they can open.
 | a picture | `node client/tools/svg.mjs diagram.yaml --out diagram.svg`, or `--all --out-dir figures` for every level |
 | the coordinates | `node client/tools/layout.mjs diagram.yaml` prints the YAML with every position filled in |
 
-The tools live in the nodigraph repository (`git clone
-https://github.com/nodi-andy/nodigraph`, Node 18+, no install) and run
-without a browser. Without them, the YAML alone is a complete deliverable:
-the editor does the layout on opening.
+These tools ship with nodigraph, not with the repository you are reading,
+so clone it first — `git clone --depth 1
+https://github.com/nodi-andy/nodigraph` — and prefix the paths above with
+`nodigraph/` (Node 18+, installs nothing, no browser needed). Without
+them, the YAML alone is a complete deliverable: the editor does the layout
+on opening.
 
 ---
 
 ## Before you hand it over
 
-If you can run commands, lint the file: it walks every level with the
-editor's own model and routing and reports what a reader would trip over — a
-wire through a block, blocks on top of each other, labels colliding. Exit
-code 1 means at least one error.
+Lint the file. It walks every level with the editor's own model and
+routing and reports what a reader would trip over — a wire through a
+block, blocks on top of each other, labels colliding. Exit code 1 means at
+least one error.
+
+**The linter is not in the repository you are reading.** It ships with
+nodigraph, so fetch that first; it needs Node 18+ and installs nothing.
 
 ```
-node client/tools/lint.mjs diagram.yaml [--json]
+git clone --depth 1 https://github.com/nodi-andy/nodigraph
+node nodigraph/client/tools/lint.mjs diagram.yaml [--json]
 ```
+
+(From a checkout of nodigraph itself, that second line is
+`node client/tools/lint.mjs diagram.yaml`.)
+
+**Do not write your own checker.** A hand-rolled validator re-reads the
+YAML you just wrote and confirms it says what you meant; this one lays the
+diagram out and routes the wires exactly as the editor will, which is the
+only way to find the problems that matter — and the ones it reports are
+invisible to a schema check. If you cannot clone or cannot run commands,
+walk the checklist below and say in your reply that the diagram is
+unlinted.
 
 Whether or not you can run it:
 
