@@ -34,8 +34,8 @@ blocks:
         name: Error
         lines:
           - e = SP − PV
-        color: "#8160af"
-        fill: "#f3eefb"
+        color: "#5c417e"
+        fill: "#e5daf5"
         ports:
           sp: { dir: in }
           pv: { dir: in }
@@ -44,8 +44,8 @@ blocks:
         name: Proportional
         lines:
           - Kp = 4 %/K
-        color: "#8160af"
-        fill: "#f3eefb"
+        color: "#5c417e"
+        fill: "#e5daf5"
         ports:
           e: { dir: in }
           out: { dir: out }
@@ -53,8 +53,8 @@ blocks:
         name: Integral
         lines:
           - Ti = 600 s · anti-windup
-        color: "#8160af"
-        fill: "#f3eefb"
+        color: "#5c417e"
+        fill: "#e5daf5"
         ports:
           e: { dir: in }
           out: { dir: out }
@@ -62,8 +62,8 @@ blocks:
         name: Derivative
         lines:
           - Td = 30 s · filtered
-        color: "#8160af"
-        fill: "#f3eefb"
+        color: "#5c417e"
+        fill: "#e5daf5"
         ports:
           e: { dir: in }
           out: { dir: out }
@@ -71,8 +71,8 @@ blocks:
         name: Sum and limit
         lines:
           - 0..100 % · rate 5 %/s
-        color: "#8160af"
-        fill: "#f3eefb"
+        color: "#5c417e"
+        fill: "#e5daf5"
         ports:
           p: { dir: in }
           i: { dir: in }

@@ -241,7 +241,7 @@ model, layout and rendering code the editor runs:
 
 | | |
 | --- | --- |
-| `node client/tools/lint.mjs diagram.yaml` | checks a diagram the way a reader sees it: wires through blocks, overlapping blocks, colliding labels, pins off their slots. Exit 1 on an error; `--json` for data. |
+| `node client/tools/lint.mjs diagram.yaml` | checks a diagram the way a reader sees it: wires through blocks, overlapping blocks, colliding labels, pins off their slots, a child painted its container's own colour. Exit 1 on an error; `--json` for data. |
 | `node client/tools/layout.mjs diagram.yaml` | prints the YAML with every position filled in; `--json` for the full project; `--link` for a `#d=` share link with the diagram inside it. |
 | `node client/tools/svg.mjs diagram.yaml --out figure.svg` | draws a level to SVG; `--level "A/B"` for a nested one, `--all --out-dir` for every level. |
 

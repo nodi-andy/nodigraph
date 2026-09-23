@@ -45,8 +45,8 @@ blocks:
         subtitle: 8 × 16S · 3.2 V cells
         lines:
           - NTC per module
-        color: "#16836e"
-        fill: "#e7f7ef"
+        color: "#0f5c4e"
+        fill: "#cfeade"
         ports:
           taps: { dir: out }
           temps: { dir: out }
@@ -54,8 +54,8 @@ blocks:
       monitor:
         name: Cell monitor AFE
         subtitle: 128 voltages · 8 temps
-        color: "#16836e"
-        fill: "#e7f7ef"
+        color: "#0f5c4e"
+        fill: "#cfeade"
         ports:
           taps: { dir: in }
           temps: { dir: in }
@@ -64,8 +64,8 @@ blocks:
       balancer:
         name: Passive balancing
         subtitle: 100 mA per cell
-        color: "#16836e"
-        fill: "#e7f7ef"
+        color: "#0f5c4e"
+        fill: "#cfeade"
         ports:
           cmd: { dir: in }
       bms:
@@ -73,8 +73,8 @@ blocks:
         subtitle: SoC · SoH · limits
         lines:
           - Kalman SoC · derating table
-        color: "#16836e"
-        fill: "#e7f7ef"
+        color: "#0f5c4e"
+        fill: "#cfeade"
         ports:
           data: { dir: in }
           host: { dir: in }
@@ -112,24 +112,24 @@ blocks:
       link:
         name: DC link
         subtitle: 400 V · film capacitors
-        color: "#8160af"
-        fill: "#f3eefb"
+        color: "#5c417e"
+        fill: "#e5daf5"
         ports:
           dc: { dir: in }
           out: { dir: out }
       bridge:
         name: 3-phase bridge
         subtitle: SiC MOSFETs · 20 kHz
-        color: "#8160af"
-        fill: "#f3eefb"
+        color: "#5c417e"
+        fill: "#e5daf5"
         ports:
           dc: { dir: in }
           pwm: { dir: in }
           ac: { dir: out }
       filter:
         name: LCL filter
-        color: "#8160af"
-        fill: "#f3eefb"
+        color: "#5c417e"
+        fill: "#e5daf5"
         ports:
           raw: { dir: in }
           clean: { dir: out }
@@ -138,8 +138,8 @@ blocks:
         subtitle: PLL · current loops
         lines:
           - anti-islanding · VDE-AR-N 4105
-        color: "#8160af"
-        fill: "#f3eefb"
+        color: "#5c417e"
+        fill: "#e5daf5"
         ports:
           setpoint: { dir: in }
           sense: { dir: in }

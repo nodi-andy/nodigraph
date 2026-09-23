@@ -65,32 +65,32 @@ blocks:
       allocate:
         name: Stock allocation
         subtitle: ATP check · backorder
-        color: "#16836e"
-        fill: "#e7f7ef"
+        color: "#0f5c4e"
+        fill: "#cfeade"
         ports:
           order: { dir: in }
           pick_list: { dir: out }
       pick:
         name: Picking
         subtitle: handheld scanner
-        color: "#16836e"
-        fill: "#e7f7ef"
+        color: "#0f5c4e"
+        fill: "#cfeade"
         ports:
           list: { dir: in }
           items: { dir: out }
       pack:
         name: Packing
         subtitle: packing slip · labels
-        color: "#16836e"
-        fill: "#e7f7ef"
+        color: "#0f5c4e"
+        fill: "#cfeade"
         ports:
           items: { dir: in }
           parcel: { dir: out }
       ship:
         name: Shipping
         subtitle: carrier booking · tracking
-        color: "#16836e"
-        fill: "#e7f7ef"
+        color: "#0f5c4e"
+        fill: "#cfeade"
         ports:
           parcel: { dir: in }
           goods: { dir: out }

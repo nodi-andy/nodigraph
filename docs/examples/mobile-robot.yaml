@@ -50,16 +50,16 @@ blocks:
         name: Point cloud filter
         lines:
           - voxel 5 cm · crop box
-        color: "#16836e"
-        fill: "#e7f7ef"
+        color: "#0f5c4e"
+        fill: "#cfeade"
         ports:
           raw: { dir: in }
           clean: { dir: out }
       detector:
         name: Obstacle detection
         subtitle: ground removal · clustering
-        color: "#16836e"
-        fill: "#e7f7ef"
+        color: "#0f5c4e"
+        fill: "#cfeade"
         ports:
           cloud: { dir: in }
           frames: { dir: in }
@@ -67,8 +67,8 @@ blocks:
       odometry:
         name: Odometry fusion
         subtitle: EKF · wheels + IMU
-        color: "#16836e"
-        fill: "#e7f7ef"
+        color: "#0f5c4e"
+        fill: "#cfeade"
         ports:
           inertial: { dir: in }
           ticks: { dir: in }
@@ -76,8 +76,8 @@ blocks:
       slam:
         name: Localization
         subtitle: scan matching against the map
-        color: "#16836e"
-        fill: "#e7f7ef"
+        color: "#0f5c4e"
+        fill: "#cfeade"
         ports:
           cloud: { dir: in }
           odom: { dir: in }
@@ -86,8 +86,8 @@ blocks:
         name: Costmap builder
         lines:
           - 5 cm cells · inflation 0.4 m
-        color: "#16836e"
-        fill: "#e7f7ef"
+        color: "#0f5c4e"
+        fill: "#cfeade"
         ports:
           obstacles: { dir: in }
           pose: { dir: in }
@@ -118,16 +118,16 @@ blocks:
       mission:
         name: Mission executor
         subtitle: waypoints · behaviour tree
-        color: "#8160af"
-        fill: "#f3eefb"
+        color: "#5c417e"
+        fill: "#e5daf5"
         ports:
           mission: { dir: in }
           goal: { dir: out }
       global:
         name: Global planner
         subtitle: A* on the static map
-        color: "#8160af"
-        fill: "#f3eefb"
+        color: "#5c417e"
+        fill: "#e5daf5"
         ports:
           goal: { dir: in }
           pose: { dir: in }
@@ -137,8 +137,8 @@ blocks:
         subtitle: MPC · 20 Hz
         lines:
           - v ≤ 1.5 m/s · ω ≤ 1 rad/s
-        color: "#8160af"
-        fill: "#f3eefb"
+        color: "#5c417e"
+        fill: "#e5daf5"
         ports:
           path: { dir: in }
           costmap: { dir: in }
@@ -168,8 +168,8 @@ blocks:
         name: Differential kinematics
         lines:
           - track 0.52 m · r 0.1 m
-        color: "#b47621"
-        fill: "#fff5e5"
+        color: "#815316"
+        fill: "#ffe9c7"
         ports:
           twist: { dir: in }
           w_left: { dir: out }
@@ -177,8 +177,8 @@ blocks:
       pid_l:
         name: Left wheel PID
         subtitle: 1 kHz
-        color: "#b47621"
-        fill: "#fff5e5"
+        color: "#815316"
+        fill: "#ffe9c7"
         ports:
           setpoint: { dir: in }
           measured: { dir: in }
@@ -186,8 +186,8 @@ blocks:
       pid_r:
         name: Right wheel PID
         subtitle: 1 kHz
-        color: "#b47621"
-        fill: "#fff5e5"
+        color: "#815316"
+        fill: "#ffe9c7"
         ports:
           setpoint: { dir: in }
           measured: { dir: in }
@@ -231,8 +231,8 @@ blocks:
         lines:
           - gate driver · 3 × half-bridge
           - phase current sense
-        color: "#68798b"
-        fill: "#f0f4f8"
+        color: "#4a5766"
+        fill: "#dde5ed"
         ports:
           torque: { dir: in }
           dc: { dir: in }
@@ -243,8 +243,8 @@ blocks:
         lines:
           - gate driver · 3 × half-bridge
           - phase current sense
-        color: "#68798b"
-        fill: "#f0f4f8"
+        color: "#4a5766"
+        fill: "#dde5ed"
         ports:
           torque: { dir: in }
           dc: { dir: in }
@@ -252,16 +252,16 @@ blocks:
       motor_l:
         name: Left BLDC
         subtitle: 1:20 gearbox
-        color: "#68798b"
-        fill: "#f0f4f8"
+        color: "#4a5766"
+        fill: "#dde5ed"
         ports:
           phases: { dir: in }
           shaft: { dir: out }
       motor_r:
         name: Right BLDC
         subtitle: 1:20 gearbox
-        color: "#68798b"
-        fill: "#f0f4f8"
+        color: "#4a5766"
+        fill: "#dde5ed"
         ports:
           phases: { dir: in }
           shaft: { dir: out }

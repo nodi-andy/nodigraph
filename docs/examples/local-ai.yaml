@@ -38,8 +38,8 @@ blocks:
         y: 160
         w: 160
         h: 120
-        color: "#16836e"
-        fill: "#e7f7ef"
+        color: "#0f5c4e"
+        fill: "#cfeade"
         size: 16
         ports:
           p1: { dir: in, offset: 20 }
@@ -53,8 +53,8 @@ blocks:
         y: 160
         w: 160
         h: 120
-        color: "#16836e"
-        fill: "#e7f7ef"
+        color: "#0f5c4e"
+        fill: "#cfeade"
         size: 16
         ports:
           p1: { dir: in, offset: 60 }
@@ -121,8 +121,8 @@ blocks:
         y: 160
         w: 160
         h: 120
-        color: "#16836e"
-        fill: "#e7f7ef"
+        color: "#0f5c4e"
+        fill: "#cfeade"
         size: 16
         ports:
           p1: { dir: in, offset: 60 }

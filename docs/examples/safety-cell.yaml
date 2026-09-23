@@ -58,24 +58,24 @@ blocks:
         subtitle: 2-channel · discrepancy 500 ms
         lines:
           - cross-circuit detection
-        color: "#c2410c"
-        fill: "#fde8dd"
+        color: "#8c2f09"
+        fill: "#f9d2bf"
         ports:
           raw: { dir: in }
           ok: { dir: out }
       in_curtain:
         name: OSSD input
         subtitle: 2-channel · test pulses
-        color: "#c2410c"
-        fill: "#fde8dd"
+        color: "#8c2f09"
+        fill: "#f9d2bf"
         ports:
           raw: { dir: in }
           ok: { dir: out }
       in_door:
         name: Door input
         subtitle: 2-channel · discrepancy
-        color: "#c2410c"
-        fill: "#fde8dd"
+        color: "#8c2f09"
+        fill: "#f9d2bf"
         ports:
           raw: { dir: in }
           ok: { dir: out }
@@ -84,8 +84,8 @@ blocks:
         subtitle: AND of all conditions
         lines:
           - muting · restart interlock
-        color: "#c2410c"
-        fill: "#fde8dd"
+        color: "#8c2f09"
+        fill: "#f9d2bf"
         ports:
           estop: { dir: in }
           curtain: { dir: in }
@@ -96,16 +96,16 @@ blocks:
       out_sto:
         name: STO output
         subtitle: 2 × OSSD · readback
-        color: "#c2410c"
-        fill: "#fde8dd"
+        color: "#8c2f09"
+        fill: "#f9d2bf"
         ports:
           run: { dir: in }
           sto: { dir: out }
       out_k:
         name: Contactor output
         subtitle: 2 × OSSD · EDM feedback
-        color: "#c2410c"
-        fill: "#fde8dd"
+        color: "#8c2f09"
+        fill: "#f9d2bf"
         ports:
           run: { dir: in }
           coils: { dir: out }

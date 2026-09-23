@@ -373,15 +373,25 @@ Pick one border/fill pair per kind of thing and keep to it across the whole
 diagram — sensors, compute, actuators, external systems; or sales, finance,
 warehouse. Muted fills with a darker border of the same hue read best:
 
-| Role | `color` | `fill` |
-| --- | --- | --- |
-| inputs / sensors | `"#247e91"` | `"#eaf7fa"` |
-| processing / software | `"#16836e"` | `"#e7f7ef"` |
-| planning / logic | `"#8160af"` | `"#f3eefb"` |
-| actuation / power | `"#b47621"` | `"#fff5e5"` |
-| safety / external / alerts | `"#c2410c"` | `"#fde8dd"` |
-| infrastructure / passive | `"#68798b"` | `"#f0f4f8"` |
-| people / clients / business | `"#4a6fa5"` | `"#e3eaf7"` |
+| Role | `color` | `fill` | deeper, for a child of that role |
+| --- | --- | --- | --- |
+| inputs / sensors | `"#247e91"` | `"#eaf7fa"` | `"#175a69"` / `"#d3ecf2"` |
+| processing / software | `"#16836e"` | `"#e7f7ef"` | `"#0f5c4e"` / `"#cfeade"` |
+| planning / logic | `"#8160af"` | `"#f3eefb"` | `"#5c417e"` / `"#e5daf5"` |
+| actuation / power | `"#b47621"` | `"#fff5e5"` | `"#815316"` / `"#ffe9c7"` |
+| safety / external / alerts | `"#c2410c"` | `"#fde8dd"` | `"#8c2f09"` / `"#f9d2bf"` |
+| infrastructure / passive | `"#68798b"` | `"#f0f4f8"` | `"#4a5766"` / `"#dde5ed"` |
+| people / clients / business | `"#4a6fa5"` | `"#e3eaf7"` | `"#344f76"` / `"#c9d7ec"` |
+
+**A block never repeats its container's pair.** A level is drawn *on its
+container's face*, so a child is inside that block's outline, not beside
+it — give it the same colour and its own edge dissolves into the frame
+around it, hiding the one thing the picture exists to show. Colour the
+child by its own role where that differs from its container's; where it
+genuinely is the same role — the cell modules inside a battery pack, the
+PID terms inside a controller — take the deeper pair in the last column,
+and alternate back to the base pair one level further down. The linter
+reports this as `parent-colour`.
 
 Give a `kind: text` block with a one-line legend when the colours carry
 meaning (see `examples/order-to-cash.yaml`).
@@ -507,6 +517,7 @@ Whether or not you can run it:
 - [ ] Every wire endpoint names a block key and a port key that exist at that level (`self.x` names a port of the enclosing block).
 - [ ] Wires point the way the thing flows; secondary paths are `dash: dashed`.
 - [ ] No coordinates unless the person asked for a particular arrangement — and then every `x`/`y`/`w`/`h` a multiple of 40 and every `offset` one of `20, 60, 100, …`.
+- [ ] No block wears its container's `color` or `fill` — a child is drawn inside that block, so it needs its own shade (see [Colour by domain](#colour-by-domain)).
 - [ ] 5–12 blocks per level; more than that is a level to nest.
 - [ ] Names, labels and detail lines use the source material's own terms; assumptions noted in `props`.
 - [ ] Every `link` an `http(s)` URL to a stable location.

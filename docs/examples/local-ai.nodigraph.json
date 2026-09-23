@@ -162,8 +162,8 @@
                   "height": 120
                 },
                 "style": {
-                  "color": "#16836e",
-                  "fill": "#e7f7ef",
+                  "color": "#0f5c4e",
+                  "fill": "#cfeade",
                   "fontSize": 16
                 },
                 "subtitle": "Query + embedding",
@@ -221,8 +221,8 @@
                   "height": 120
                 },
                 "style": {
-                  "color": "#16836e",
-                  "fill": "#e7f7ef",
+                  "color": "#0f5c4e",
+                  "fill": "#cfeade",
                   "fontSize": 16
                 },
                 "subtitle": "Open for more detail",
@@ -507,8 +507,8 @@
                   "height": 120
                 },
                 "style": {
-                  "color": "#16836e",
-                  "fill": "#e7f7ef",
+                  "color": "#0f5c4e",
+                  "fill": "#cfeade",
                   "fontSize": 16
                 },
                 "subtitle": "Passages + original query",

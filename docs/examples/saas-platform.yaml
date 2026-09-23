@@ -67,8 +67,8 @@ blocks:
         name: routes/orders.ts
         subtitle: validation · auth scopes
         link: https://github.com/example/shop/blob/main/services/orders/src/routes/orders.ts
-        color: "#8160af"
-        fill: "#f3eefb"
+        color: "#5c417e"
+        fill: "#e5daf5"
         ports:
           http: { dir: in }
           cmd: { dir: out }
@@ -78,8 +78,8 @@ blocks:
         lines:
           - draft → paid → shipped
         link: https://github.com/example/shop/blob/main/services/orders/src/domain/order.ts
-        color: "#8160af"
-        fill: "#f3eefb"
+        color: "#5c417e"
+        fill: "#e5daf5"
         ports:
           cmd: { dir: in }
           charge: { dir: out }
@@ -88,8 +88,8 @@ blocks:
         name: adapters/stripe.ts
         subtitle: idempotency keys
         link: https://github.com/example/shop/blob/main/services/orders/src/adapters/stripe.ts
-        color: "#8160af"
-        fill: "#f3eefb"
+        color: "#5c417e"
+        fill: "#e5daf5"
         ports:
           charge: { dir: in }
           api: { dir: out }
@@ -97,8 +97,8 @@ blocks:
         name: repo/orders.ts
         subtitle: Postgres · transactional outbox
         link: https://github.com/example/shop/blob/main/services/orders/src/repo/orders.ts
-        color: "#8160af"
-        fill: "#f3eefb"
+        color: "#5c417e"
+        fill: "#e5daf5"
         ports:
           save: { dir: in }
           sql: { dir: out }
@@ -107,8 +107,8 @@ blocks:
         name: outbox/publisher.ts
         subtitle: polls outbox → Kafka
         link: https://github.com/example/shop/blob/main/services/orders/src/outbox/publisher.ts
-        color: "#8160af"
-        fill: "#f3eefb"
+        color: "#5c417e"
+        fill: "#e5daf5"
         ports:
           rows: { dir: in }
           events: { dir: out }

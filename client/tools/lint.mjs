@@ -29,6 +29,7 @@ const { GRID_SIZE, getPortSlotOffsets, sideAxis } = await import(src('model/grid
 const { frameToFace } = await import(src('model/levelGeometry.js'));
 const { getConnectionGeometry, getConnectionLabelPosition } = await import(src('render/ConnectionRenderer.js'));
 const { getPortPosition, isPluggedConnection } = await import(src('render/BlockRenderer.js'));
+const { DEFAULT_BLOCK_COLOR } = await import(src('model/Block.js'));
 const { obstaclesFor, pathHitsObstacles, segmentHitsRect } = await import(src('model/obstacleRoute.js'));
 
 const args = process.argv.slice(2);
@@ -146,6 +147,34 @@ function checkLevel(container, where, isRoot) {
       }
     }
   }
+  // A child must not wear its container's own colour. A level is drawn on
+  // its container's face (see docs/ARCHITECTURE.md), so these are not two
+  // blocks side by side that happen to match — the child sits *inside* the
+  // parent's outline, and painting it the same colour dissolves its own
+  // edge into the frame around it. The nesting is the one thing the
+  // picture has to show, and this is what hides it.
+  //
+  // Only a deliberate choice counts. The default border, a transparent
+  // one, and a `kind: text` block (which has no box to speak of) are the
+  // baseline look every diagram starts from, not something an author
+  // picked, so matching there is left alone.
+  const parentColor = container.style?.color;
+  const parentFill = container.style?.fill;
+  for (const block of blocks) {
+    if (block.kind === 'text') continue;
+    const color = block.style?.color;
+    const fill = block.style?.fill;
+    const sameColor = Boolean(color) && color === parentColor && color !== DEFAULT_BLOCK_COLOR && color !== 'transparent';
+    const sameFill = Boolean(fill) && fill === parentFill && fill !== 'transparent';
+    if (!sameColor && !sameFill) continue;
+    const what = sameColor && sameFill
+      ? `border ${color} and fill ${fill}`
+      : sameColor
+        ? `border colour ${color}`
+        : `fill ${fill}`;
+    report('warn', where, 'parent-colour', `"${labelOf(block)}" has its container "${labelOf(container)}"'s ${what}; give a child its own shade so its edge still reads inside the parent`);
+  }
+
   for (let i = 0; i < blocks.length; i += 1) {
     for (let j = i + 1; j < blocks.length; j += 1) {
       const a = blocks[i];
