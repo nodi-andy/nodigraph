@@ -174,9 +174,22 @@ function wireLanes(geometry) {
 // Whether the free run of `geometry` (stub to stub) passes through a block
 // of the level — the condition for routing the wire around it.
 function hitsBlocks(project, connection, geometry) {
+  // Keyed on the geometry object itself, not on the connection: the same
+  // wire is asked about both its plain route and each candidate fanned
+  // trunk, which are genuinely different questions. Walking every block of
+  // the level to find the obstacles is the expensive part, and the
+  // channel-assignment loop repeats the plain-route question once per
+  // other wire in the level.
+  const pass = currentPass();
+  if (pass) {
+    const cached = pass.hits.get(geometry);
+    if (cached !== undefined) return cached;
+  }
   const blocks = obstaclesFor(project.listBlocks(), connection.sourceBlockId, connection.targetBlockId, geometry.stubA, geometry.stubB)
     .map((r) => ({ x: r.x - OBSTACLE_MARGIN, y: r.y - OBSTACLE_MARGIN, width: r.width + 2 * OBSTACLE_MARGIN, height: r.height + 2 * OBSTACLE_MARGIN }));
-  return pathHitsObstacles([geometry.stubA, ...geometry.points.slice(1, -1), geometry.stubB], blocks);
+  const result = pathHitsObstacles([geometry.stubA, ...geometry.points.slice(1, -1), geometry.stubB], blocks);
+  if (pass) pass.hits.set(geometry, result);
+  return result;
 }
 
 function sharesPin(a, b) {
@@ -187,7 +200,58 @@ function sharesPin(a, b) {
 // Guards the recursion below: a wire being routed never asks for itself.
 const routing = new Set();
 
+/**
+ * Memo for one pass over a level's wires — see beginRoutingPass.
+ *
+ * Routing one wire asks about the others, twice over: a wire that has to
+ * detour around a block wants every earlier wire's route so it can take a
+ * separate lane, and a wire sharing a trunk with others wants their routes
+ * so the cluster can fan out. Both of those asked by *recomputing* the
+ * other wire from scratch — and computing that other wire asked the same
+ * question of the wires before it, all the way down, so the cost roughly
+ * doubled with every wire added. Measured on a plain grid of wired blocks:
+ * 26 wires took about a tenth of a second to route, 57 wires took over
+ * half a minute — and that ran on every frame. That is what made a large
+ * diagram stop responding rather than merely slow down.
+ *
+ * Nothing about the level changes while it is being drawn, so a wire's
+ * route is the same answer every time it is asked for within one pass.
+ * Holding those answers collapses the exponential blowup into one
+ * computation per wire. The memo lives exactly as long as the pass, so a
+ * moved block still re-routes everything on the very next frame.
+ *
+ * Levels nest (see SubPreviewRenderer.drawSubPreview), so passes do too —
+ * hence a stack rather than a single slot.
+ */
+const passes = [];
+
+function currentPass() {
+  return passes.length ? passes[passes.length - 1] : null;
+}
+
+export function beginRoutingPass() {
+  passes.push({ geometry: new Map(), plain: new Map(), hits: new Map() });
+}
+
+export function endRoutingPass() {
+  passes.pop();
+}
+
 export function getConnectionGeometry(project, connection, boundary, wireMoveOverride, { raw = false } = {}) {
+  // Only the plain, non-raw request is memoized: it is the one the
+  // recursion above asks for over and over, and the only one whose answer
+  // is a pure function of the level as it stands.
+  const pass = raw ? null : currentPass();
+  if (pass) {
+    const cached = pass.geometry.get(connection.id);
+    if (cached !== undefined) return cached;
+  }
+  const result = computeConnectionGeometry(project, connection, boundary, wireMoveOverride, raw);
+  if (pass) pass.geometry.set(connection.id, result);
+  return result;
+}
+
+function computeConnectionGeometry(project, connection, boundary, wireMoveOverride, raw) {
   let base = computeGeometry(project, connection, boundary, wireMoveOverride);
   if (!base || base.manual) return base;
 
@@ -301,7 +365,22 @@ export function getConnectionGeometry(project, connection, boundary, wireMoveOve
   return base;
 }
 
+// The plain route of a wire — no fanned trunk, no detour — which the
+// channel-assignment loop asks for once per other wire in the level, i.e.
+// O(wires²) times a frame for answers that never differ within a pass.
+// The trunk/detour variants are each asked for once and are not memoized.
 function computeGeometry(project, connection, boundary, wireMoveOverride, autoTrunk = null, detour = null) {
+  const pass = autoTrunk === null && detour === null ? currentPass() : null;
+  if (pass) {
+    const cached = pass.plain.get(connection.id);
+    if (cached !== undefined) return cached;
+  }
+  const result = computeGeometryUncached(project, connection, boundary, wireMoveOverride, autoTrunk, detour);
+  if (pass) pass.plain.set(connection.id, result);
+  return result;
+}
+
+function computeGeometryUncached(project, connection, boundary, wireMoveOverride, autoTrunk = null, detour = null) {
   const resolve = (blockId) => {
     const block = project.getBlock(blockId);
     if (!block) return null;
@@ -401,20 +480,98 @@ export function verticalSegmentsOf(points) {
   return segments;
 }
 
+/**
+ * Every vertical run in a level, once, sorted by x — the thing each of its
+ * horizontal segments has to bow over.
+ *
+ * Each wire used to build its own list of what to hop: a filter and a
+ * flatMap across every other wire in the level, per wire, per frame. That
+ * is quadratic twice over — O(wires²) in the arrays it allocated, then
+ * O(wires² × segments) in the scan of those arrays — and on a diagram with
+ * a few hundred wires it was one of the larger things a frame did, most of
+ * it producing garbage that had to be collected again immediately.
+ *
+ * Built once per level instead, and searched by x: a horizontal segment
+ * only looks at the runs that actually fall within its own span, found by
+ * binary search rather than by walking the whole level. `owner` is the
+ * index of the wire a run belongs to, so a wire can still skip its own
+ * runs and those of the wires it shares a pin with — the same exclusions
+ * the old filter made, applied to the handful of candidates instead of to
+ * everything.
+ */
+export function buildHopIndex(routed) {
+  const xs = [];
+  const y1s = [];
+  const y2s = [];
+  const owners = [];
+  const order = [];
+  let n = 0;
+  for (let i = 0; i < routed.length; i += 1) {
+    for (const v of routed[i].verticals) {
+      xs.push(v.x);
+      y1s.push(v.y1);
+      y2s.push(v.y2);
+      owners.push(i);
+      order.push(n);
+      n += 1;
+    }
+  }
+  order.sort((p, q) => xs[p] - xs[q]);
+  const sortedX = new Float64Array(n);
+  const sortedY1 = new Float64Array(n);
+  const sortedY2 = new Float64Array(n);
+  const sortedOwner = new Int32Array(n);
+  for (let k = 0; k < n; k += 1) {
+    const i = order[k];
+    sortedX[k] = xs[i];
+    sortedY1[k] = y1s[i];
+    sortedY2[k] = y2s[i];
+    sortedOwner[k] = owners[i];
+  }
+  return { length: n, x: sortedX, y1: sortedY1, y2: sortedY2, owner: sortedOwner };
+}
+
+// The first index whose x is strictly greater than `value`.
+function upperBound(xs, length, value) {
+  let lo = 0;
+  let hi = length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (xs[mid] > value) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
+}
+
+// Reused across every segment of every wire in a frame — hopCentersOn
+// never lets it escape.
+const hopXs = [];
+
 // Where along a horizontal segment the bows go. A crossing is skipped when
 // it sits within a hop's own width of either end, since an arc merging into
 // a corner reads as a kink rather than a hop. Crossings closer together
 // than two hops are merged into one wider bow instead of drawing arcs that
 // overlap each other.
-function hopCentersOn(a, b, verticals) {
+//
+// `index` is the level's shared hop index (see buildHopIndex) and `skip`
+// answers whether a run's owning wire is one this segment must ignore —
+// its own wire, or one hanging off the same pin.
+function hopCentersOn(a, b, index, skip) {
   const left = Math.min(a.x, b.x);
   const right = Math.max(a.x, b.x);
-  const xs = [];
-  for (const v of verticals) {
-    if (v.x <= left + HOP_RADIUS || v.x >= right - HOP_RADIUS) continue;
-    if (a.y <= v.y1 + 0.5 || a.y >= v.y2 - 0.5) continue;
-    xs.push(v.x);
+  hopXs.length = 0;
+  // Only the runs whose x falls strictly inside the segment's span can
+  // matter, and the index is sorted by x — so this is the slice between
+  // the two bounds and nothing else.
+  const from = upperBound(index.x, index.length, left + HOP_RADIUS);
+  for (let i = from; i < index.length; i += 1) {
+    const x = index.x[i];
+    if (x >= right - HOP_RADIUS) break;
+    if (a.y <= index.y1[i] + 0.5 || a.y >= index.y2[i] - 0.5) continue;
+    if (skip && skip(index.owner[i])) continue;
+    hopXs.push(x);
   }
+  const xs = hopXs;
   if (!xs.length) return [];
 
   xs.sort((m, n) => m - n);
@@ -441,8 +598,8 @@ function hopCentersOn(a, b, verticals) {
 // Always bows upward, whichever way the segment is being traced: the arc
 // runs through the point above the crossing either way, so a diagram never
 // mixes bows that go over with bows that go under.
-function traceHorizontalWithHops(ctx, a, b, verticals) {
-  const hops = hopCentersOn(a, b, verticals);
+function traceHorizontalWithHops(ctx, a, b, index, skip) {
+  const hops = hopCentersOn(a, b, index, skip);
   if (!hops.length) {
     ctx.lineTo(b.x, b.y);
     return;
@@ -487,7 +644,10 @@ export function getDashPattern(style) {
 export function drawPath(
   ctx,
   points,
-  { color = '#4f8cff', width = 3, dash = null, dashOffset = 0, hopOver = null } = {},
+  // `hopOver` is the level's shared hop index (see buildHopIndex) and
+  // `hopSkip` says which of its wires this path must not bow over — its
+  // own, and any sharing a pin with it.
+  { color = '#4f8cff', width = 3, dash = null, dashOffset = 0, hopOver = null, hopSkip = null } = {},
 ) {
   if (points.length < 2) return;
   ctx.save();
@@ -501,7 +661,7 @@ export function drawPath(
     const from = points[i - 1];
     const to = points[i];
     if (hopOver?.length && from.y === to.y && from.x !== to.x) {
-      traceHorizontalWithHops(ctx, from, to, hopOver);
+      traceHorizontalWithHops(ctx, from, to, hopOver, hopSkip);
     } else {
       ctx.lineTo(to.x, to.y);
     }

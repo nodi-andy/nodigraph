@@ -15,6 +15,7 @@ import { boundaryPlacementFor, exteriorPlacementFor, frameToFace } from '../mode
 import { isImageUrl, getCachedImage } from './imageCache.js';
 import { getCanvasPalette } from './canvasPalette.js';
 import { getFontFamily, ensureFontLoaded } from './fonts.js';
+import { isImprovedView } from './viewOptions.js';
 
 const DEFAULT_PALETTE = getCanvasPalette('light');
 
@@ -812,50 +813,97 @@ export function socketsOf(block) {
   return sockets;
 }
 
+// The four sides, clockwise from the top-left corner, as the constant part
+// of each run: the unit vector along it and the one pointing into the
+// face. The corner tangents and the run's own endpoints depend on the
+// geometry and are computed per side below. Hoisted out of the function
+// because it runs for every block of every level, several times over (the
+// fill, the border, the clip and — in the detailed view — the chip's side
+// wall all trace this same outline), and four fresh object literals a call
+// was pure garbage.
+const OUTLINE_RUNS = [
+  { side: 'top', ux: 1, uy: 0, nx: 0, ny: 1 },
+  { side: 'right', ux: 0, uy: 1, nx: -1, ny: 0 },
+  { side: 'bottom', ux: -1, uy: 0, nx: 0, ny: -1 },
+  { side: 'left', ux: 0, uy: -1, nx: 1, ny: 0 },
+];
+
+// Scratch space for the sockets of the side being traced, reused across
+// calls: at most a handful of entries, and never held past the loop below.
+// Parallel arrays rather than objects, so a frame's worth of outlines
+// allocates nothing at all here.
+const socketT = [];
+const socketDepth = [];
+
 // The block's outline with its pins' sockets cut into it: a rounded
 // rectangle whose border steps into the face at every input and out of it
-// at every output. Two-way pins leave the border alone; their ring is drawn
-// on it afterwards (see drawSocket). This one path is the block's fill,
-// border and clip alike, so a dent shows the canvas through it and a tab
-// carries the face's fill out.
+// at every output. Two-way pins leave the border alone; their ring is
+// drawn on it afterwards (see drawSocket). This one path is the block's
+// fill, border and clip alike, so a dent shows the canvas through it and a
+// tab carries the face's fill out.
 export function blockOutlinePath(ctx, geometry, sockets = []) {
   const { x, y, width, height } = geometry;
   const r = CORNER_RADIUS;
   const HO = SOCKET_HALF_OUTER;
   const HI = SOCKET_HALF_INNER;
   const D = SOCKET_DEPTH;
-  // Clockwise from the top-left corner: each side as a run from its first
-  // corner tangent to its last, `u` along it, `nIn` into the face, and the
-  // arcTo corner that follows it.
-  const runs = [
-    { side: 'top', from: { x: x + r, y }, to: { x: x + width - r, y }, u: { x: 1, y: 0 }, nIn: { x: 0, y: 1 }, corner: [x + width, y, x + width, y + r] },
-    { side: 'right', from: { x: x + width, y: y + r }, to: { x: x + width, y: y + height - r }, u: { x: 0, y: 1 }, nIn: { x: -1, y: 0 }, corner: [x + width, y + height, x + width - r, y + height] },
-    { side: 'bottom', from: { x: x + width - r, y: y + height }, to: { x: x + r, y: y + height }, u: { x: -1, y: 0 }, nIn: { x: 0, y: -1 }, corner: [x, y + height, x, y + height - r] },
-    { side: 'left', from: { x, y: y + height - r }, to: { x, y: y + r }, u: { x: 0, y: -1 }, nIn: { x: 1, y: 0 }, corner: [x, y, x + r, y] },
-  ];
   ctx.beginPath();
-  ctx.moveTo(runs[0].from.x, runs[0].from.y);
-  for (const run of runs) {
-    const { from, to, u, nIn } = run;
-    const length = (to.x - from.x) * u.x + (to.y - from.y) * u.y;
-    const here = sockets
-      .filter((s) => s.side === run.side && s.shape !== 'both')
-      .map((s) => ({ t: (s.x - from.x) * u.x + (s.y - from.y) * u.y, depth: s.shape === 'in' ? D : -D }))
-      .filter((s) => s.t - HO >= 0 && s.t + HO <= length)
-      .sort((a, b) => a.t - b.t);
-    const at = (t, depth) => ({ x: from.x + u.x * t + nIn.x * depth, y: from.y + u.y * t + nIn.y * depth });
-    for (const s of here) {
-      const p1 = at(s.t - HO, 0);
-      const p2 = at(s.t - HI, s.depth);
-      const p3 = at(s.t + HI, s.depth);
-      const p4 = at(s.t + HO, 0);
-      ctx.lineTo(p1.x, p1.y);
-      ctx.lineTo(p2.x, p2.y);
-      ctx.lineTo(p3.x, p3.y);
-      ctx.lineTo(p4.x, p4.y);
+  ctx.moveTo(x + r, y);
+  for (let i = 0; i < OUTLINE_RUNS.length; i += 1) {
+    const run = OUTLINE_RUNS[i];
+    const { ux, uy, nx, ny } = run;
+    let fromX;
+    let fromY;
+    let toX;
+    let toY;
+    let cx1;
+    let cy1;
+    let cx2;
+    let cy2;
+    if (i === 0) {
+      fromX = x + r; fromY = y; toX = x + width - r; toY = y;
+      cx1 = x + width; cy1 = y; cx2 = x + width; cy2 = y + r;
+    } else if (i === 1) {
+      fromX = x + width; fromY = y + r; toX = x + width; toY = y + height - r;
+      cx1 = x + width; cy1 = y + height; cx2 = x + width - r; cy2 = y + height;
+    } else if (i === 2) {
+      fromX = x + width - r; fromY = y + height; toX = x + r; toY = y + height;
+      cx1 = x; cy1 = y + height; cx2 = x; cy2 = y + height - r;
+    } else {
+      fromX = x; fromY = y + height - r; toX = x; toY = y + r;
+      cx1 = x; cy1 = y; cx2 = x + r; cy2 = y;
     }
-    ctx.lineTo(to.x, to.y);
-    const [cx1, cy1, cx2, cy2] = run.corner;
+    const length = (toX - fromX) * ux + (toY - fromY) * uy;
+
+    // The sockets on this side that actually fit within the run, gathered
+    // by insertion sort straight into the scratch arrays — `here` is only
+    // ever a few entries, so this is the same order of work the old
+    // filter/map/filter/sort chain did without any of its arrays.
+    let count = 0;
+    for (const s of sockets) {
+      if (s.side !== run.side || s.shape === 'both') continue;
+      const t = (s.x - fromX) * ux + (s.y - fromY) * uy;
+      if (t - HO < 0 || t + HO > length) continue;
+      let j = count;
+      while (j > 0 && socketT[j - 1] > t) {
+        socketT[j] = socketT[j - 1];
+        socketDepth[j] = socketDepth[j - 1];
+        j -= 1;
+      }
+      socketT[j] = t;
+      socketDepth[j] = s.shape === 'in' ? D : -D;
+      count += 1;
+    }
+
+    for (let k = 0; k < count; k += 1) {
+      const t = socketT[k];
+      const depth = socketDepth[k];
+      ctx.lineTo(fromX + ux * (t - HO), fromY + uy * (t - HO));
+      ctx.lineTo(fromX + ux * (t - HI) + nx * depth, fromY + uy * (t - HI) + ny * depth);
+      ctx.lineTo(fromX + ux * (t + HI) + nx * depth, fromY + uy * (t + HI) + ny * depth);
+      ctx.lineTo(fromX + ux * (t + HO), fromY + uy * (t + HO));
+    }
+    ctx.lineTo(toX, toY);
     ctx.arcTo(cx1, cy1, cx2, cy2, r);
   }
   ctx.closePath();
@@ -1551,6 +1599,12 @@ export function drawBlock(
     // See drawPorts.
     pinWires = null,
     hoverPin = null,
+    // Whether this block draws as a chip — the side wall and the drop
+    // shadow under it — or as its plain face alone. Defaults to the user's
+    // own Settings > Improved view choice (see render/viewOptions.js),
+    // which is off, because the chip costs two blurred fills per block and
+    // that is what a large diagram stalls on.
+    improvedView = isImprovedView(),
   } = {},
 ) {
   const { x, y, width, height } = block.geometry;
@@ -1584,8 +1638,9 @@ export function drawBlock(
   // SelectionFabs' transparent swatch) is meant to read as bare floating
   // text with no chip at all, so it gets neither. Nor does the SVG
   // recording context (render/svgContext.js): it has no shadows, and an
-  // exported figure is a flat drawing — it gets the plain face alone.
-  if (fillColor !== 'transparent' && 'shadowColor' in ctx) {
+  // exported figure is a flat drawing — it gets the plain face alone. Nor
+  // does the plain view, which is the default (see improvedView above).
+  if (improvedView && fillColor !== 'transparent' && 'shadowColor' in ctx) {
     const depth = CHIP_DEPTH / zoom;
     ctx.save();
     // A pin with a null entry in pinWires is plugged, not wired (see

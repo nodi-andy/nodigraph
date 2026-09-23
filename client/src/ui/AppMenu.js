@@ -39,6 +39,7 @@ export function mountAppMenu(
     onOpenFromGitHub,
     onSaveToGitHub,
     onAnimate,
+    onImprovedView,
   },
 ) {
   container.innerHTML = '';
@@ -168,7 +169,21 @@ export function mountAppMenu(
   animateText.textContent = 'Animate';
   animateLabel.append(animateCheckbox, animateText);
 
-  settingsBody.append(animateLabel);
+  // The chip look — a block's side wall and the drop shadow under it (see
+  // render/viewOptions.js). Off by default because it costs two blurred
+  // fills per block, which is what a large diagram stalls on; on for
+  // anyone whose diagram is small enough not to notice.
+  const improvedLabel = document.createElement('label');
+  improvedLabel.className = 'app-menu-toggle-row';
+  improvedLabel.title = 'Draw blocks as raised chips with a shadow. Slower on large diagrams.';
+  const improvedCheckbox = document.createElement('input');
+  improvedCheckbox.type = 'checkbox';
+  improvedCheckbox.addEventListener('change', () => onImprovedView(improvedCheckbox.checked));
+  const improvedText = document.createElement('span');
+  improvedText.textContent = 'Improved view';
+  improvedLabel.append(improvedCheckbox, improvedText);
+
+  settingsBody.append(animateLabel, improvedLabel);
 
   return {
     // The dot marks edits made since the address bar was last written, so
@@ -185,6 +200,10 @@ export function mountAppMenu(
 
     refreshAnimating(on) {
       animateCheckbox.checked = on;
+    },
+
+    refreshImprovedView(on) {
+      improvedCheckbox.checked = on;
     },
 
     // Ctrl/Cmd+S routes through the button rather than duplicating its

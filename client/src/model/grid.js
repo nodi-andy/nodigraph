@@ -78,20 +78,54 @@ export const PORT_SLOT_SPACING = GRID_SIZE;
 // means an even slot count no longer clusters both slots at the two
 // corners with nothing near the middle. Always at least one slot, even on
 // a very short side.
+// Memoized on the slot count, which is the only thing the answer depends
+// on: a frame asks this for every pin of every block (four sides each,
+// several times over as the outline, the fill and the clip are built), and
+// a fresh array per call was one of the larger sources of garbage in a big
+// diagram's render loop. Every caller only reads it.
+const slotOffsetCache = new Map();
+
 export function getPortSlotOffsets(sideLength) {
   const cellCount = Math.max(1, Math.floor(sideLength / PORT_SLOT_SPACING));
-  return Array.from({ length: cellCount }, (_, i) => GRID_SIZE / 2 + i * GRID_SIZE);
+  let slots = slotOffsetCache.get(cellCount);
+  if (!slots) {
+    slots = Array.from({ length: cellCount }, (_, i) => GRID_SIZE / 2 + i * GRID_SIZE);
+    slotOffsetCache.set(cellCount, slots);
+  }
+  return slots;
 }
 
 // The nearest slot to `offset`, preferring one not already in `occupied`
 // so two ports don't land on top of each other — but if every slot on this
 // side is already taken, still resolves to the nearest one rather than
 // refusing the drop.
+// Written as two plain passes rather than filter/reduce because
+// getPortPosition calls this for every pin every time it resolves one —
+// which a render does thousands of times a frame — and the filtered copy
+// it used to build was garbage on every one of them. The common case
+// (nothing occupied) now allocates nothing at all.
 export function nearestPortSlot(sideLength, offset, occupied = []) {
   const slots = getPortSlotOffsets(sideLength);
-  const free = slots.filter((s) => !occupied.includes(s));
-  const pool = free.length ? free : slots;
-  return pool.reduce((best, s) => (Math.abs(s - offset) < Math.abs(best - offset) ? s : best), pool[0]);
+  let best = null;
+  let bestDistance = Infinity;
+  let fallback = slots[0];
+  let fallbackDistance = Infinity;
+  for (const slot of slots) {
+    const distance = Math.abs(slot - offset);
+    if (distance < fallbackDistance) {
+      fallback = slot;
+      fallbackDistance = distance;
+    }
+    // A slot already taken is only a last resort: two ports must not land
+    // on top of each other, but a full side still has to resolve to
+    // something rather than refusing the drop.
+    if (occupied.length && occupied.includes(slot)) continue;
+    if (distance < bestDistance) {
+      best = slot;
+      bestDistance = distance;
+    }
+  }
+  return best === null ? fallback : best;
 }
 
 // The boundary is just a container for a block's own IOs, not a frame that

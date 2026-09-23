@@ -11,6 +11,7 @@ import { pickGoogleDoc } from './model/googlePicker.js';
 import { Camera } from './render/Camera.js';
 import { RenderLoop } from './render/RenderLoop.js';
 import { renderScene } from './render/SceneRenderer.js';
+import { isImprovedView, setImprovedView } from './render/viewOptions.js';
 import { SelectionManager } from './interaction/SelectionManager.js';
 import { WireSelection } from './interaction/WireSelection.js';
 import { DragStateMachine } from './interaction/DragStateMachine.js';
@@ -842,6 +843,16 @@ async function bootstrap() {
     renderLoop.requestRender();
   }
 
+  // The chip look (see render/viewOptions.js) — like Animate above, purely
+  // a way of looking at the diagram, so it is remembered per browser rather
+  // than stored in the project. The renderers read it themselves, so there
+  // is nothing to thread through: a redraw is the whole of applying it.
+  function setImprovedViewOption(on) {
+    setImprovedView(on);
+    appMenuApi?.refreshImprovedView(isImprovedView());
+    renderLoop.requestRender();
+  }
+
   function handleExportFile(format) {
     downloadProjectFile(project, format);
   }
@@ -1584,11 +1595,15 @@ async function bootstrap() {
     onOpenFromGitHub: handleOpenFromGitHub,
     onSaveToGitHub: handleSaveToGitHub,
     onAnimate: toggleAnimation,
+    onImprovedView: setImprovedViewOption,
   });
   headerActionsApi.refreshHistory();
   headerActionsApi.refreshSession(peerSession.getState());
   appMenuApi.refreshSaved(urlSnapshot === null ? null : true);
   appMenuApi.refreshAnimating(animating);
+  // Remembered from last time (see render/viewOptions.js), so the checkbox
+  // has to start out saying what the canvas is already drawing.
+  appMenuApi.refreshImprovedView(isImprovedView());
   // The render loop is dirty-gated (see toggleAnimation): an animation that
   // starts on has to ask for continuous frames from the outset.
   renderLoop.setContinuous(animating);

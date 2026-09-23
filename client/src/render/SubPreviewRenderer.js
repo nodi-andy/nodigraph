@@ -33,6 +33,9 @@ import {
   getConnectionGeometry,
   getDashPattern,
   verticalSegmentsOf,
+  buildHopIndex,
+  beginRoutingPass,
+  endRoutingPass,
   FLOW_DASH,
 } from './ConnectionRenderer.js';
 import { drawBlock, drawBoundary, drawBoundaryPins, drawBlockPorts, drawExteriorSubSlots, drawOpenHeader, drawResizeHandles, hasSubArchitecture, isPluggedConnection } from './BlockRenderer.js';
@@ -243,6 +246,116 @@ function sharesEndpoint(a, b) {
   );
 }
 
+// A string id turned into a number, remembered — ids are stable and few,
+// and the level signature below hashes the same handful every frame.
+const idHashes = new Map();
+
+function hashId(value) {
+  if (value == null) return 0;
+  let hash = idHashes.get(value);
+  if (hash === undefined) {
+    hash = 2166136261;
+    for (let i = 0; i < value.length; i += 1) {
+      hash ^= value.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    hash >>>= 0;
+    idHashes.set(value, hash);
+  }
+  return hash;
+}
+
+/**
+ * Everything a level's routing depends on, as one number.
+ *
+ * Routes are worked out in the level's own world coordinates, so panning,
+ * zooming and the flow animation cannot change a single one of them — yet
+ * every frame re-derived the lot, and that is quadratic work (each wire is
+ * compared against every other for shared trunks and detour lanes). On a
+ * diagram of a few hundred wires it was most of the frame, on every frame,
+ * including the ones where nothing had moved.
+ *
+ * So the routes are kept between frames and rebuilt only when something
+ * they actually depend on differs: a block's box or one of its pins, a
+ * wire's endpoints or hand-drawn route, the frame, or the drag state that
+ * temporarily hides or redirects a wire. Derived from the data itself
+ * rather than from a revision counter, because blocks are mutated in place
+ * all over the editor and a counter would only have to be remembered in
+ * every one of those places to be wrong in one of them.
+ */
+function levelSignature(view, boundary, wireMoveOverride, hidden) {
+  let hash = 2166136261;
+  const mix = (value) => {
+    hash ^= value | 0;
+    hash = Math.imul(hash, 16777619);
+  };
+  // Rounded to a hundredth of a unit: finer than that is below anything
+  // that could move a route, and keeps float noise from thrashing the cache.
+  const mixNumber = (value) => mix(Math.round((value || 0) * 100));
+
+  for (const block of view.listBlocks()) {
+    mix(hashId(block.id));
+    const g = block.geometry || {};
+    mixNumber(g.x);
+    mixNumber(g.y);
+    mixNumber(g.width);
+    mixNumber(g.height);
+    for (const port of block.ports || []) {
+      mix(hashId(port.id));
+      mix(hashId(port.side));
+      mixNumber(port.offset);
+      mix(port.hidden ? 1 : 2);
+    }
+  }
+  for (const connection of view.listConnections()) {
+    mix(hashId(connection.id));
+    mix(hashId(connection.sourceBlockId));
+    mix(hashId(connection.sourcePortId));
+    mix(hashId(connection.targetBlockId));
+    mix(hashId(connection.targetPortId));
+    // A hand-drawn route is the author's own and is routed around nothing,
+    // but it is still what gets drawn — so it belongs in the signature.
+    const route = connection.route;
+    if (route) {
+      mix(hashId(route.first));
+      for (const coord of route.coords || []) mixNumber(coord);
+    }
+    if (connection.manualBend) {
+      mixNumber(connection.manualBend.x);
+      mixNumber(connection.manualBend.y);
+    }
+  }
+  const frame = boundary?.geometry;
+  if (frame) {
+    mix(hashId(boundary.block?.id));
+    mixNumber(frame.x);
+    mixNumber(frame.y);
+    mixNumber(frame.width);
+    mixNumber(frame.height);
+  }
+  if (wireMoveOverride) {
+    mix(hashId(wireMoveOverride.connectionId));
+    mix(hashId(wireMoveOverride.portId));
+    mix(wireMoveOverride.previewIndex);
+  }
+  if (hidden instanceof Set) {
+    // Order-independent, so the Set's own iteration order cannot matter.
+    let hiddenHash = 0;
+    for (const id of hidden) hiddenHash ^= hashId(id);
+    mix(hiddenHash);
+  } else if (hidden) {
+    mix(hashId(hidden));
+  }
+  return hash >>> 0;
+}
+
+// One entry per level, keyed by the container block the level belongs to —
+// so a diagram with several levels open at once keeps each one's routes.
+// Keyed weakly: a level whose container is gone takes its cache with it.
+const routeCache = new WeakMap();
+// The root level of a Project has no container block to key on.
+const ROOT_KEY = { root: true };
+
 // Computed once per level per frame, independent of draw order — routing
 // (and the hopOver bow every wire needs against every other) is a purely
 // geometric question, unrelated to which of them ends up painted over
@@ -251,6 +364,26 @@ function sharesEndpoint(a, b) {
 // (see BlockRenderer.isPluggedConnection) is never routed: its two blocks
 // meet at the pin, and there is no wire to draw between them.
 export function routeConnections(view, boundary, wireMoveOverride = null, hidden = null) {
+  const key = view.getContainerBlock() || ROOT_KEY;
+  const signature = levelSignature(view, boundary, wireMoveOverride, hidden);
+  const cached = routeCache.get(key);
+  if (cached && cached.signature === signature) return cached.routed;
+
+  // Routing one wire asks about the others, and those questions repeat
+  // enormously — see ConnectionRenderer.beginRoutingPass. The answers hold
+  // for as long as this one pass over the level.
+  beginRoutingPass();
+  let routed;
+  try {
+    routed = routeConnectionsInPass(view, boundary, wireMoveOverride, hidden);
+  } finally {
+    endRoutingPass();
+  }
+  routeCache.set(key, { signature, routed });
+  return routed;
+}
+
+function routeConnectionsInPass(view, boundary, wireMoveOverride, hidden) {
   const routed = [];
   const isHidden = hidden instanceof Set ? (id) => hidden.has(id) : (id) => id === hidden;
   for (const connection of view.listConnections()) {
@@ -329,10 +462,17 @@ function flowDashOffset(view, connection, flowOffset) {
   return SWING_AMPLITUDE * Math.sin((2 * Math.PI * flowOffset) / SWING_PERIOD);
 }
 
-function drawOneConnection(ctx, entry, routed, wireSelection, flowOffset, palette, view) {
-  const hopOver = routed
-    .filter((other) => other !== entry && !sharesEndpoint(other.connection, entry.connection))
-    .flatMap((other) => other.verticals);
+// `hopIndex` is the level's shared index of vertical runs (see
+// ConnectionRenderer.buildHopIndex), built once for the whole level rather
+// than once per wire; `entryIndex` is this wire's position in `routed`,
+// which is what the index's runs are tagged with.
+function drawOneConnection(ctx, entry, entryIndex, routed, hopIndex, wireSelection, flowOffset, palette, view) {
+  // A wire never bows over its own vertical runs, nor over those of a wire
+  // hanging off one of its own pins — two wires meeting at a pin share
+  // their approach to it by nature, and an arc there would read as a kink
+  // rather than as one line crossing another.
+  const hopSkip = (owner) => owner === entryIndex || sharesEndpoint(routed[owner].connection, entry.connection);
+  const hopOver = hopIndex;
 
   // Selection is a halo behind the wire rather than a recolor of it: the
   // main reason to select a pipe is to change its color, and repainting
@@ -341,7 +481,7 @@ function drawOneConnection(ctx, entry, routed, wireSelection, flowOffset, palett
   // makes the dashes read as gaps in a wire rather than as a new shape.
   const selected = wireSelection?.isSelected(entry.connection.id);
   if (selected) {
-    drawPath(ctx, entry.geometry.points, { color: WIRE_SELECTED_HALO, width: 9, hopOver });
+    drawPath(ctx, entry.geometry.points, { color: WIRE_SELECTED_HALO, width: 9, hopOver, hopSkip });
   }
   // Animate takes over the whole wire's dashing while it's running,
   // regardless of the wire's own resting style — the marching dashes
@@ -350,6 +490,7 @@ function drawOneConnection(ctx, entry, routed, wireSelection, flowOffset, palett
     color: wireColorOf(entry.connection),
     width: 3,
     hopOver,
+    hopSkip,
     dash: flowOffset === null ? getDashPattern(entry.connection.dashStyle) : FLOW_DASH,
     dashOffset: flowDashOffset(view, entry.connection, flowOffset),
   });
@@ -433,13 +574,20 @@ export function drawLevel(
   // reorder) — a wire touching it just inherits its one real, ordinary
   // endpoint's z-index outright, and the frame itself keeps drawing before
   // every wire regardless (see below), same as always.
+  // Every wire's vertical runs, indexed once for the whole level — see
+  // ConnectionRenderer.buildHopIndex for why this isn't per wire.
+  const hopIndex = buildHopIndex(routed);
   const blockZIndex = new Map(blocks.map((block, i) => [block.id, i]));
   const zIndexOfEndpoint = (blockId) => blockZIndex.get(blockId) ?? -1;
   const drawItems = [
-    ...routed.map((entry) => ({
+    ...routed.map((entry, entryIndex) => ({
       kind: 'connection',
       z: Math.max(zIndexOfEndpoint(entry.connection.sourceBlockId), zIndexOfEndpoint(entry.connection.targetBlockId)),
       entry,
+      // Position in `routed`, which is what the hop index tags its runs
+      // with — the sort below reorders these items, so it can't be the
+      // loop's own index.
+      entryIndex,
     })),
     ...blocks.map((block, z) => ({ kind: 'block', z, block })),
   ];
@@ -489,7 +637,7 @@ export function drawLevel(
 
   for (const item of drawItems) {
     if (item.kind === 'connection') {
-      drawOneConnection(ctx, item.entry, routed, wireSelection, flowOffset, palette, view);
+      drawOneConnection(ctx, item.entry, item.entryIndex, routed, hopIndex, wireSelection, flowOffset, palette, view);
       continue;
     }
     const block = item.block;
