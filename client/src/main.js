@@ -33,9 +33,9 @@ import { mountOnlineUsers } from './ui/OnlineUsers.js';
 import { showToast } from './ui/Toast.js';
 import { maybeShowOnboarding } from './ui/Onboarding.js';
 import { renderCurrentLevelDataUrl, renderCurrentLevelBlob } from './model/diagramImage.js';
-import { getBoundaryLabelRect, hasSubArchitecture, isOpenableLink } from './render/BlockRenderer.js';
+import { getBoundaryLabelRect, getBlockTitleRect, hasSubArchitecture, isOpenableLink } from './render/BlockRenderer.js';
 import { chainToRoot, childCameraFor, rootCameraFor } from './render/levelTransform.js';
-import { isLevelEditable, isLevelOpen, minEditZoom } from './render/SubPreviewRenderer.js';
+import { isLevelEditable, isLevelOpen, minEditZoom, toggleForcedContent } from './render/SubPreviewRenderer.js';
 import { resolveFocus } from './interaction/LevelFocus.js';
 import { getConnectionGeometry, getConnectionLabelPosition } from './render/ConnectionRenderer.js';
 import { downloadProjectFile, readProjectFile, safeFileStem } from './model/localFile.js';
@@ -229,6 +229,11 @@ async function bootstrap() {
 
   const history = new History({ json: lastSyncedSnapshot, path: [] });
 
+  function refreshSaved() {
+    const pendingHost = Boolean(window.nodigraphHasUnsavedChanges?.());
+    appMenuApi?.refreshSaved(pendingHost ? false : urlSnapshot === null ? null : urlSnapshot === lastSyncedSnapshot);
+  }
+
   function persist() {
     lastSyncedSnapshot = JSON.stringify(project.toJSON());
     // Recorded here because every edit already ends in a persist() — and
@@ -248,7 +253,7 @@ async function bootstrap() {
     // The tab title is what a bookmark gets named, so it has to be the
     // diagram's name rather than the app's.
     document.title = project.name ? `${project.name} · nodigraph` : 'nodigraph';
-    appMenuApi?.refreshSaved(urlSnapshot === null ? null : urlSnapshot === lastSyncedSnapshot);
+    refreshSaved();
     // Peers get the whole tree; applyRemoteProject on the far side drops
     // it if it matches what they already have, so this can't loop.
     broadcastToPeers({ type: 'project', data: JSON.parse(lastSyncedSnapshot) });
@@ -759,7 +764,8 @@ async function bootstrap() {
     const isContainer = container?.id === blockId;
     const worldRect = isContainer
       ? getBoundaryLabelRect(block, container.boundaryGeometry)
-      : block.geometry;
+      : getBlockTitleRect(block, { open: isLevelOpen(block, camera.zoom) });
+    if (!worldRect) return;
 
     const topLeft = camera.worldToScreen(worldRect.x, worldRect.y);
     const canvasRect = canvas.getBoundingClientRect();
@@ -768,6 +774,7 @@ async function bootstrap() {
       y: canvasRect.top + topLeft.y,
       width: worldRect.width * camera.zoom,
       height: worldRect.height * camera.zoom,
+      fontSize: (worldRect.fontSize || 13) * camera.zoom,
     });
   }
 
@@ -899,7 +906,7 @@ async function bootstrap() {
     }
     window.history.replaceState(null, '', url);
     urlSnapshot = lastSyncedSnapshot;
-    appMenuApi?.refreshSaved(true);
+    refreshSaved();
     return { ok: true, length: url.length };
   }
 
@@ -1434,6 +1441,17 @@ async function bootstrap() {
     requestRender: () => renderLoop.requestRender(),
     persist,
     onEnterBlock: enterBlock,
+    onToggleContent: (blockId) => {
+      const block = project.getBlock(blockId);
+      if (!block || !toggleForcedContent(block)) return;
+      const depth = project.path.indexOf(blockId);
+      if (depth !== -1) {
+        const pathBlocks = project.getPathBlocks();
+        focusLevel(project.path.slice(0, depth), rootCameraFor(camera, chainToRoot(pathBlocks.slice(depth))));
+      }
+      persist();
+      renderLoop.requestRender();
+    },
     onRequestRename: openRename,
     onRequestWireLabel: openWireLabelRename,
     onLiveUpdate: (message) => {
@@ -1592,8 +1610,14 @@ async function bootstrap() {
   // nothing yet), so firing this from there risks a false positive; a host
   // with nothing to do here just never sets the hook.
   async function handleSaveToUrlThenNotify() {
+    try {
+      await window.nodigraphBeforeSave?.();
+    } catch (err) {
+      refreshSaved();
+      return { ok: false, error: err.message };
+    }
     const result = await handleSaveToUrl();
-    if (result.ok) window.nodigraphAfterSave?.();
+    if (result.ok) await window.nodigraphAfterSave?.();
     return result;
   }
   appMenuApi = mountAppMenu(appMenuEl, {
@@ -1791,6 +1815,7 @@ async function bootstrap() {
   // existing instance in place instead, see applyRemoteRootBlock), so this
   // reference stays valid for the lifetime of the page.
   window.nodigraph = {
+    refreshSaved,
     project,
     camera,
     selection,

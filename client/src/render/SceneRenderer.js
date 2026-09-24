@@ -84,17 +84,26 @@ function drawMarquee(ctx, rect, zoom) {
 // One combined lookup so drawBlock/drawBoundary don't each need to know
 // about selection vs. in-progress-wire state separately — every port ring
 // this frame, keyed by "blockId:portId".
-function buildPortHighlights(selectedBlockId, selectedPortId, connectionSource, connectionTarget) {
+export function buildPortHighlights(project, selectedBlockId, selectedPortId, connectionSource, connectionTarget) {
   const highlights = new Map();
+  const addLogicalGroup = (blockId, portId, color) => {
+    if (!blockId || !portId) return;
+    const block = project.getBlock(blockId);
+    const ids = block ? project.boundaryPortGroup(block, portId) : [portId];
+    for (const id of ids) highlights.set(`${blockId}:${id}`, color);
+  };
   if (selectedBlockId && selectedPortId) {
-    highlights.set(`${selectedBlockId}:${selectedPortId}`, PORT_SELECTED_RING_COLOR);
+    // A container may expose several exterior pins for one logical port.
+    // Its interior collapses those pins to the first representative, so a
+    // selection on any exterior clone must light that representative too.
+    addLogicalGroup(selectedBlockId, selectedPortId, PORT_SELECTED_RING_COLOR);
   }
   if (connectionSource) {
-    highlights.set(`${connectionSource.blockId}:${connectionSource.portId}`, PORT_SOURCE_RING_COLOR);
+    addLogicalGroup(connectionSource.blockId, connectionSource.portId, PORT_SOURCE_RING_COLOR);
   }
   if (connectionTarget) {
     const color = connectionTarget.valid ? PORT_TARGET_VALID_RING_COLOR : PORT_TARGET_INVALID_RING_COLOR;
-    highlights.set(`${connectionTarget.blockId}:${connectionTarget.portId}`, color);
+    addLogicalGroup(connectionTarget.blockId, connectionTarget.portId, color);
   }
   return highlights;
 }
@@ -221,7 +230,7 @@ export function renderScene(
   const boundary = containerBlock?.boundaryGeometry
     ? { block: containerBlock, geometry: containerBlock.boundaryGeometry }
     : null;
-  const portHighlights = buildPortHighlights(selectedBlockId, selectedPortId, connectionSource, connectionTarget);
+  const portHighlights = buildPortHighlights(project, selectedBlockId, selectedPortId, connectionSource, connectionTarget);
   const hidden = new Set(hiddenConnectionIds);
   if (hiddenConnectionId) hidden.add(hiddenConnectionId);
 

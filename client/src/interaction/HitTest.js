@@ -8,6 +8,7 @@ import {
   asBoundaryView,
   getResizeHandleRects,
   getBoundaryLabelRect,
+  getBlockTitleRect,
   getPortSlotRect,
   getPortResizeHandleRects,
   getSlotRectFromBorderPoint,
@@ -19,6 +20,7 @@ import {
   isPluggedConnection,
 } from '../render/BlockRenderer.js';
 import { isPortHidden } from '../model/BlockDescription.js';
+import { isLevelOpen } from '../render/SubPreviewRenderer.js';
 
 // Handles are visually tiny, so their hit area is padded beyond what's drawn —
 // a standard diagramming-tool trick, independent of render technology. Both
@@ -420,7 +422,8 @@ export function hitTest(project, worldX, worldY, boundary, resizableBlockId, res
       if (isOpenableLink(block.link) && pointInRect(worldX, worldY, getLinkGlyphRect(block.geometry, zoom), 2 / zoom)) {
         return { type: 'link', blockId: block.id };
       }
-      return { type: 'body', blockId: block.id };
+      const title = getBlockTitleRect(block, { open: isLevelOpen(block, zoom) });
+      return { type: 'body', blockId: block.id, title: Boolean(title && pointInRect(worldX, worldY, title)) };
     }
   }
 

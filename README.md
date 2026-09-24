@@ -126,7 +126,9 @@ own client architecture, drawn and kept up to date this way.
   without joining bow over each other, so a crossing never reads as a
   connection.
 - **Labelled, styled pipes** — double-click a wire to name it, in place,
-  the same way double-clicking a block renames it. A selected wire (or
+  the same way clicking a block's title renames it. Double-clicking the
+  block body toggles forced content visibility at any zoom; toggling it off
+  restores automatic visibility. A selected wire (or
   block) opens in the Inspector too, where its label, colour, and line
   style (solid, dashed, dotted) are all editable fields.
 - **Block pictures** — a block's name doubles as an image URL: point it at
@@ -309,4 +311,3 @@ modified or embedded version as a closed-source, proprietary service
 without that source-sharing obligation — the same dual-licensing model
 used by projects like MongoDB and Qt. There's no self-serve process for
 this yet; open an issue or otherwise get in touch to ask about one.
-

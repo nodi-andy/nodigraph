@@ -1009,7 +1009,7 @@ function socketFillPath(ctx, s) {
   ctx.closePath();
 }
 
-function drawPinPlug(ctx, p, side, inverted, shape, color, hover = false) {
+function drawPinPlug(ctx, p, side, inverted, shape, color, hover = false, showGrip = true) {
   const w = inverted ? -1 : 1;
   const intoPin = (shape === 'in' && !inverted) || (shape === 'out' && inverted);
   const gripFrom = intoPin ? GRIP_GAP : GRIP_FROM;
@@ -1023,6 +1023,14 @@ function drawPinPlug(ctx, p, side, inverted, shape, color, hover = false) {
       // attaches (CONNECTOR_NUB_LENGTH), so the line runs unbroken.
       const x0 = Math.min(0, w * CONNECTOR_NUB_LENGTH);
       ctx.fillRect(x0, -PLUG_STEM_HALF, CONNECTOR_NUB_LENGTH, 2 * PLUG_STEM_HALF);
+    }
+    if (!showGrip) {
+      // Boundary outputs already have a visible socket and wire. Drawing the
+      // ordinary detachable-wire grip here made that one DI look like two
+      // adjacent slots. Join the wire directly to the socket instead.
+      const x0 = Math.min(0, w * CONNECTOR_NUB_LENGTH);
+      ctx.fillRect(x0, -PLUG_STEM_HALF, CONNECTOR_NUB_LENGTH, 2 * PLUG_STEM_HALF);
+      return;
     }
     ctx.beginPath();
     gripPath(ctx, w, gripFrom);
@@ -1106,7 +1114,7 @@ export function getPlugRect(pos, side, inverted = false) {
 function drawPin(ctx, pos, side, inverted, shape, { stroke, fill, lineWidth, wireColor = null, hover = null, connected = false, shade = null }) {
   if (inverted || shape === 'both') drawSocket(ctx, pos, side, shape, stroke, fill, lineWidth);
   if (connected && shape === 'out' && !inverted && shade) shadeTab(ctx, pos, side, stroke, shade, lineWidth);
-  if (wireColor) drawPinPlug(ctx, pos, side, inverted, shape, wireColor);
+  if (wireColor) drawPinPlug(ctx, pos, side, inverted, shape, wireColor, false, !(inverted && shape === 'in'));
   if (hover === 'slot') drawSocket(ctx, pos, side, shape, SOCKET_HOVER_COLOR, null, SOCKET_HOVER_WIDTH, true);
   if (hover === 'plug') drawPinPlug(ctx, pos, side, inverted, shape, PLUG_HOVER_FILL, true);
 }
@@ -1336,7 +1344,10 @@ function drawPorts(
     const effectiveSide = inverted ? getPortBoundaryPlacement(port, block).side : port.side;
     const shape = pinShapeOf(portDirection);
     const hover = hoverHere && hoverHere.portId === port.id ? hoverHere : null;
-    const pinStyle = { stroke: socketStroke, fill: socketFill, lineWidth: socketWidth, shade: palette.connectedTabShade };
+    const liveColor = typeof window !== 'undefined' ? window.nodigraphPortColor?.(block, port) : null;
+    const liveValue = typeof window !== 'undefined' ? window.nodigraphPortValue?.(block, port) : undefined;
+    const displayedPortName = liveValue === undefined || liveValue === null ? portName : `${portName} ${liveValue ? 1 : 0}`;
+    const pinStyle = { stroke: liveColor || socketStroke, fill: liveColor || socketFill, lineWidth: socketWidth, shade: liveColor || palette.connectedTabShade };
 
     // A widened (or already multi-wire) boundary port reads as one visible
     // group — a light, *always-shown* outline (not gated on selection, so
@@ -1357,7 +1368,7 @@ function drawPorts(
         drawPortResizeHandles(ctx, getPortResizeHandleRects(block, port, rectCount), palette);
       }
       const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-      drawPortLabel(ctx, { name: portName, side: effectiveSide }, center, inverted, palette, zoom);
+      drawPortLabel(ctx, { name: displayedPortName, side: effectiveSide }, center, inverted, palette, zoom);
 
       wireEntries.forEach((entry, index) => {
         const isMoving = wireMoveOverride && wireMoveOverride.portId === port.id && wireMoveOverride.connectionId === entry.id;
@@ -1383,7 +1394,7 @@ function drawPorts(
     // one dot, the port's own name shown right there, same as it always
     // has been.
     const { x: px, y: py } = inverted ? getBoundaryWirePosition(block, port, 0) : getPortPosition(block, port);
-    const wireColor = inverted ? wireEntries[0]?.color || null : pinWires?.get(port.id) || null;
+    const wireColor = liveColor || (inverted ? wireEntries[0]?.color || null : pinWires?.get(port.id) || null);
     const connected = !inverted && Boolean(pinWires?.has(port.id));
     drawPin(ctx, { x: px, y: py }, effectiveSide, inverted, shape, { ...pinStyle, wireColor, connected, hover: hover ? hover.part : null });
     const ringColor = portHighlights?.get(`${block.id}:${port.id}`);
@@ -1396,7 +1407,7 @@ function drawPorts(
     if (inverted && ringColor === PORT_SELECTED_RING_COLOR) {
       drawPortResizeHandles(ctx, getPortResizeHandleRects(block, port, rectCount), palette);
     }
-    drawPortLabel(ctx, { name: portName, side: effectiveSide }, { x: px, y: py }, inverted, palette, zoom, labelsOutside);
+    drawPortLabel(ctx, { name: displayedPortName, side: effectiveSide }, { x: px, y: py }, inverted, palette, zoom, labelsOutside);
   }
 }
 
@@ -1471,6 +1482,27 @@ export function blockTextRows(block) {
   if (subtitle) rows.push({ role: 'subtitle', text: subtitle, font: `${fontStyle}${subtitleSize}px ${fontFamily}`, height: subtitleSize * 1.3, alpha: SUBTITLE_ALPHA });
   for (const line of lines) rows.push({ role: 'line', text: line, font: `${lineSize}px ${getFontFamily('mono')}`, height: lineSize * 1.4, alpha: LINE_ALPHA });
   return rows;
+}
+
+// Shared by title hit-testing and the inline editor. Match both the closed
+// text stack and the smaller heading drawn above an open interior.
+export function getBlockTitleRect(block, { open = false } = {}) {
+  const rows = blockTextRows(block);
+  const title = rows.find(row => row.role === 'title');
+  if (!title || isImageUrl(title.text)) return null;
+  const g = block.geometry;
+  const style = block.style || {};
+  const scale = open && block.boundaryGeometry ? frameToFace(g, block.boundaryGeometry).scale : 1;
+  const align = TITLE_ALIGNMENTS.includes(style.titleAlign) ? style.titleAlign : 'center';
+  const total = rows.reduce((sum, row) => sum + row.height, 0);
+  const pos = TITLE_POSITIONS.includes(style.titlePos) ? style.titlePos : rows.length > 1 ? 'top' : 'center';
+  const y = open || pos === 'top' ? g.y + TEXT_PAD_Y * scale
+    : pos === 'bottom' ? g.y + g.height - TEXT_PAD_Y - total : g.y + (g.height - total) / 2;
+  const available = Math.max(1, g.width - 2 * TEXT_PAD_X * scale);
+  const width = Math.min(available, measureText(title.text, title.font) * scale + 8 * scale);
+  const x = align === 'left' ? g.x + TEXT_PAD_X * scale
+    : align === 'right' ? g.x + g.width - TEXT_PAD_X * scale - width : g.x + (g.width - width) / 2;
+  return { x, y, width, height: Math.min(title.height * scale, g.height), fontSize: (style.fontSize || 13) * scale };
 }
 
 function drawBlockText(ctx, block, { x, y, width, height, textColor, requestRender }) {
@@ -1549,24 +1581,27 @@ export function drawOpenHeader(ctx, block, { alpha = 1, palette = DEFAULT_PALETT
   // are laid out in.
   const faceWidth = width / layout.scale;
   const bandHeight = rows.reduce((sum, row) => sum + row.height, 0) + TEXT_PAD_Y * 2;
+  const textWidth = Math.max(...rows.map((row) => measureText(row.text, row.font)));
+  const bandWidth = Math.min(faceWidth, textWidth + TEXT_PAD_X * 2);
+  const bandX = titleAlign === 'left' ? 0 : titleAlign === 'right' ? faceWidth - bandWidth : (faceWidth - bandWidth) / 2;
   const baseAlpha = ctx.globalAlpha;
 
   ctx.globalAlpha = baseAlpha * HEADER_SCRIM_ALPHA;
   ctx.fillStyle = scrimColor;
-  ctx.fillRect(0, 0, faceWidth, bandHeight);
+  ctx.fillRect(bandX, 0, bandWidth, bandHeight);
   ctx.globalAlpha = baseAlpha;
   ctx.fillStyle = palette.emptySlotStroke;
-  ctx.fillRect(0, bandHeight - HEADER_RULE_WIDTH, faceWidth, HEADER_RULE_WIDTH);
+  ctx.fillRect(bandX, bandHeight - HEADER_RULE_WIDTH, bandWidth, HEADER_RULE_WIDTH);
 
   ctx.fillStyle = textColor;
   ctx.textAlign = titleAlign;
   ctx.textBaseline = 'middle';
-  const tx = titleAlign === 'left' ? TEXT_PAD_X : titleAlign === 'right' ? faceWidth - TEXT_PAD_X : faceWidth / 2;
+  const tx = titleAlign === 'left' ? bandX + TEXT_PAD_X : titleAlign === 'right' ? bandX + bandWidth - TEXT_PAD_X : bandX + bandWidth / 2;
   let cursor = TEXT_PAD_Y;
   for (const row of rows) {
     ctx.font = row.font;
     ctx.globalAlpha = baseAlpha * row.alpha;
-    ctx.fillText(row.text, tx, cursor + row.height / 2, faceWidth - TEXT_PAD_X * 2);
+    ctx.fillText(row.text, tx, cursor + row.height / 2, bandWidth - TEXT_PAD_X * 2);
     cursor += row.height;
   }
   ctx.restore();

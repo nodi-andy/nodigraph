@@ -560,7 +560,7 @@ html, body {
   position: fixed;
   z-index: 30;
   box-sizing: border-box;
-  padding: 2px 6px;
+  padding: 0 2px;
   background: var(--bg-well);
   border: 1px solid var(--accent);
   border-radius: 4px;
@@ -1628,4 +1628,3 @@ body.inspector-open .control-bar {
   max-width: 100%;
   max-height: 220px;
 }
-

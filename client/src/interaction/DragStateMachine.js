@@ -167,7 +167,8 @@ function invertDirection(direction) {
  * a wire" vs "drag a piece of a wire" vs "pan background" unambiguous.
  */
 export class DragStateMachine {
-  constructor({ camera, project, selection, wireSelection, requestRender, persist, onEnterBlock, onRequestRename, onRequestWireLabel, onLiveUpdate, onZoomChanged, onResolveFocus, onOpenLink }) {
+  constructor({ camera, project, selection, wireSelection, requestRender, persist, onEnterBlock, onToggleContent, onRequestRename, onRequestWireLabel, onLiveUpdate, onZoomChanged, onResolveFocus, onOpenLink }) {
+    this.onToggleContent = onToggleContent;
     this.camera = camera;
     this.project = project;
     this.selection = selection;
@@ -175,11 +176,8 @@ export class DragStateMachine {
     this.requestRender = requestRender;
     this.persist = persist;
     this.onEnterBlock = onEnterBlock;
-    // Opens an inline name editor over a block (see main.js). Clicking an
-    // already-selected block renames it, but that click is also the first
-    // half of a potential double-click (which enters the block instead) —
-    // so it's deferred by RENAME_CLICK_DELAY_MS and cancelled if a second
-    // click lands first.
+    // Only the title starts an inline rename. Defer until the double-click
+    // window passes so an HTML input cannot swallow the second click.
     this.onRequestRename = onRequestRename;
     this.renameTimer = null;
     // A tapped grip splits its piece only once the double-click window has
@@ -604,15 +602,6 @@ export class DragStateMachine {
         return;
       }
 
-      // Captured before select() so onPointerUp can tell "clicked a block
-      // that was already selected" (rename) from "clicked to select it"
-      // (just select). Only a lone selected block renames — with several
-      // selected, a click is far more likely to be repositioning them.
-      const wasSelected =
-        this.selection.selectedBlockId === block.id
-        && this.selection.count === 1
-        && !this.selection.selectedPortId;
-
       // Grabbing a block that's part of a multi-selection drags the whole
       // group; grabbing anything else selects just it first.
       if (!this.selection.isSelected(block.id)) this.selection.select(block.id);
@@ -636,7 +625,7 @@ export class DragStateMachine {
           .listConnections()
           .filter((connection) => isPluggedConnection(this.project, connection))
           .map((connection) => connection.id),
-        wasSelected,
+        clickedTitle: hit.title,
         moved: false,
       };
       this.requestRender();
@@ -1787,11 +1776,9 @@ export class DragStateMachine {
       this.state === STATES.DRAGGING_BLOCK ||
       this.state === STATES.DRAGGING_PORT
     ) {
-      // A click (not a drag) on a block that was already selected opens
-      // its name editor — deferred, since this same click could turn out
-      // to be the first half of a double-click that enters the block.
+      // A title click opens the editor; dragging the title only moves it.
       if (this.state === STATES.DRAGGING_BLOCK && this.context.moved) this.resolvePlugsAfterDrag();
-      if (this.state === STATES.DRAGGING_BLOCK && this.context.wasSelected && !this.context.moved) {
+      if (this.state === STATES.DRAGGING_BLOCK && this.context.clickedTitle && !this.context.moved) {
         const blockId = this.context.blockId;
         clearTimeout(this.renameTimer);
         this.renameTimer = setTimeout(() => {
@@ -2144,8 +2131,7 @@ export class DragStateMachine {
     return previewPathToCursor(sourcePos, side, currentWorld, sourceInverted);
   }
 
-  // Double-clicking a block's body drills into it — and cancels the rename
-  // the first of those two clicks had queued up.
+  // Title double-clicks rename; body double-clicks toggle the interior.
   onDoubleClick(world, screen = null) {
     clearTimeout(this.renameTimer);
     this.renameTimer = null;
@@ -2158,21 +2144,34 @@ export class DragStateMachine {
     const hit = hitTest(this.project, world.x, world.y, null, null, null, this.camera.zoom);
     if (hit?.type === 'body' || hit?.type === 'link') {
       const block = this.project.getBlock(hit.blockId);
+      if (hit.title) {
+        this.onRequestRename?.(hit.blockId);
+        return;
+      }
       // An artifact block opens what it points at; one that also has an
       // interior of its own is entered like any other container, its
       // corner glyph being the way to its link.
-      if (block && isOpenableLink(block.link) && (hit.type === 'link' || !hasSubArchitecture(block))) {
+      if (block && isOpenableLink(block.link) && hit.type === 'link') {
         this.onOpenLink?.(block);
         return;
       }
-      this.onEnterBlock?.(hit.blockId);
+      this.onToggleContent?.(hit.blockId);
       return;
     }
     // Anywhere along a wire, not only its draggable pieces — same reach as
     // clicking to select it (see hitTestWires), so there's no dead length
     // of wire double-clicking does nothing on.
     const wireHit = this.hitTestWires(world.x, world.y, this.getBoundaryInfo());
-    if (wireHit) this.onRequestWireLabel?.(wireHit.connectionId);
+    if (wireHit) {
+      this.onRequestWireLabel?.(wireHit.connectionId);
+      return;
+    }
+    // Empty space inside the current container belongs to that container.
+    const boundary = this.getBoundaryInfo();
+    const g = boundary?.geometry;
+    if (g && world.x >= g.x && world.x <= g.x + g.width && world.y >= g.y && world.y <= g.y + g.height) {
+      this.onToggleContent?.(boundary.block.id);
+    }
   }
 
   // Ctrl held turns the wheel from "zoom the canvas" into "give the block

@@ -59,8 +59,9 @@ export function createNameEditor({ onCommit, allowEmpty = false }) {
       input.hidden = false;
       input.style.left = `${rect.x}px`;
       input.style.top = `${rect.y}px`;
-      input.style.width = `${Math.max(80, rect.width)}px`;
-      input.style.height = `${Math.max(24, rect.height)}px`;
+      input.style.width = `${Math.max(1, rect.width)}px`;
+      input.style.height = `${Math.max(1, rect.height)}px`;
+      input.style.fontSize = `${rect.fontSize || Math.min(14, rect.height * 0.7)}px`;
       input.focus();
       input.select();
     },

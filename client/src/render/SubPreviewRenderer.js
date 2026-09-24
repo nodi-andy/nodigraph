@@ -185,7 +185,15 @@ function now() {
 // the level `block` sits in).
 export function isLevelOpen(block, zoom) {
   if (block.kind === 'text' || !hasSubArchitecture(block) || !block.boundaryGeometry) return false;
+  if (block.style?.forceShowContent) return true;
   return zoom * frameToFace(block.geometry, block.boundaryGeometry).scale >= openZoom();
+}
+
+export function toggleForcedContent(block) {
+  if (block.kind === 'text' || !hasSubArchitecture(block)) return false;
+  block.boundaryGeometry ||= defaultBoundaryFor(block.geometry);
+  block.style = { ...block.style, forceShowContent: !block.style?.forceShowContent };
+  return true;
 }
 
 // Kept for callers that only need the target state: 1 when the level is

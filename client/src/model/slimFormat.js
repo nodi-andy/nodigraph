@@ -177,6 +177,7 @@ function blockToSlim(block) {
   if (block.style?.italic) slim.italic = true;
   if (block.style?.titlePos) slim.title_pos = block.style.titlePos;
   if (block.style?.titleAlign) slim.title_align = block.style.titleAlign;
+  if (block.style?.forceShowContent) slim.force_show_content = true;
 
   const { portsSlim, pinKeys } = computePortsSlim(block);
   if (Object.keys(portsSlim).length) slim.ports = portsSlim;
@@ -335,6 +336,7 @@ function slimBlockToData(slimBlock) {
       ...(slimBlock.italic ? { italic: true } : {}),
       ...(TITLE_POSITIONS.includes(slimBlock.title_pos) ? { titlePos: slimBlock.title_pos } : {}),
       ...(TITLE_ALIGNMENTS.includes(slimBlock.title_align) ? { titleAlign: slimBlock.title_align } : {}),
+      ...(slimBlock.force_show_content === true ? { forceShowContent: true } : {}),
     },
     ...(typeof slimBlock.subtitle === 'string' && slimBlock.subtitle !== '' ? { subtitle: slimBlock.subtitle } : {}),
     ...(normalizeLines(slimBlock.lines) ? { lines: normalizeLines(slimBlock.lines) } : {}),
