@@ -5,7 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>nodigraph</title>
   <link rel="icon" type="image/svg+xml" href="icon.svg" />
-  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="apple-touch-icon" href="icons/apple-icon-180.png" />
+  <!-- Installable-app metadata (see manifest.webmanifest, sw.js and
+       src/pwa.js): lets browsers offer "Install nodigraph" and is what the
+       Microsoft Store packaging (PWABuilder) reads. -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#247e91" />
+  <meta name="description" content="Recursive system-architecture diagrams: blocks with ports, wires, drill-down. The whole diagram lives in the link." />
   <!-- The small curated font choices a block's label can use (see
        render/fonts.js) — loaded here rather than only referenced in CSS so
        the browser has actually fetched them once canvas text (which can't

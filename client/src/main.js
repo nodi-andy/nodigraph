@@ -53,6 +53,7 @@ import { serializeSelection, pasteSelection, isClipboardPayload } from './model/
 import { History } from './model/History.js';
 import { createPeerSession } from './model/peerSession.js';
 import { logBuildVersion } from './version.js';
+import { registerServiceWorker, consumeLaunchFiles } from './pwa.js';
 
 const canvas = document.getElementById('scene-canvas');
 const ctx = canvas.getContext('2d');
@@ -1840,6 +1841,12 @@ async function bootstrap() {
   logBuildVersion().then((info) => {
     if (info) window.nodigraph.version = info;
   });
+
+  // Installed-app plumbing (src/pwa.js): offline shell, and a .yaml/.json
+  // double-clicked onto the installed app lands in the same handler as the
+  // Import menu item.
+  registerServiceWorker();
+  consumeLaunchFiles(handleOpenFile);
 
   // joinId/isLiveGuest were resolved back at the top of bootstrap(), before
   // `project` was chosen. There's nothing on screen yet worth keeping if

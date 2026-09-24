@@ -84,6 +84,12 @@ const MIME_TYPES = {
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  // Installable-app files (client/manifest.webmanifest, client/sw.js is
+  // plain .js). Browsers refuse a manifest served as octet-stream.
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
+  '.yaml': 'text/yaml; charset=utf-8',
+  '.yml': 'text/yaml; charset=utf-8',
+  '.ico': 'image/x-icon',
   // Every extension the block-text-as-image feature accepts (see
   // client/src/render/imageCache.js) needs a real image Content-Type here
   // — browsers won't render an <img> (or a `new Image()`) from a response
