@@ -351,7 +351,8 @@ export class DragStateMachine {
     // those, the same way a selected block's resize handles win over what's
     // underneath them. Ports and handles still come first: a grip that
     // happens to land on one never takes it away.
-    if (!hit || hit.type === 'body' || hit.type === 'boundaryLine') {
+    // Ctrl skips them: its gesture is a new wire from the port underneath.
+    if (!modifiers.ctrlKey && (!hit || hit.type === 'body' || hit.type === 'boundaryLine')) {
       const grip = this.hitTestWireGrips(world, modifiers.pointerType);
       if (grip && this.startWirePieceDrag(grip.connectionId, grip.index, screen, world, { fromGrip: true, pointerType: modifiers.pointerType })) {
         this.requestRender();
@@ -445,6 +446,13 @@ export class DragStateMachine {
 
     if (hit?.type === 'connector') {
       const isBoundary = Boolean(boundary) && hit.blockId === boundary.block.id;
+      // Ctrl leaves the wire already plugged in here alone and draws a new
+      // one from the same port — otherwise that wire's head covers the port
+      // and there is no gesture that adds a second wire.
+      if (modifiers.ctrlKey) {
+        this.startNewWireFrom(hit.blockId, hit.portId, isBoundary, world);
+        return;
+      }
       // Grabbing a wire head always means "move this wire," in every
       // direction. A plain single-wire boundary port used to instead wait
       // and read the drag's own direction — away from the border redirected
@@ -517,6 +525,11 @@ export class DragStateMachine {
       // drag's own thing). The clone starts a wire draw exactly like any
       // other port's own body drag does now (see below) — dragging FROM a
       // port, cloned or not, always means "wire this up," never "move it."
+      if (modifiers.ctrlKey) {
+        this.startNewWireFrom(block.id, hit.portId, isBoundary, world);
+        return;
+      }
+
       if (modifiers.altKey && !isBoundary) {
         const sourcePort = block.ports.find((p) => p.id === hit.portId);
         const sideLength = sideAxis(sourcePort.side) === 'x' ? block.geometry.height : block.geometry.width;
@@ -647,6 +660,16 @@ export class DragStateMachine {
     }
 
     const wireHit = this.hitTestWires(world.x, world.y, boundary);
+    if (wireHit?.stubEnd && modifiers.ctrlKey && !modifiers.shiftKey) {
+      const connection = this.project.getConnection(wireHit.connectionId);
+      if (connection) {
+        const end = wireHit.stubEnd === 'source'
+          ? { blockId: connection.sourceBlockId, portId: connection.sourcePortId }
+          : { blockId: connection.targetBlockId, portId: connection.targetPortId };
+        this.startNewWireFrom(end.blockId, end.portId, Boolean(boundary) && end.blockId === boundary.block.id, world);
+        return;
+      }
+    }
     if (wireHit) {
       const wireVerb = selectionVerb(modifiers);
       if (wireVerb !== 'replace') {
@@ -864,6 +887,22 @@ export class DragStateMachine {
   // "drag every selected trunk together" this has always done. A pinned
   // end run (reachable only by its grip) acts on its own wire alone.
   // Returns false, changing nothing, if the piece doesn't resolve.
+  // Ctrl+mouse-down on a port, its connector or a wire's stub: a fresh wire
+  // from that port, never a pick-up of the one already there.
+  startNewWireFrom(blockId, portId, isBoundary, world) {
+    this.wireSelection.clear();
+    this.state = STATES.DRAWING_CONNECTION;
+    this.context = {
+      sourceBlockId: blockId,
+      sourcePortId: portId,
+      sourceInverted: isBoundary,
+      currentWorld: world,
+      moved: false,
+      redirectingConnectionId: null,
+    };
+    this.requestRender();
+  }
+
   startWirePieceDrag(connectionId, index, screen, world, { fromGrip = false, pointerType } = {}) {
     const boundary = this.getBoundaryInfo();
     const primary = this.pieceDragItem(connectionId, index, boundary);
