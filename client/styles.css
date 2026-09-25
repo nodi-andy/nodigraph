@@ -494,7 +494,7 @@ html, body {
   transform: rotate(90deg);
 }
 
-/* Shared by every expandable row (Settings, Export — see AppMenu.js's
+/* Shared by every expandable row (Settings, GitHub — see AppMenu.js's
    expandable()), which each toggle via the plain `hidden` attribute. The
    `display: flex` below is what actually needs overriding while hidden:
    same specificity as the bare class rule, so without this the browser's
@@ -1691,4 +1691,72 @@ body.inspector-open .control-bar {
 .share-preview img {
   max-width: 100%;
   max-height: 220px;
+}
+
+/* --- Export dialog ------------------------------------------------- */
+
+/* The menu's "Export <name>" row: a long block name trims rather than
+   wrapping the drawer row onto two lines. */
+.app-menu-export-target {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* One format per row: what it is on the left, Download and a copy icon
+   on the right (see ui/ExportDialog.js). */
+.export-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.export-row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.export-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.export-row-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.export-row-hint {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-faint);
+}
+
+.export-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  padding: 7px 0;
+}
+
+.export-copy.export-copy-failed {
+  color: var(--warning);
+}
+
+@media (max-width: 480px) {
+  .export-row {
+    flex-wrap: wrap;
+  }
+
+  .export-row-text {
+    flex-basis: 100%;
+  }
 }

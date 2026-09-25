@@ -34,10 +34,7 @@ export function mountAppMenu(
     onOpen,
     onImport,
     onSaveLocal,
-    onExportFile,
-    onCopyAs,
-    onExportSvg,
-    onExportGoogleDocs,
+    onExport,
     onOpenFromGitHub,
     onSaveToGitHub,
     onAnimate,
@@ -150,16 +147,16 @@ export function mountAppMenu(
 
   item('open', 'Import', () => fileInput.click());
 
-  const exportBody = expandable('export', 'Export');
-  subItem(exportBody, 'JSON', () => onExportFile('json'));
-  subItem(exportBody, 'YAML', () => onExportFile('yaml'));
-  subItem(exportBody, 'SVG', () => onExportSvg());
-  subItem(exportBody, 'Google Docs', () => onExportGoogleDocs());
-  // The same texts, straight onto the clipboard instead of a download —
-  // pasting into a chat/doc/AI prompt doesn't need a file on disk first.
-  subItem(exportBody, 'JSON to clipboard', () => onCopyAs('json'));
-  subItem(exportBody, 'YAML to clipboard', () => onCopyAs('yaml'));
-  subItem(exportBody, 'SVG to clipboard', () => onCopyAs('svg'));
+  // Two plain rows, no submenu: the selected block, and the whole diagram.
+  // Each opens the export dialog (ui/ExportDialog.js), where the format
+  // (JSON, YAML, SVG, Google Docs) and download-or-copy are chosen. The
+  // block row only exists while a block is selected — its label carries
+  // the block's name (see refreshExportTarget), so an empty one would say
+  // nothing.
+  const exportSelectedButton = item('export', 'Export', () => onExport('selected'));
+  exportSelectedButton.hidden = true;
+  exportSelectedButton.querySelector('span').classList.add('app-menu-export-target');
+  item('export', 'Export all', () => onExport('all'));
 
   divider();
 
@@ -238,6 +235,13 @@ export function mountAppMenu(
 
     refreshLevelOpenZoom(value) {
       openSelect.value = String(value);
+    },
+
+    // The block row's label follows the selection: "Export <name>", or no
+    // row at all while nothing is selected.
+    refreshExportTarget(name) {
+      exportSelectedButton.hidden = !name;
+      if (name) exportSelectedButton.querySelector('span').textContent = `Export ${name}`;
     },
 
     // Ctrl/Cmd+S routes through the button rather than duplicating its

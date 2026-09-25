@@ -2323,6 +2323,13 @@ export class DragStateMachine {
   scaleInteriorAt(world, factor) {
     const block = this.containerAt(world);
     if (block) {
+      // The wheel says nothing about which block it landed on, so the
+      // block being scaled becomes the selection — its handles and the
+      // Inspector then say what is changing, and nothing else stays
+      // highlighted to compete with it. A plain wheel (camera zoom)
+      // leaves the selection alone.
+      this.wireSelection.clear();
+      this.selection.select(block.id);
       const g = block.geometry;
       const frame = block.boundaryGeometry || defaultBoundaryFor(g);
       const next = frameAtFactor(g, frame, frameFactorOf(g, frame) / factor);

@@ -27,21 +27,21 @@ import { mountAppMenu } from './ui/AppMenu.js';
 import { mountTopbarMenu } from './ui/TopbarMenu.js';
 import { createNameEditor } from './ui/NameEditor.js';
 import { createShareLinkDialog } from './ui/ShareLinkDialog.js';
-import { createGoogleDocsExportDialog } from './ui/GoogleDocsExportDialog.js';
+import { createExportDialog } from './ui/ExportDialog.js';
+import { exportTargetFor } from './model/exportTarget.js';
 import { createLiveSessionDialog } from './ui/LiveSessionDialog.js';
 import { mountSelectionFabs } from './ui/SelectionFabs.js';
 import { mountOnlineUsers } from './ui/OnlineUsers.js';
 import { showToast } from './ui/Toast.js';
 import { maybeShowOnboarding } from './ui/Onboarding.js';
-import { renderCurrentLevelDataUrl, renderCurrentLevelBlob } from './model/diagramImage.js';
 import { getBoundaryLabelRect, getBlockTitleRect, hasSubArchitecture, isOpenableLink } from './render/BlockRenderer.js';
 import { chainToRoot, childCameraFor, rootCameraFor } from './render/levelTransform.js';
 import { isLevelEditable, isLevelOpen, minEditZoom, toggleForcedContent } from './render/SubPreviewRenderer.js';
 import { resolveFocus } from './interaction/LevelFocus.js';
 import { getConnectionGeometry, getConnectionLabelPosition } from './render/ConnectionRenderer.js';
-import { downloadProjectFile, readProjectFile, safeFileStem } from './model/localFile.js';
-import { projectDataToYamlText, pasteSlimYamlText } from './model/slimFormat.js';
-import { downloadCurrentLevelSvg, renderCurrentLevelSvgBlob, renderCurrentLevelSvgString } from './model/diagramSvg.js';
+import { readProjectFile } from './model/localFile.js';
+import { pasteSlimYamlText } from './model/slimFormat.js';
+import { renderCurrentLevelSvgString } from './model/diagramSvg.js';
 import { encodeProjectToParam, decodeProjectFromParam, readSharedParam, shareUrlFor } from './model/shareLink.js';
 import {
   readDiagramFromGitHub,
@@ -836,7 +836,7 @@ async function bootstrap() {
       if (centre.x < x || centre.x > x + width || centre.y < y || centre.y > y + height) continue;
       if (Math.min(width, height) * camera.zoom < ENTER_FRACTION * viewMin) continue;
       if (!isLevelEditable(block, camera.zoom)) continue;
-      focusLevel([...project.path, block.id], childCameraFor(camera, block));
+      if (focusLevel([...project.path, block.id], childCameraFor(camera, block))) selectCrossedBlock(block.id);
       return;
     }
 
@@ -848,7 +848,20 @@ async function bootstrap() {
       if (camera.zoom >= minEditZoom() && !tooSmall) return;
       const parentCamera = rootCameraFor(camera, chainToRoot([container]));
       if (!focusLevel(project.path.slice(0, -1), parentCamera)) return;
+      selectCrossedBlock(container.id);
     }
+  }
+
+  // Zooming across a level boundary leaves exactly one thing selected: the
+  // block whose frame was crossed. Going in, that is the block just
+  // entered (the level's container, shown by its frame handles and in the
+  // Inspector); going out, the block just left, now an ordinary block of
+  // the parent level. Whatever was selected before — a sibling, the old
+  // container, a wire — is dropped, so the highlight never straddles two
+  // levels or leaves a parent's handles up behind the level being edited.
+  function selectCrossedBlock(blockId) {
+    wireSelection.clear();
+    selection.select(blockId);
   }
 
   // An artifact block's link (a source file, an endpoint — see
@@ -1032,36 +1045,6 @@ async function bootstrap() {
     renderLoop.requestRender();
   }
 
-  function handleExportFile(format) {
-    downloadProjectFile(project, format);
-  }
-
-  // The same text the file exports write, straight onto the clipboard
-  // instead of a download -- pasting into a chat/doc/AI prompt doesn't
-  // need a file on disk first. `format`: 'yaml' (slim), 'json' (full
-  // project.toJSON()), 'svg' (the current level, as the SVG export draws it).
-  async function handleCopyAs(format) {
-    let text;
-    try {
-      if (format === 'yaml') text = projectDataToYamlText(project.toJSON({ linkedAsReference: true }));
-      else if (format === 'json') text = JSON.stringify(project.toJSON({ linkedAsReference: true }), null, 2);
-      else if (format === 'svg') text = await renderCurrentLevelSvgString(project);
-      else throw new Error(`unknown format ${format}`);
-    } catch (err) {
-      showToast(`Couldn't build the ${format.toUpperCase()}: ${err.message}`);
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(text);
-      showToast(`${format.toUpperCase()} copied to clipboard.`);
-    } catch {
-      // Clipboard access can legitimately be refused (permissions,
-      // insecure context) -- nothing to fall back to beyond telling the
-      // user, same as the SVG export's own clipboard copy below.
-      showToast(`Couldn't access the clipboard. Use Export > ${format.toUpperCase()} instead.`);
-    }
-  }
-
   // "Saving" here means writing the diagram into the page's own address:
   // there is no server document to update and no account to store one
   // under, so the URL is the file (see model/shareLink.js). replaceState
@@ -1105,55 +1088,20 @@ async function bootstrap() {
       return `Couldn't create a share link: ${err.message}`;
     }
   };
-  const renderFigureImage = async () => ({
-    dataUrl: renderCurrentLevelDataUrl(project),
-    blob: await renderCurrentLevelBlob(project),
-    // Google Docs itself only ever pastes the PNG above — its own paste
-    // handling doesn't reliably rasterize an SVG source either way it
-    // might arrive — but a target that DOES honor a vector clipboard
-    // flavor (see GoogleDocsExportDialog's "Also copy as SVG") can use
-    // this instead of a screenshot of the same diagram.
-    svgBlob: renderCurrentLevelSvgBlob(project),
-  });
-  // The level you're looking at is the thing the figure depicts, so its
-  // name is what the figure's description should say.
-  const getFigureName = () => project.getContainerBlock()?.name || project.name;
-
-  // The obvious way to keep a diagram embedded in Markdown from going
-  // stale is to never bake a snapshot into the reference at all: save this
-  // file at a stable path next to (or in) whatever repo the .md file
-  // lives in, reference it there by relative path, and the next commit
-  // that overwrites this same file is the entire "update" — GitHub (and
-  // most Markdown renderers) already show whatever's currently on disk at
-  // that path, with nothing to re-sync by hand. The copied snippet assumes
-  // exactly that — the file saved alongside the Markdown that pastes it.
-  function handleExportSvg() {
-    const figureName = getFigureName();
-    downloadCurrentLevelSvg(project, figureName);
-    const filename = `${safeFileStem(figureName)}.svg`;
-    showToast(`Downloaded ${filename}.`, {
-      actions: [
-        {
-          label: 'Copy Markdown',
-          onClick: () => {
-            navigator.clipboard.writeText(`![${figureName}](./${filename})`).catch(() => {
-              // Clipboard access can legitimately be refused (permissions,
-              // insecure context) — the file itself already downloaded, so
-              // there's nothing left to fall back to beyond leaving it to
-              // be typed by hand.
-            });
-          },
-        },
-        { label: 'OK' },
-      ],
-    });
-  }
-
   const shareLinkDialog = createShareLinkDialog({ getShareUrl: buildShareUrlOrError });
-  const googleDocsExportDialog = createGoogleDocsExportDialog({
-    getShareUrl: buildShareUrlOrError,
-    renderImage: renderFigureImage,
-    getFigureName,
+  // Export <block> / Export all (see ui/AppMenu.js): the dialog works on
+  // whatever model/exportTarget.js hands it for the scope, and the Google
+  // Docs figure links back to the diagram opened on that block's level.
+  const exportDialog = createExportDialog({
+    getTarget: (scope) => exportTargetFor(project, scope === 'all' ? null : selection.selectedBlockId),
+    getShareUrl: async (path) => {
+      try {
+        const encoded = await encodeProjectToParam({ toJSON: () => ({ ...project.toJSON(), path }) });
+        return shareUrlFor(`${window.location.origin}${window.location.pathname}`, encoded);
+      } catch (err) {
+        return `Couldn't create a share link: ${err.message}`;
+      }
+    },
   });
   const githubOpenDialog = createGitHubConnectDialog({
     title: 'Open from GitHub',
@@ -1243,8 +1191,20 @@ async function bootstrap() {
     shareLinkDialog.open();
   }
 
-  function handleExportGoogleDocs() {
-    googleDocsExportDialog.open();
+  function handleExport(scope) {
+    exportDialog.open(scope);
+  }
+
+  // The menu's "Export <name>" row names the selected block; refreshed on
+  // every paint (see the render loop below) so a rename while selected
+  // shows up too, not only the next selection change.
+  let exportTargetName = null;
+  function refreshExportTarget() {
+    const block = project.getBlock(selection.selectedBlockId);
+    const name = block ? block.name || 'block' : null;
+    if (name === exportTargetName) return;
+    exportTargetName = name;
+    appMenuApi?.refreshExportTarget(name);
   }
 
   // Loading from GitHub replaces the whole tree the same way opening a
@@ -1561,6 +1521,7 @@ async function bootstrap() {
     fabEl.title = target && target !== 'level' ? `Add block inside ${target.name || 'block'}` : 'Add block';
     fabEl.setAttribute('aria-label', fabEl.title);
     if (textFabEl) textFabEl.disabled = selectionCount() > 0;
+    refreshExportTarget();
     pruneStaleCursors();
     onlineUsersApi.refresh(clientId, [...remoteCursors.keys()]);
     const dpr = window.devicePixelRatio || 1;
@@ -1876,10 +1837,7 @@ async function bootstrap() {
     onOpen: handleOpenFile,
     onImport: handleImportFile,
     onSaveLocal: handleSaveLocal,
-    onExportFile: handleExportFile,
-    onCopyAs: handleCopyAs,
-    onExportSvg: handleExportSvg,
-    onExportGoogleDocs: handleExportGoogleDocs,
+    onExport: handleExport,
     onOpenFromGitHub: handleOpenFromGitHub,
     onSaveToGitHub: handleSaveToGitHub,
     onAnimate: toggleAnimation,
@@ -1894,6 +1852,7 @@ async function bootstrap() {
   // has to start out saying what the canvas is already drawing.
   appMenuApi.refreshImprovedView(isImprovedView());
   appMenuApi.refreshLevelOpenZoom(getLevelOpenZoom());
+  refreshExportTarget();
   // The render loop is dirty-gated (see toggleAnimation): an animation that
   // starts on has to ask for continuous frames from the outset.
   renderLoop.setContinuous(animating);
