@@ -13,25 +13,69 @@
 import { projectDataToYamlText, yamlTextToProjectData } from './slimFormat.js';
 
 const API = 'https://api.github.com';
-const TOKEN_KEY = 'nodigraph:githubToken';
+// Tokens are kept per repo owner — a diagram in your own account and one
+// in a colleague's or a second account of yours need different PATs, and
+// one global slot meant re-pasting on every switch. TOKENS_KEY holds a
+// {owner: token} map; LEGACY_TOKEN_KEY is the single-slot key earlier
+// builds wrote, still honoured as the fallback for any owner without an
+// entry of its own (and so a browser upgraded in place keeps working).
+const TOKENS_KEY = 'nodigraph:githubTokens';
+const LEGACY_TOKEN_KEY = 'nodigraph:githubToken';
 
-export function getStoredToken() {
+function readTokenMap() {
   try {
-    return localStorage.getItem(TOKEN_KEY) || '';
+    const raw = localStorage.getItem(TOKENS_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    return map && typeof map === 'object' ? map : {};
   } catch {
-    return '';
+    return {};
   }
 }
 
-export function setStoredToken(token) {
+function writeTokenMap(map) {
   try {
-    if (token) localStorage.setItem(TOKEN_KEY, token);
-    else localStorage.removeItem(TOKEN_KEY);
+    if (Object.keys(map).length) localStorage.setItem(TOKENS_KEY, JSON.stringify(map));
+    else localStorage.removeItem(TOKENS_KEY);
   } catch {
     // Storage can legitimately be unavailable (private browsing, quota) —
     // the token still works for the rest of this session's calls, it just
     // won't be remembered next time.
   }
+}
+
+// The token for `owner` (case-insensitive, as GitHub logins are), else the
+// legacy single token, else ''. No owner: the legacy token only.
+export function getStoredToken(owner = '') {
+  const key = String(owner || '').toLowerCase();
+  if (key) {
+    const own = readTokenMap()[key];
+    if (own) return own;
+  }
+  try {
+    return localStorage.getItem(LEGACY_TOKEN_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+// Remembers (or, with an empty token, forgets) the token for `owner`. With
+// no owner it falls back to the legacy single slot, so a caller that has
+// no target yet still behaves as before.
+export function setStoredToken(token, owner = '') {
+  const key = String(owner || '').toLowerCase();
+  if (!key) {
+    try {
+      if (token) localStorage.setItem(LEGACY_TOKEN_KEY, token);
+      else localStorage.removeItem(LEGACY_TOKEN_KEY);
+    } catch {
+      // See writeTokenMap.
+    }
+    return;
+  }
+  const map = readTokenMap();
+  if (token) map[key] = token;
+  else delete map[key];
+  writeTokenMap(map);
 }
 
 // Accepts the shorthand this feature's own links use ("owner/repo/path/to/
@@ -129,7 +173,7 @@ export function isYamlPath(path) {
   return /\.ya?ml$/i.test(path || '');
 }
 
-export async function readDiagramFromGitHub(target, token = getStoredToken()) {
+export async function readDiagramFromGitHub(target, token = getStoredToken(target.owner)) {
   const file = await apiFetch(contentsUrlForRead(target), {}, token);
   if (Array.isArray(file)) throw new Error(`${target.path} is a directory, not a file`);
   const text = base64ToUtf8(file.content.replace(/\n/g, ''));
@@ -179,7 +223,7 @@ async function putFile(target, content, message, token) {
 // update-in-place (PUT with the file's current sha), never an append, so a
 // repeat save just overwrites both files rather than accumulating history
 // of its own; git already keeps that history.
-export async function writeDiagramToGitHub(target, projectData, svgString, token = getStoredToken()) {
+export async function writeDiagramToGitHub(target, projectData, svgString, token = getStoredToken(target.owner)) {
   // A diagram opened from a YAML file is written back as YAML, so the
   // file stays in the format its author works in.
   const text = isYamlPath(target.path) ? projectDataToYamlText(projectData) : JSON.stringify(projectData, null, 2);

@@ -1009,6 +1009,17 @@ function socketFillPath(ctx, s) {
   ctx.closePath();
 }
 
+// The socket's filling on its own (see socketFillPath), in a live colour:
+// the state of a pin nothing is wired to on this side of the border.
+function fillSocket(ctx, p, side, shape, color) {
+  withPinFrame(ctx, p, side, () => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    socketFillPath(ctx, shape === 'in' ? -1 : 1);
+    ctx.fill();
+  });
+}
+
 function drawPinPlug(ctx, p, side, inverted, shape, color, hover = false, showGrip = true) {
   const w = inverted ? -1 : 1;
   const intoPin = (shape === 'in' && !inverted) || (shape === 'out' && inverted);
@@ -1111,10 +1122,15 @@ export function getPlugRect(pos, side, inverted = false) {
 // plug of the wire on it, and the hover feedback — `hover` is 'slot' (the
 // socket outlined: this pin is about to be moved along its edge) or
 // 'plug' (the plug outlined: the wire is about to be picked up).
-function drawPin(ctx, pos, side, inverted, shape, { stroke, fill, lineWidth, wireColor = null, hover = null, connected = false, shade = null }) {
+function drawPin(ctx, pos, side, inverted, shape, { stroke, fill, lineWidth, wireColor = null, liveColor = null, hover = null, connected = false, shade = null }) {
   if (inverted || shape === 'both') drawSocket(ctx, pos, side, shape, stroke, fill, lineWidth);
   if (connected && shape === 'out' && !inverted && shade) shadeTab(ctx, pos, side, stroke, shade, lineWidth);
   if (wireColor) drawPinPlug(ctx, pos, side, inverted, shape, wireColor, false, !(inverted && shape === 'in'));
+  // A pin with a live state but no wire on this side shows the state in
+  // its socket alone. The plug is the wire at the pin, so a pin whose wire
+  // arrives from the other side of the border (a board's input, wired
+  // from inside its level) must not grow a grip out here as well.
+  else if (liveColor && shape !== 'both') fillSocket(ctx, pos, side, shape, liveColor);
   if (hover === 'slot') drawSocket(ctx, pos, side, shape, SOCKET_HOVER_COLOR, null, SOCKET_HOVER_WIDTH, true);
   if (hover === 'plug') drawPinPlug(ctx, pos, side, inverted, shape, PLUG_HOVER_FILL, true);
 }
@@ -1291,6 +1307,14 @@ function drawPorts(
     // for the pin under the mouse (see DragStateMachine.getHoverPin), or
     // null.
     hoverPin = null,
+    // Whether each port's own name is written next to it. Off for a
+    // level's pins drawn on the frame inside its block's face (see
+    // SubPreviewRenderer.drawLevel): the block's exterior pin, drawn by
+    // the level above, already carries the name just outside the same
+    // border, and the two together read as one pin labelled twice. A
+    // wire's own label (a widened port's per-wire entries) is not a port
+    // name and is drawn regardless.
+    portNames = true,
   } = {},
 ) {
   // A socket is drawn in the block's border colour — a host's state colour
@@ -1368,7 +1392,7 @@ function drawPorts(
         drawPortResizeHandles(ctx, getPortResizeHandleRects(block, port, rectCount), palette);
       }
       const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-      drawPortLabel(ctx, { name: displayedPortName, side: effectiveSide }, center, inverted, palette, zoom);
+      if (portNames) drawPortLabel(ctx, { name: displayedPortName, side: effectiveSide }, center, inverted, palette, zoom);
 
       wireEntries.forEach((entry, index) => {
         const isMoving = wireMoveOverride && wireMoveOverride.portId === port.id && wireMoveOverride.connectionId === entry.id;
@@ -1394,9 +1418,13 @@ function drawPorts(
     // one dot, the port's own name shown right there, same as it always
     // has been.
     const { x: px, y: py } = inverted ? getBoundaryWirePosition(block, port, 0) : getPortPosition(block, port);
-    const wireColor = liveColor || (inverted ? wireEntries[0]?.color || null : pinWires?.get(port.id) || null);
+    // A plug only where a wire is, on this side of the border: a live
+    // colour tints the plug of a wired pin, and fills the socket of an
+    // unwired one (see drawPin), but never conjures a plug by itself.
+    const wired = inverted ? wireEntries.length > 0 : Boolean(pinWires?.has(port.id));
+    const wireColor = wired ? liveColor || (inverted ? wireEntries[0]?.color || null : pinWires?.get(port.id) || null) : null;
     const connected = !inverted && Boolean(pinWires?.has(port.id));
-    drawPin(ctx, { x: px, y: py }, effectiveSide, inverted, shape, { ...pinStyle, wireColor, connected, hover: hover ? hover.part : null });
+    drawPin(ctx, { x: px, y: py }, effectiveSide, inverted, shape, { ...pinStyle, wireColor, liveColor, connected, hover: hover ? hover.part : null });
     const ringColor = portHighlights?.get(`${block.id}:${port.id}`);
     if (ringColor) drawPortRing(ctx, px, py, ringColor, SLOT_RING_RADIUS);
     // Selecting a still-plain boundary port shows the same two width grips
@@ -1407,7 +1435,7 @@ function drawPorts(
     if (inverted && ringColor === PORT_SELECTED_RING_COLOR) {
       drawPortResizeHandles(ctx, getPortResizeHandleRects(block, port, rectCount), palette);
     }
-    drawPortLabel(ctx, { name: displayedPortName, side: effectiveSide }, { x: px, y: py }, inverted, palette, zoom, labelsOutside);
+    if (portNames) drawPortLabel(ctx, { name: displayedPortName, side: effectiveSide }, { x: px, y: py }, inverted, palette, zoom, labelsOutside);
   }
 }
 
@@ -1811,8 +1839,8 @@ export function drawExteriorSubSlots(ctx, block, wireCounts, { palette = DEFAULT
 // label. A pin that carries several wires from inside shows one sub-slot
 // per wire (see getBoundaryWirePosition): the plug outside is one
 // connector, the level inside sees its individual pins.
-export function drawBoundaryPins(ctx, block, geometry, ports, { portHighlights = null, palette = DEFAULT_PALETTE, boundaryWireLabels = null, wireMoveOverride = null, zoom = 1, hoverPin = null } = {}) {
-  drawPorts(ctx, asBoundaryView(block, geometry, ports), { inverted: true, portHighlights, palette, boundaryWireLabels, wireMoveOverride, zoom, hoverPin });
+export function drawBoundaryPins(ctx, block, geometry, ports, { portHighlights = null, palette = DEFAULT_PALETTE, boundaryWireLabels = null, wireMoveOverride = null, zoom = 1, hoverPin = null, portNames = true } = {}) {
+  drawPorts(ctx, asBoundaryView(block, geometry, ports), { inverted: true, portHighlights, palette, boundaryWireLabels, wireMoveOverride, zoom, hoverPin, portNames });
 }
 
 // The frame representing "the current system" — the block you're inside,

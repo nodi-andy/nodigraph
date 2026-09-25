@@ -18,7 +18,8 @@ export function safeFileStem(name) {
 }
 
 export function downloadProjectFile(project, format = 'json') {
-  const data = project.toJSON();
+  // A file, so linked blocks are written as references (see Block.js).
+  const data = project.toJSON({ linkedAsReference: true });
   const isYaml = format === 'yaml';
   const text = isYaml ? projectDataToYamlText(data) : JSON.stringify(data, null, 2);
   const blob = new Blob([text], { type: isYaml ? 'text/yaml' : 'application/json' });

@@ -187,8 +187,22 @@ export function hydrateBlockTree(raw, isRoot = true) {
 
 // The inverse of hydrateBlockTree — walks the whole nested tree turning
 // Maps back into plain arrays for JSON.stringify.
-export function serializeBlockTree(block) {
+//
+// A *linked* block (`source` set — see LINKED DIAGRAMS in main.js) keeps
+// its children in another file. `linkedAsReference` writes such a block
+// as just the reference: no children, no load-state flags — the shape a
+// file that merely points at another file should have. Without it (the
+// autosave, undo history, live sync) the loaded children ride along, so
+// an undo never has to refetch.
+export function serializeBlockTree(block, { linkedAsReference = false } = {}) {
   const serialized = { ...block };
+  const linked = Boolean(block.source);
+  if (linked && linkedAsReference) {
+    delete serialized.children;
+    delete serialized.sourceLoaded;
+    delete serialized.sourceSnapshot;
+    return serialized;
+  }
   // Entering a block lazily creates an empty children level (see
   // Project.enterBlock) even if nothing was ever placed inside it —
   // serializing that as `{blocks:[],connections:[]}` would be pure dead
@@ -197,7 +211,7 @@ export function serializeBlockTree(block) {
   const hasContent = block.children && (block.children.blocks.size > 0 || block.children.connections.size > 0);
   if (hasContent) {
     serialized.children = {
-      blocks: Array.from(block.children.blocks.values()).map(serializeBlockTree),
+      blocks: Array.from(block.children.blocks.values()).map((child) => serializeBlockTree(child, { linkedAsReference })),
       connections: Array.from(block.children.connections.values()),
     };
   } else {

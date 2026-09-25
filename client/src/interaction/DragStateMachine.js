@@ -97,6 +97,12 @@ const STATES = {
   // view (see scaleInteriorAt). Moves the block's frame over its children
   // rather than moving the children, so nothing in the level is edited.
   PANNING_INTERIOR: 'panningInterior',
+  // A plain block-body drag. With Alt held at the press (context.reparent)
+  // the release also re-homes the block: dropped on a sibling it moves
+  // inside that block, dropped outside the level's frame it moves up to
+  // the parent level (see Project.reparentBlocks). Alt because Shift and
+  // Ctrl on a body already adjust the selection, and Alt on a body meant
+  // nothing before (its port meaning, clone, is a different hit type).
   DRAGGING_BLOCK: 'draggingBlock',
   DRAGGING_PORT: 'draggingPort',
   // Dragging one of a boundary port's own two resize handles — grows or
@@ -623,6 +629,14 @@ export class DragStateMachine {
       this.context = {
         blockId: block.id,
         startWorld: world,
+        // Alt at the press: the drop may move the block to another level
+        // (see STATES.DRAGGING_BLOCK). Never for the container itself —
+        // it is not one of this level's blocks.
+        reparent: Boolean(modifiers.altKey) && block !== this.project.getContainerBlock(),
+        // The block under the pointer that a reparenting drop would move
+        // into, or 'parent' when the pointer is outside the level's frame
+        // — refreshed while dragging so the renderer can show it.
+        reparentTarget: null,
         // Every block that moves, with the position it started at — the
         // group moves by one shared delta, so each stays put relative to
         // the others.
@@ -1075,6 +1089,7 @@ export class DragStateMachine {
           this.onLiveUpdate?.({ kind: 'block', blockId: block.id, geometry: block.geometry });
         }
         this.moveFollowingRoutes();
+        if (this.context.reparent) this.context.reparentTarget = this.reparentTargetAt(world);
         this.requestRender();
         break;
       }
@@ -1817,6 +1832,9 @@ export class DragStateMachine {
     ) {
       // A title click opens the editor; dragging the title only moves it.
       if (this.state === STATES.DRAGGING_BLOCK && this.context.moved) this.resolvePlugsAfterDrag();
+      if (this.state === STATES.DRAGGING_BLOCK && this.context.reparent && this.context.moved) {
+        this.finishReparentDrop(world);
+      }
       if (this.state === STATES.DRAGGING_BLOCK && this.context.clickedTitle && !this.context.moved) {
         const blockId = this.context.blockId;
         clearTimeout(this.renameTimer);
@@ -2227,6 +2245,51 @@ export class DragStateMachine {
   // The container under `world`, or null — front to back, so it is the
   // block a click there would land on. Shared by the two interior-view
   // gestures (Ctrl+wheel to scale, Ctrl+middle-drag to pan).
+  // Where an Alt-drag (see STATES.DRAGGING_BLOCK) would put the dragged
+  // blocks if released at `world`: the topmost block under the pointer that
+  // isn't itself being dragged (any block — it becomes a container on the
+  // way in), 'parent' when the pointer is outside this level's frame and
+  // there is a level above, otherwise null (an ordinary move).
+  reparentTargetAt(world) {
+    const moving = new Set((this.context?.items || []).map((item) => item.id));
+    const blocks = this.project.listBlocks();
+    for (let i = blocks.length - 1; i >= 0; i -= 1) {
+      const block = blocks[i];
+      if (moving.has(block.id) || block.kind === 'text') continue;
+      const g = block.geometry;
+      if (!g || world.x < g.x || world.x > g.x + g.width || world.y < g.y || world.y > g.y + g.height) continue;
+      return block.id;
+    }
+    if (this.project.path.length === 0) return null;
+    const frame = this.getBoundaryInfo()?.geometry;
+    if (frame && (world.x < frame.x || world.x > frame.x + frame.width || world.y < frame.y || world.y > frame.y + frame.height)) {
+      return 'parent';
+    }
+    return null;
+  }
+
+  // The reparenting half of an Alt-drag's release: the blocks were already
+  // moved within this level by the drag itself, so all that's left is the
+  // tree edit — and, since the moved blocks are no longer in the level the
+  // selection refers to, clearing that selection. The caller's persist()
+  // records the whole drag as one undo step.
+  finishReparentDrop(world) {
+    const target = this.reparentTargetAt(world);
+    if (!target) return;
+    const ids = this.context.items.map((item) => item.id);
+    const moved = this.project.reparentBlocks(ids, target === 'parent' ? null : target);
+    if (moved.length === 0) return;
+    for (const id of moved) {
+      const block = this.project.getLevel(target === 'parent' ? this.project.path.slice(0, -1) : [...this.project.path, target]).blocks.get(id);
+      if (!block) continue;
+      block.geometry.x = snap(block.geometry.x);
+      block.geometry.y = snap(block.geometry.y);
+    }
+    this.selection.clear();
+    this.wireSelection.clear();
+    this.onBlocksReparented?.({ ids: moved, target });
+  }
+
   containerAt(world) {
     const blocks = this.project.listBlocks();
     for (let i = blocks.length - 1; i >= 0; i -= 1) {

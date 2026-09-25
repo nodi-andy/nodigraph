@@ -106,13 +106,77 @@ html, body {
 }
 
 .hud-chip-left {
-  /* Can genuinely be the widest thing on the row (a long breadcrumb) — caps
-     it against the right-hand chip's own width instead of the two ever
-     fighting over the same pixels; the breadcrumb itself scrolls inside
-     that budget (see .breadcrumb's overflow-x). */
-  flex: 1 1 auto;
+  /* Sized to its content (menu, brand, breadcrumb) — never stretched
+     across the row. A long breadcrumb still scrolls inside a capped width
+     (see .breadcrumb's overflow-x) rather than pushing the chips apart. */
+  flex: 0 1 auto;
   min-width: 0;
   max-width: min(560px, 70vw);
+}
+
+/* The search chip between the two: a combobox over every block in the
+   tree (see ui/SearchBox.js). Relative so its result list can hang below. */
+.hud-chip-search {
+  position: relative;
+  flex: 0 1 320px;
+  min-width: 140px;
+  padding: 0 14px;
+}
+
+.search-input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.search-input::-webkit-search-cancel-button {
+  cursor: pointer;
+}
+
+.search-results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 6px 0;
+  list-style: none;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(15, 18, 24, 0.18), 0 0 0 1px var(--border);
+}
+
+.search-result {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 14px;
+  cursor: pointer;
+}
+
+.search-result.active,
+.search-result:hover {
+  background: var(--bg-surface-2);
+}
+
+.search-result-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.search-result-where {
+  font-size: 12px;
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .hud-chip-right {

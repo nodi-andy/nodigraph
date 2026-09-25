@@ -278,6 +278,72 @@ export function mountInspector(
     nameInput.addEventListener('change', persist);
     container_.appendChild(field('Name', nameInput));
 
+    // The smaller line under the name, and the monospace detail lines
+    // under that (see BlockRenderer.blockTextRows) — both optional and
+    // stored only while non-empty, same as in the YAML.
+    const subtitleInput = document.createElement('input');
+    subtitleInput.type = 'text';
+    subtitleInput.placeholder = 'e.g. 16 channels · 10 Hz';
+    subtitleInput.value = block.subtitle || '';
+    subtitleInput.addEventListener('input', () => {
+      const value = subtitleInput.value.trim();
+      if (value) block.subtitle = value;
+      else delete block.subtitle;
+      requestRender();
+    });
+    subtitleInput.addEventListener('change', persist);
+    container_.appendChild(field('Subtitle', subtitleInput));
+
+    const linesInput = document.createElement('textarea');
+    linesInput.rows = 2;
+    linesInput.placeholder = 'one detail per line';
+    linesInput.value = (block.lines || []).join('\n');
+    linesInput.addEventListener('input', () => {
+      const lines = linesInput.value.split('\n').map((l) => l.trim()).filter(Boolean);
+      if (lines.length) block.lines = lines;
+      else delete block.lines;
+      requestRender();
+    });
+    linesInput.addEventListener('change', persist);
+    container_.appendChild(field('Lines', linesInput));
+
+    // Where the title stack sits on the face (see BlockRenderer's
+    // `style.titlePos` / `style.titleAlign`). "Auto" is the renderer's
+    // own default: centred for a lone title, top once a subtitle or
+    // lines are present.
+    const titleRow = document.createElement('div');
+    titleRow.style.display = 'flex';
+    titleRow.style.gap = '6px';
+    const makeSelect = (options, current, onPick) => {
+      const select = document.createElement('select');
+      for (const [value, label] of options) {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = label;
+        select.appendChild(option);
+      }
+      select.value = current || '';
+      select.addEventListener('change', () => {
+        onPick(select.value);
+        persist();
+        requestRender();
+      });
+      select.style.flex = '1';
+      return select;
+    };
+    block.style = block.style || {};
+    titleRow.append(
+      makeSelect([['', 'Auto'], ['top', 'Top'], ['center', 'Middle'], ['bottom', 'Bottom']], block.style.titlePos, (v) => {
+        if (v) block.style.titlePos = v;
+        else delete block.style.titlePos;
+      }),
+      makeSelect([['', 'Auto'], ['left', 'Left'], ['center', 'Center'], ['right', 'Right']], block.style.titleAlign, (v) => {
+        if (v) block.style.titleAlign = v;
+        else delete block.style.titleAlign;
+      }),
+    );
+    container_.appendChild(field('Title position', titleRow));
+
     // An artifact reference — the file, endpoint or document this block
     // stands for. Set, it puts an "opens elsewhere" glyph in the block's
     // corner (see BlockRenderer.drawLinkGlyph); cleared, the block is an
@@ -294,6 +360,29 @@ export function mountInspector(
     });
     linkInput.addEventListener('change', persist);
     container_.appendChild(field('Link', linkInput));
+
+    // A linked diagram: this block's *contents* are another nodigraph
+    // file in a GitHub repo, fetched when the block is entered and saved
+    // back there by GitHub ▸ Save from inside it (see LINKED DIAGRAMS in
+    // main.js). This file keeps only the reference. Changing it drops
+    // whatever was loaded so the next enter fetches the new source.
+    const sourceInput = document.createElement('input');
+    sourceInput.type = 'text';
+    sourceInput.placeholder = 'owner/repo/path/to/diagram.yaml';
+    sourceInput.value = block.source || '';
+    sourceInput.addEventListener('change', () => {
+      const value = sourceInput.value.trim();
+      if (value === (block.source || '')) return;
+      if (value) block.source = value;
+      else delete block.source;
+      delete block.sourceLoaded;
+      delete block.sourceSnapshot;
+      block.children = null;
+      block.hasChildren = Boolean(value) || block.hasChildren;
+      persist();
+      requestRender();
+    });
+    container_.appendChild(field('Source (GitHub)', sourceInput));
 
     // Geometry/enter/delete only make sense for a block viewed as an
     // object from outside — while editing the container you're currently

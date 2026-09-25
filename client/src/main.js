@@ -1,7 +1,7 @@
 import { Project } from './model/Project.js';
 import { removePort } from './model/BlockDescription.js';
 import { createDefaultDiagram } from './model/defaultDiagram.js';
-import { DEFAULT_BLOCK_COLOR } from './model/Block.js';
+import { DEFAULT_BLOCK_COLOR, DEFAULT_BLOCK_WIDTH, DEFAULT_BLOCK_HEIGHT, hydrateBlockTree, serializeBlockTree, normalizeBoundary } from './model/Block.js';
 import { loadProject, saveProject } from './model/store.js';
 import { connectLiveSync } from './model/liveSync.js';
 import { buildUpdatePayload } from './model/docSync.js';
@@ -19,6 +19,7 @@ import { attachInputRouter } from './interaction/InputRouter.js';
 import { mountToolbar } from './ui/Toolbar.js';
 import { mountInspector } from './ui/InspectorPanel.js';
 import { mountBreadcrumb } from './ui/Breadcrumb.js';
+import { mountSearchBox } from './ui/SearchBox.js';
 import { mountDocSync } from './ui/DocSyncPanel.js';
 import { ENABLE_DOC_SYNC } from './config.js';
 import { mountHeaderActions } from './ui/HeaderActions.js';
@@ -47,6 +48,7 @@ import {
   writeDiagramToGitHub,
   parseGitHubTarget,
   formatGitHubTarget,
+  getStoredToken,
 } from './model/githubSync.js';
 import { createGitHubConnectDialog } from './ui/GitHubConnectDialog.js';
 import { serializeSelection, pasteSelection, isClipboardPayload } from './model/clipboard.js';
@@ -125,6 +127,11 @@ async function bootstrap() {
   // tap landing while the first save is still in flight — see
   // handleSaveToGitHub below.
   let githubSaveInFlight = false;
+  // A ?github= target GitHub refused to show (401, or the 404 it answers
+  // for a private repo without a token): remembered here so that, once
+  // the dialogs exist further down, the Open dialog comes up pre-filled
+  // and asking for a token instead of just a toast — see below.
+  let githubAuthNeeded = null;
   if (sharedParam) {
     try {
       project = Project.fromJSON(await decodeProjectFromParam(sharedParam));
@@ -148,8 +155,15 @@ async function bootstrap() {
         isGitHubView = true;
         githubConnection = target;
       } catch (err) {
-        window.history.replaceState(null, '', window.location.pathname);
-        showToast(`Couldn't load ${formatGitHubTarget(target)} from GitHub: ${err.message}`);
+        if (err.status === 401 || err.status === 404) {
+          // Keep the URL: after the token is saved, a plain reload of the
+          // bookmark must work.
+          githubAuthNeeded = { target, message: err.message };
+          githubConnection = target;
+        } else {
+          window.history.replaceState(null, '', window.location.pathname);
+          showToast(`Couldn't load ${formatGitHubTarget(target)} from GitHub: ${err.message}`);
+        }
       }
     } else {
       window.history.replaceState(null, '', window.location.pathname);
@@ -230,9 +244,13 @@ async function bootstrap() {
 
   const history = new History({ json: lastSyncedSnapshot, path: [] });
 
+  // What the diagram looked like when "Save" (browser storage) was last
+  // pressed — null until it has been, so the menu's unsaved dot has a
+  // baseline to compare against (see ui/AppMenu.js refreshSaved).
+  let localSavedSnapshot = null;
   function refreshSaved() {
     const pendingHost = Boolean(window.nodigraphHasUnsavedChanges?.());
-    appMenuApi?.refreshSaved(pendingHost ? false : urlSnapshot === null ? null : urlSnapshot === lastSyncedSnapshot);
+    appMenuApi?.refreshSaved(pendingHost ? false : localSavedSnapshot === null ? null : localSavedSnapshot === lastSyncedSnapshot);
   }
 
   function persist() {
@@ -566,6 +584,18 @@ async function bootstrap() {
       window.nodigraphOnEnterBlocked?.(block);
       return;
     }
+    // A linked block's contents come from its own file the first time it
+    // is entered (see LINKED DIAGRAMS below); the enter waits for that.
+    if (block?.source && !block.sourceLoaded) {
+      loadLinkedBlock(block).then((ok) => {
+        if (ok) enterLoadedBlock(blockId);
+      });
+      return;
+    }
+    enterLoadedBlock(blockId);
+  }
+
+  function enterLoadedBlock(blockId) {
     if (!project.enterBlock(blockId)) return;
     selection.clear();
     wireSelection.clear();
@@ -573,6 +603,102 @@ async function bootstrap() {
     updateNavigationUI();
     persist();
     renderLoop.requestRender();
+  }
+
+  // LINKED DIAGRAMS. A block with `source` ("owner/repo/path.yaml", or a
+  // github.com blob URL) is a window onto another nodigraph file: the file
+  // this project came from keeps only the reference (see
+  // serializeBlockTree's linkedAsReference), the block's children are that
+  // other file's top level, fetched on first enter and written back to
+  // *that* file by GitHub ▸ Save from anywhere inside it. Tokens are the
+  // per-owner ones the GitHub dialog stores, so a second account's repo
+  // asks once and is then remembered.
+  let pendingLinkedBlock = null;
+  const githubLinkDialog = createGitHubConnectDialog({
+    title: 'Linked diagram',
+    buttonLabel: 'Load',
+    busyLabel: 'Loading…',
+    tokenRequired: false,
+    getInitialTarget: () => (pendingLinkedBlock ? parseGitHubTarget(pendingLinkedBlock.source) : null),
+    onSubmit: async ({ target, token }) => {
+      const block = pendingLinkedBlock;
+      if (!block) return;
+      block.source = formatGitHubTarget(target);
+      await fetchLinkedBlock(block, target, token);
+      enterLoadedBlock(block.id);
+    },
+  });
+
+  async function fetchLinkedBlock(block, target, token) {
+    const data = await readDiagramFromGitHub(target, token);
+    const root = hydrateBlockTree(data.rootBlock);
+    block.children = root.children || { blocks: new Map(), connections: new Map() };
+    block.hasChildren = true;
+    if (root.boundaryGeometry) block.boundaryGeometry = root.boundaryGeometry;
+    normalizeBoundary(block);
+    block.sourceLoaded = true;
+    block.sourceSnapshot = linkedSnapshot(block);
+    persist();
+    renderLoop.requestRender();
+  }
+
+  // What GitHub ▸ Save writes for a linked block: its subtree as a file of
+  // its own, the block itself as that file's root — minus the reference
+  // back to itself and the load-state flags.
+  function linkedFileData(block) {
+    const rootBlock = serializeBlockTree(block, { linkedAsReference: false });
+    delete rootBlock.source;
+    delete rootBlock.sourceLoaded;
+    delete rootBlock.sourceSnapshot;
+    // Nested linked blocks inside this one stay references in this file.
+    if (rootBlock.children) {
+      rootBlock.children.blocks = Array.from(block.children.blocks.values()).map((child) => serializeBlockTree(child, { linkedAsReference: true }));
+    }
+    return { rootBlock, path: [] };
+  }
+
+  function linkedSnapshot(block) {
+    return JSON.stringify(linkedFileData(block));
+  }
+
+  function linkedHasUnsavedEdits(block) {
+    return Boolean(block.sourceLoaded) && block.sourceSnapshot !== linkedSnapshot(block);
+  }
+
+  // Resolves true once the block's contents are in; false when it could
+  // not be loaded (the dialog then takes over and enters on its own).
+  async function loadLinkedBlock(block) {
+    const target = parseGitHubTarget(block.source);
+    if (!target) {
+      showToast(`This block's source isn't a GitHub path: ${block.source}`);
+      return false;
+    }
+    showToast(`Loading ${formatGitHubTarget(target)}…`, { autoDismissMs: 3000 });
+    try {
+      await fetchLinkedBlock(block, target, getStoredToken(target.owner));
+      return true;
+    } catch (err) {
+      pendingLinkedBlock = block;
+      const stored = getStoredToken(target.owner);
+      githubLinkDialog.open({
+        needToken: err.status === 401 || err.status === 404,
+        message: stored
+          ? `${formatGitHubTarget(target)}: ${err.message} — the saved token for ${target.owner} may lack access, or have expired.`
+          : `${formatGitHubTarget(target)}: ${err.message}${err.status === 404 ? ' — a private repo needs a personal access token.' : ''}`,
+      });
+      return false;
+    }
+  }
+
+  async function saveLinkedBlock(block) {
+    const target = parseGitHubTarget(block.source);
+    if (!target) throw new Error(`not a GitHub path: ${block.source}`);
+    const token = getStoredToken(target.owner);
+    const data = linkedFileData(block);
+    const svgString = renderCurrentLevelSvgString(project);
+    await writeDiagramToGitHub(target, data, svgString, token);
+    block.sourceSnapshot = JSON.stringify(data);
+    return target;
   }
 
   // The one block the add-block FAB should offer to enter instead of
@@ -732,6 +858,39 @@ async function bootstrap() {
     window.open(block.link.trim(), '_blank', 'noopener,noreferrer');
   }
 
+  // Import: the file becomes one new block of the current level, named
+  // after the file's root, with the file's whole diagram as its contents
+  // (frame taken from the file's root), centred in the view.
+  async function handleImportFile(file) {
+    let data;
+    try {
+      data = await readProjectFile(file);
+    } catch (err) {
+      window.alert(`Couldn't import that file: ${err.message}`);
+      return;
+    }
+    const root = hydrateBlockTree(data.rootBlock);
+    const frame = project.getContainerBlock()?.boundaryGeometry;
+    const center = camera.screenToWorld(canvas.clientWidth / 2, canvas.clientHeight / 2);
+    const w = DEFAULT_BLOCK_WIDTH;
+    const h = DEFAULT_BLOCK_HEIGHT;
+    if (frame && project.path.length > 0) {
+      center.x = Math.min(Math.max(center.x, frame.x + w / 2), frame.x + frame.width - w / 2);
+      center.y = Math.min(Math.max(center.y, frame.y + h / 2), frame.y + frame.height - h / 2);
+    }
+    const block = project.createDefaultBlock(center.x - w / 2, center.y - h / 2, 'block');
+    block.name = root.name || file.name.replace(/\.nodigraph\.(json|ya?ml)$|\.(json|ya?ml)$/i, '');
+    block.children = root.children || { blocks: new Map(), connections: new Map() };
+    block.hasChildren = true;
+    if (root.boundaryGeometry) block.boundaryGeometry = root.boundaryGeometry;
+    normalizeBoundary(block);
+    wireSelection.clear();
+    selection.select(block.id);
+    persist();
+    renderLoop.requestRender();
+    showToast(`Imported ${file.name} as block "${block.name}".`);
+  }
+
   function navigateToDepth(depth) {
     project.exitToDepth(depth);
     selection.clear();
@@ -877,19 +1036,29 @@ async function bootstrap() {
     downloadProjectFile(project, format);
   }
 
-  // Same slim YAML text as the "YAML" file export above, straight onto the
-  // clipboard instead of a download -- pasting into a chat/doc/AI prompt
-  // doesn't need a file on disk first.
-  async function handleCopyYaml() {
-    const text = projectDataToYamlText(project.toJSON());
+  // The same text the file exports write, straight onto the clipboard
+  // instead of a download -- pasting into a chat/doc/AI prompt doesn't
+  // need a file on disk first. `format`: 'yaml' (slim), 'json' (full
+  // project.toJSON()), 'svg' (the current level, as the SVG export draws it).
+  async function handleCopyAs(format) {
+    let text;
+    try {
+      if (format === 'yaml') text = projectDataToYamlText(project.toJSON({ linkedAsReference: true }));
+      else if (format === 'json') text = JSON.stringify(project.toJSON({ linkedAsReference: true }), null, 2);
+      else if (format === 'svg') text = await renderCurrentLevelSvgString(project);
+      else throw new Error(`unknown format ${format}`);
+    } catch (err) {
+      showToast(`Couldn't build the ${format.toUpperCase()}: ${err.message}`);
+      return;
+    }
     try {
       await navigator.clipboard.writeText(text);
-      showToast('Copied as YAML.');
+      showToast(`${format.toUpperCase()} copied to clipboard.`);
     } catch {
       // Clipboard access can legitimately be refused (permissions,
       // insecure context) -- nothing to fall back to beyond telling the
       // user, same as the SVG export's own clipboard copy below.
-      showToast("Couldn't access the clipboard. Use Export > YAML instead.");
+      showToast(`Couldn't access the clipboard. Use Export > ${format.toUpperCase()} instead.`);
     }
   }
 
@@ -1001,6 +1170,16 @@ async function bootstrap() {
       persist();
     },
   });
+  if (githubAuthNeeded) {
+    const { target, message } = githubAuthNeeded;
+    const stored = getStoredToken(target.owner);
+    githubOpenDialog.open({
+      needToken: true,
+      message: stored
+        ? `${formatGitHubTarget(target)}: ${message} — the saved token may lack access to this repo, or have expired.`
+        : `${formatGitHubTarget(target)}: ${message} — a private repo needs a personal access token.`,
+    });
+  }
   const githubSaveDialog = createGitHubConnectDialog({
     title: 'Save to GitHub',
     pathPlaceholder: 'owner/repo/path/to/diagram.nodigraph.json',
@@ -1094,7 +1273,7 @@ async function bootstrap() {
   // connected yet); after that, every "Save to GitHub" writes to the same
   // place without asking again.
   async function saveToGitHubTarget(target, token) {
-    const projectData = project.toJSON();
+    const projectData = project.toJSON({ linkedAsReference: true });
     const svgString = renderCurrentLevelSvgString(project);
     const rememberConnection = () => {
       isGitHubView = true;
@@ -1122,6 +1301,36 @@ async function bootstrap() {
   // never valid for this repo — gets the same treatment: better to ask for
   // a working one than to leave "Couldn't save" as a dead end.
   async function handleSaveToGitHub() {
+    // Inside a linked block: the save goes to that block's own file.
+    const linked = project.linkedBlockOnPath();
+    if (linked) {
+      if (githubSaveInFlight) {
+        showToast('Still saving to GitHub — hang on.');
+        return;
+      }
+      githubSaveInFlight = true;
+      showToast(`Saving ${linked.name} to its own file…`);
+      try {
+        const target = await saveLinkedBlock(linked);
+        showToast(`Saved ${linked.name} to ${formatGitHubTarget(target)} on GitHub.`);
+      } catch (err) {
+        if (err.status === 401 || err.status === 404) {
+          pendingLinkedBlock = linked;
+          githubLinkDialog.open({ needToken: true, message: `${err.message} — saving needs a token with write access for ${parseGitHubTarget(linked.source)?.owner}.` });
+        } else {
+          showToast(`Couldn't save ${linked.name}: ${err.message}`);
+        }
+      } finally {
+        githubSaveInFlight = false;
+      }
+      return;
+    }
+    // Saving the outer file writes linked blocks as references only —
+    // say so when one of them has edits that are not going anywhere.
+    const dirty = project.listLinkedBlocks().filter(({ block }) => linkedHasUnsavedEdits(block));
+    if (dirty.length) {
+      showToast(`Not saved: edits inside ${dirty.map(({ block }) => block.name).join(', ')} — enter the block and save from there.`);
+    }
     if (githubConnection?.token) {
       // The direct-save path (unlike the dialog's own submit button) had
       // nothing stopping a second tap from firing a second save while the
@@ -1158,7 +1367,16 @@ async function bootstrap() {
   // remote update does (see applyRemoteProject below) — just triggered
   // locally instead of over the WebSocket. The loaded project is
   // immediately persisted to the server too, same as any other change.
+  // Edits since the last Save (browser), GitHub save, or file open —
+  // what Open would silently throw away.
+  function hasUnsavedEdits() {
+    if (lastSyncedSnapshot === localSavedSnapshot) return false;
+    if (githubSyncedSnapshot !== null && lastSyncedSnapshot === githubSyncedSnapshot) return false;
+    return Boolean(history.canUndo);
+  }
+
   async function handleOpenFile(file) {
+    if (hasUnsavedEdits() && !window.confirm(`Open ${file.name}? The current diagram has unsaved edits that will be lost.`)) return;
     let data;
     try {
       data = await readProjectFile(file);
@@ -1568,6 +1786,32 @@ async function bootstrap() {
     hiddenPropNames: window.nodigraphHiddenProps || [],
   });
 
+  // Picking a search result: go to the block's level (a prefix of the tree
+  // that must still resolve — validPathPrefix trims it if the tree changed
+  // under the open list), select it, and frame the level.
+  // A host page without a #search-box of its own (noditron's index.html,
+  // an older copy) gets one inserted after the left chip, where
+  // client/index.html places it.
+  let searchBoxEl = document.getElementById('search-box');
+  if (!searchBoxEl) {
+    searchBoxEl = document.createElement('div');
+    searchBoxEl.id = 'search-box';
+    const leftChip = document.getElementById('topbar');
+    if (leftChip?.parentElement) leftChip.insertAdjacentElement('afterend', searchBoxEl);
+    else document.body.appendChild(searchBoxEl);
+  }
+  const searchApi = mountSearchBox(searchBoxEl, {
+    project,
+    onPick: (blockId, path) => {
+      project.path = project.validPathPrefix(path);
+      wireSelection.clear();
+      selection.select(blockId);
+      frameCurrentLevel();
+      updateNavigationUI();
+      persist();
+      renderLoop.requestRender();
+    },
+  });
   breadcrumbApi = mountBreadcrumb(breadcrumbEl, {
     project,
     onNavigate: navigateToDepth,
@@ -1610,23 +1854,30 @@ async function bootstrap() {
   // its own to gate on (it can also just open a connect dialog and save
   // nothing yet), so firing this from there risks a false positive; a host
   // with nothing to do here just never sets the hook.
-  async function handleSaveToUrlThenNotify() {
+  // The menu's "Save": an explicit write to this browser's storage. The
+  // autosave in persist() skips shared/GitHub/guest views on purpose (their
+  // document lives elsewhere); pressing Save is the user saying "keep this
+  // one here anyway", so it writes regardless of which view this is.
+  async function handleSaveLocal() {
     try {
       await window.nodigraphBeforeSave?.();
+      await saveProject(project);
+      localSavedSnapshot = lastSyncedSnapshot;
+      refreshSaved();
+      await window.nodigraphAfterSave?.();
+      return { ok: true };
     } catch (err) {
       refreshSaved();
       return { ok: false, error: err.message };
     }
-    const result = await handleSaveToUrl();
-    if (result.ok) await window.nodigraphAfterSave?.();
-    return result;
   }
   appMenuApi = mountAppMenu(appMenuEl, {
     onNew: handleNewDiagram,
     onOpen: handleOpenFile,
-    onSaveUrl: handleSaveToUrlThenNotify,
+    onImport: handleImportFile,
+    onSaveLocal: handleSaveLocal,
     onExportFile: handleExportFile,
-    onCopyYaml: handleCopyYaml,
+    onCopyAs: handleCopyAs,
     onExportSvg: handleExportSvg,
     onExportGoogleDocs: handleExportGoogleDocs,
     onOpenFromGitHub: handleOpenFromGitHub,
@@ -1637,7 +1888,7 @@ async function bootstrap() {
   });
   headerActionsApi.refreshHistory();
   headerActionsApi.refreshSession(peerSession.getState());
-  appMenuApi.refreshSaved(urlSnapshot === null ? null : true);
+  appMenuApi.refreshSaved(null);
   appMenuApi.refreshAnimating(animating);
   // Remembered from last time (see render/viewOptions.js), so the checkbox
   // has to start out saying what the canvas is already drawing.
@@ -1712,6 +1963,13 @@ async function bootstrap() {
   });
 
   window.addEventListener('keydown', (event) => {
+    // Ctrl/Cmd+K (and "/" outside a text field): focus the search chip.
+    const inField = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '') || document.activeElement?.isContentEditable;
+    if (((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') || (event.key === '/' && !inField)) {
+      event.preventDefault();
+      searchApi.focus();
+      return;
+    }
     if (!(event.ctrlKey || event.metaKey)) return;
     const key = event.key.toLowerCase();
 

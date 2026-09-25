@@ -39,7 +39,10 @@ export function createGitHubConnectDialog({
   const { dialog, body } = createDialogShell(title);
 
   return {
-    open() {
+    // `needToken`: open with the token field already revealed (a ?github=
+    // link that GitHub refused to show unauthenticated — see main.js's
+    // bootstrap); `message` is shown in the warning slot straight away.
+    open({ needToken = false, message = '' } = {}) {
       body.innerHTML = '';
 
       const targetField = el('div', 'share-field');
@@ -60,7 +63,14 @@ export function createGitHubConnectDialog({
       const tokenInput = el('input', 'share-input');
       tokenInput.type = 'password';
       tokenInput.placeholder = 'ghp_…';
-      tokenInput.value = getStoredToken();
+      // The token shown is the one for whichever owner the path names —
+      // re-read as the path is edited, so switching to another account's
+      // repo swaps in that account's token (or blanks the field).
+      const ownerOf = () => parseGitHubTarget(targetInput.value)?.owner || '';
+      tokenInput.value = getStoredToken(ownerOf());
+      targetInput.addEventListener('input', () => {
+        tokenInput.value = getStoredToken(ownerOf());
+      });
       tokenField.appendChild(tokenInput);
       const tokenHint = el('p', 'share-hint');
       tokenHint.textContent = tokenRequired
@@ -91,7 +101,7 @@ export function createGitHubConnectDialog({
       if (!tokenRequired) {
         revealLink = el('button', 'share-link-button', 'Private repo? Add a personal access token');
         revealLink.type = 'button';
-        revealLink.hidden = Boolean(getStoredToken());
+        revealLink.hidden = Boolean(getStoredToken(ownerOf()));
         revealLink.addEventListener('click', () => {
           tokenField.hidden = false;
           revealLink.hidden = true;
@@ -99,18 +109,18 @@ export function createGitHubConnectDialog({
         });
         body.insertBefore(revealLink, tokenField);
       }
-      tokenField.hidden = !tokenRequired && !getStoredToken();
+      tokenField.hidden = !tokenRequired && !getStoredToken(ownerOf());
 
       // Only shown once a token is actually on file — blanking the field
       // and submitting already clears it (setStoredToken('') removes the
       // key), but that's not a discoverable way to do it. This makes
       // "stop remembering my token" its own explicit action, worth having
       // on a shared or public machine.
-      if (getStoredToken()) {
+      if (getStoredToken(ownerOf())) {
         const forgetButton = el('button', 'share-link-button', 'Forget this token');
         forgetButton.type = 'button';
         forgetButton.addEventListener('click', () => {
-          setStoredToken('');
+          setStoredToken('', ownerOf());
           tokenInput.value = '';
           flash(forgetButton, 'Forgotten');
           if (!tokenRequired) {
@@ -128,6 +138,15 @@ export function createGitHubConnectDialog({
       const errorText = el('p', 'share-warning');
       errorText.hidden = true;
       body.appendChild(errorText);
+      if (needToken) {
+        tokenField.hidden = false;
+        if (revealLink) revealLink.hidden = true;
+        if (message) {
+          errorText.textContent = message;
+          errorText.hidden = false;
+        }
+        if (!getStoredToken(ownerOf())) setTimeout(() => tokenInput.focus(), 0);
+      }
 
       const submitButton = el('button', 'share-button share-button-primary', buttonLabel);
       submitButton.type = 'button';
@@ -143,7 +162,7 @@ export function createGitHubConnectDialog({
         submitButton.disabled = true;
         submitButton.textContent = busyLabel;
         try {
-          setStoredToken(token);
+          setStoredToken(token, target.owner);
           await onSubmit({ target, token });
           dialog.close();
         } catch (err) {

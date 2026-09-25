@@ -154,6 +154,8 @@ function blockToSlim(block) {
   if (typeof block.subtitle === 'string' && block.subtitle !== '') slim.subtitle = block.subtitle;
   if (Array.isArray(block.lines) && block.lines.length) slim.lines = block.lines.map(String);
   if (typeof block.link === 'string' && block.link !== '') slim.link = block.link;
+  // A linked block's children live in the file `source` names, never here.
+  if (typeof block.source === 'string' && block.source !== '') slim.source = block.source;
   if (isText) slim.kind = 'text';
   slim.x = block.geometry.x;
   slim.y = block.geometry.y;
@@ -189,7 +191,7 @@ function blockToSlim(block) {
   }
   if (Object.keys(propsSlim).length) slim.props = propsSlim;
 
-  if (block.hasChildren) {
+  if (block.hasChildren && !block.source) {
     const { blocksSlim, wiresSlim } = levelToSlim(block.children?.blocks || [], block.children?.connections || [], block, pinKeys);
     slim.blocks = blocksSlim;
     if (wiresSlim.length) slim.wires = wiresSlim;
@@ -341,6 +343,7 @@ function slimBlockToData(slimBlock) {
     ...(typeof slimBlock.subtitle === 'string' && slimBlock.subtitle !== '' ? { subtitle: slimBlock.subtitle } : {}),
     ...(normalizeLines(slimBlock.lines) ? { lines: normalizeLines(slimBlock.lines) } : {}),
     ...(typeof slimBlock.link === 'string' && slimBlock.link !== '' ? { link: slimBlock.link } : {}),
+    ...(typeof slimBlock.source === 'string' && slimBlock.source !== '' ? { source: slimBlock.source } : {}),
     logicalPorts,
     ports: pins,
     props: Object.entries(slimBlock.props || {}).map(([name, value]) => ({ id: generateId('prp'), name, kind: 'value', value })),

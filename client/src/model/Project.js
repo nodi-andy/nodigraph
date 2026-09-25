@@ -1,5 +1,6 @@
 import { createBlock, hydrateBlockTree, serializeBlockTree } from './Block.js';
 import { createDefaultBoundaryGeometry } from './grid.js';
+import { frameToFace } from './levelGeometry.js';
 import { boundaryPortGroupOf, boundaryPortsOf, boundaryWiresOf, boundsOf } from './levelView.js';
 
 /**
@@ -65,12 +66,43 @@ export class Project {
     return new Project({ name: data.name, blocks: data.blocks || [], connections: data.connections || [] });
   }
 
-  toJSON() {
+  toJSON({ linkedAsReference = false } = {}) {
     // `path` travels with the tree everywhere this gets serialized — a
     // `#d=` share link, "Save to URL", and the local/server autosave alike
     // — so opening any of them lands back on the block you were actually
     // looking at instead of always resetting to the top level.
-    return { rootBlock: serializeBlockTree(this.rootBlock), path: this.path };
+    // `linkedAsReference`: see serializeBlockTree — for files, not for
+    // the autosave/undo copies.
+    return { rootBlock: serializeBlockTree(this.rootBlock, { linkedAsReference }), path: this.path };
+  }
+
+  // The innermost linked block (`source` set) the current path runs
+  // through, or null — the block whose own file a GitHub save from in here
+  // must go to instead of the file this project was opened from.
+  linkedBlockOnPath() {
+    let found = null;
+    let level = this.rootBlock.children;
+    for (const blockId of this.path) {
+      const block = level?.blocks.get(blockId);
+      if (!block) break;
+      if (block.source) found = block;
+      level = block.children;
+    }
+    return found;
+  }
+
+  // Every linked block anywhere in the tree, with the path to the level it
+  // sits in — for "which linked diagrams have unsaved edits".
+  listLinkedBlocks() {
+    const out = [];
+    const walk = (level, path) => {
+      for (const block of level?.blocks.values() || []) {
+        if (block.source) out.push({ block, path });
+        if (block.children) walk(block.children, [...path, block.id]);
+      }
+    };
+    walk(this.rootBlock.children, []);
+    return out;
   }
 
   get name() {
@@ -415,6 +447,63 @@ export class Project {
 
   exitBlock() {
     this.path = this.path.slice(0, -1);
+  }
+
+  // Moves blocks of the current level one step down the tree (into
+  // `intoBlockId`, a sibling at this level, which becomes a container if it
+  // isn't one yet) or, with no target, one step up into the level this
+  // container sits in. Positions are re-expressed in the destination
+  // level's coordinates through the same frame-to-face transform the
+  // renderer draws nested levels with (see render/levelTransform.js), so
+  // a block lands under the pointer that dropped it; its size is kept as
+  // is. Wires between moved blocks travel with them; every other wire
+  // touching a moved block is dropped — its far end lives in a level the
+  // block is leaving. Returns the ids actually moved (empty on a no-op:
+  // nothing to move, no parent to move out to, or a target that is itself
+  // being moved / a text label).
+  reparentBlocks(ids, intoBlockId = null) {
+    const moving = new Set(ids);
+    const fromLevel = this.current;
+    let toLevel;
+    let toDest; // level point = (point - offset) / scale  or  scale * point + offset
+    if (intoBlockId !== null) {
+      const target = fromLevel.blocks.get(intoBlockId);
+      if (!target || moving.has(intoBlockId) || target.kind === 'text') return [];
+      if (!target.children) {
+        target.children = { blocks: new Map(), connections: new Map() };
+        target.hasChildren = true;
+        target.boundaryGeometry = target.boundaryGeometry || createDefaultBoundaryGeometry(target.geometry);
+      }
+      const t = frameToFace(target.geometry, target.boundaryGeometry);
+      toLevel = target.children;
+      toDest = (x, y) => ({ x: (x - t.offsetX) / t.scale, y: (y - t.offsetY) / t.scale });
+    } else {
+      if (this.path.length === 0) return [];
+      const container = this.getContainerBlock();
+      const t = frameToFace(container.geometry, container.boundaryGeometry);
+      toLevel = this.getLevel(this.path.slice(0, -1));
+      toDest = (x, y) => ({ x: t.scale * x + t.offsetX, y: t.scale * y + t.offsetY });
+    }
+    const moved = [];
+    for (const id of moving) {
+      const block = fromLevel.blocks.get(id);
+      if (!block) continue;
+      const { x, y } = toDest(block.geometry.x, block.geometry.y);
+      block.geometry.x = x;
+      block.geometry.y = y;
+      fromLevel.blocks.delete(id);
+      toLevel.blocks.set(id, block);
+      moved.push(id);
+    }
+    if (moved.length === 0) return [];
+    for (const [connId, connection] of Array.from(fromLevel.connections)) {
+      const srcMoves = moving.has(connection.sourceBlockId);
+      const dstMoves = moving.has(connection.targetBlockId);
+      if (!srcMoves && !dstMoves) continue;
+      fromLevel.connections.delete(connId);
+      if (srcMoves && dstMoves) toLevel.connections.set(connId, connection);
+    }
+    return moved;
   }
 
   exitToDepth(depth) {

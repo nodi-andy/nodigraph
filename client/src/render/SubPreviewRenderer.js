@@ -185,6 +185,13 @@ function now() {
 // the level `block` sits in).
 export function isLevelOpen(block, zoom) {
   if (block.kind === 'text' || !hasSubArchitecture(block) || !block.boundaryGeometry) return false;
+  // A block the host will not let you enter (window.nodigraphCanEnter, see
+  // main.js's canEnterBlock) keeps its level closed on its face as well.
+  // The host draws such a block's face opaque — noditron's board card
+  // until the board is connected — so a level drawn under it would only
+  // ever be paint nobody sees, plus port labels and live-value overlays
+  // that leak out around a face that is supposed to be shut.
+  if (typeof window !== 'undefined' && window.nodigraphCanEnter?.(block) === false) return false;
   if (block.style?.forceShowContent) return true;
   return zoom * frameToFace(block.geometry, block.boundaryGeometry).scale >= openZoom();
 }
@@ -776,12 +783,14 @@ export function drawLevel(
   // from inside: the plug outside is one connector, and this is where it
   // splits into the sub-slots the wires inside attach to (see
   // BlockRenderer.drawBoundaryPins). The container's exterior pin is drawn
-  // over the first of them again by the level above.
+  // over the first of them again by the level above, name and all — so
+  // the names stay off here (portNames), or every wired pin would be
+  // labelled twice, once on each side of the same border.
   if (!boundary && routingBoundary) {
     const wiredPins = view.listBoundaryPorts(container).filter((port) => view.listBoundaryWires(container.id, port.id).length > 0);
     if (wiredPins.length) {
       const boundaryWireLabels = new Map(wiredPins.map((port) => [port.id, wireEntriesFor(container.id, port)]));
-      drawBoundaryPins(ctx, container, routingBoundary.geometry, wiredPins, { portHighlights, palette, boundaryWireLabels, wireMoveOverride, zoom, hoverPin });
+      drawBoundaryPins(ctx, container, routingBoundary.geometry, wiredPins, { portHighlights, palette, boundaryWireLabels, wireMoveOverride, zoom, hoverPin, portNames: false });
     }
   }
 }

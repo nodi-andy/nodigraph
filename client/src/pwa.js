@@ -11,11 +11,16 @@ export function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
   // file:// and other non-http origins can't register a worker.
   if (!/^https?:$/.test(window.location.protocol)) return;
-  window.addEventListener('load', () => {
+  const register = () => {
     navigator.serviceWorker.register('/sw.js').catch((err) => {
       console.warn('nodigraph: service worker not registered:', err);
     });
-  });
+  };
+  // bootstrap() awaits network work before it gets here, so the page's
+  // `load` event has usually fired already — waiting for it again would
+  // wait forever. Register now in that case, otherwise after load.
+  if (document.readyState === 'complete') register();
+  else window.addEventListener('load', register, { once: true });
 }
 
 export function consumeLaunchFiles(onFile) {

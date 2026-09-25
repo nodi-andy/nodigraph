@@ -32,9 +32,10 @@ export function mountAppMenu(
   {
     onNew,
     onOpen,
-    onSaveUrl,
+    onImport,
+    onSaveLocal,
     onExportFile,
-    onCopyYaml,
+    onCopyAs,
     onExportSvg,
     onExportGoogleDocs,
     onOpenFromGitHub,
@@ -46,12 +47,6 @@ export function mountAppMenu(
 ) {
   container.innerHTML = '';
   container.className = 'app-menu';
-
-  const BOOKMARK_KEYS = /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘D' : 'Ctrl+D';
-  // Reloading sends the whole address to the server, and a lot of servers
-  // and proxies cap the request line around 8 KB — so a diagram can be
-  // saved successfully and still fail to open later.
-  const LONG_URL_CHARS = 8000;
 
   function item(iconName, label, onClick) {
     const button = document.createElement('button');
@@ -110,21 +105,31 @@ export function mountAppMenu(
 
   item('new', 'New', () => onNew());
 
-  // "Save" writes the diagram into the address bar, because that is where
-  // this app's documents actually live — there is no server file to write
-  // and no account to write it under (see model/shareLink.js).
+  // Open replaces what's on screen with the file (asking first if there
+  // are unsaved edits); Import (below) adds the file as one new block of
+  // the current level with the file's diagram inside it.
+  const openInput = document.createElement('input');
+  openInput.type = 'file';
+  openInput.accept = 'application/json,.json,text/yaml,.yaml,.yml';
+  openInput.hidden = true;
+  openInput.addEventListener('change', () => {
+    const file = openInput.files?.[0];
+    openInput.value = '';
+    if (file) onOpen(file);
+  });
+  container.appendChild(openInput);
+  item('open', 'Open', () => openInput.click());
+
+  // "Save" writes the diagram into this browser's own storage (see
+  // model/store.js) — the document that comes back on the next plain
+  // visit. Links live in Share (header), files in Export, repos in GitHub.
   const saveButton = item('save', 'Save', async () => {
-    const result = await onSaveUrl();
+    const result = await onSaveLocal();
     if (!result.ok) {
-      showToast(`Couldn't save into the address: ${result.error}. Use Export instead.`);
+      showToast(`Couldn't save in this browser: ${result.error}. Use Export instead.`);
       return;
     }
-    const bookmark = `press ${BOOKMARK_KEYS} to bookmark it, or copy the address bar`;
-    showToast(
-      result.length > LONG_URL_CHARS
-        ? `Saved — ${bookmark}. Note this address is ${Math.round(result.length / 1024)} KB; some servers and proxies reject links over about 8 KB, so keep an exported file as well.`
-        : `Saved into this page's address — ${bookmark}.`,
-    );
+    showToast('Saved in this browser.');
   });
 
   divider();
@@ -139,24 +144,28 @@ export function mountAppMenu(
   fileInput.addEventListener('change', () => {
     const file = fileInput.files?.[0];
     fileInput.value = ''; // allow picking the same file again later
-    if (file) onOpen(file);
+    if (file) onImport(file);
   });
   container.appendChild(fileInput);
 
   item('open', 'Import', () => fileInput.click());
-  item('github', 'Open from GitHub', () => onOpenFromGitHub());
 
   const exportBody = expandable('export', 'Export');
   subItem(exportBody, 'JSON', () => onExportFile('json'));
   subItem(exportBody, 'YAML', () => onExportFile('yaml'));
-  // Same YAML text as the row above, straight onto the clipboard instead
-  // of a download — pasting into a chat/doc/AI prompt doesn't need a file
-  // on disk first.
-  subItem(exportBody, 'Copy as YAML', () => onCopyYaml());
   subItem(exportBody, 'SVG', () => onExportSvg());
+  subItem(exportBody, 'Google Docs', () => onExportGoogleDocs());
+  // The same texts, straight onto the clipboard instead of a download —
+  // pasting into a chat/doc/AI prompt doesn't need a file on disk first.
+  subItem(exportBody, 'JSON to clipboard', () => onCopyAs('json'));
+  subItem(exportBody, 'YAML to clipboard', () => onCopyAs('yaml'));
+  subItem(exportBody, 'SVG to clipboard', () => onCopyAs('svg'));
 
-  item('docs', 'Export to Google Docs', () => onExportGoogleDocs());
-  item('github', 'Save to GitHub', () => onSaveToGitHub());
+  divider();
+
+  const githubBody = expandable('github', 'GitHub');
+  subItem(githubBody, 'Open', () => onOpenFromGitHub());
+  subItem(githubBody, 'Save', () => onSaveToGitHub());
 
   divider();
 
@@ -207,16 +216,16 @@ export function mountAppMenu(
   settingsBody.append(animateLabel, improvedLabel, openRow);
 
   return {
-    // The dot marks edits made since the address bar was last written, so
-    // "Save" is never a row whose effect you have to guess at. It only
-    // appears once there is something to be out of date *with* — before
-    // the first save there is no stale URL to warn about.
+    // The dot marks edits made since Save was last pressed, so "Save" is
+    // never a row whose effect you have to guess at. It only appears once
+    // there is something to be out of date *with* — before the first save
+    // there is nothing to warn about.
     refreshSaved(saved) {
       saveButton.classList.toggle('unsaved', saved === false);
       saveButton.title =
         saved === false
-          ? 'Edits since this page’s address was last updated — click to save them into it'
-          : 'Save this diagram into the page address, so a bookmark or a reload keeps it';
+          ? 'Edits since this diagram was last saved in this browser — click to save them'
+          : 'Save this diagram in this browser, so a plain visit or a reload brings it back';
     },
 
     refreshAnimating(on) {
