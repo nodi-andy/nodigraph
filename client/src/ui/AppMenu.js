@@ -32,8 +32,10 @@ export function mountAppMenu(
   {
     onNew,
     onOpen,
+    onOpenPicker,
     onImport,
     onSaveLocal,
+    onSaveFile,
     onExport,
     onOpenFromGitHub,
     onSaveToGitHub,
@@ -115,19 +117,35 @@ export function mountAppMenu(
     if (file) onOpen(file);
   });
   container.appendChild(openInput);
-  item('open', 'Open', () => openInput.click());
+  // Where the browser has the File System Access API, onOpenPicker opens
+  // its own picker and keeps a handle to write back into; where it does
+  // not (it returns false), the plain file input does what it always did.
+  item('open', 'Open', async () => {
+    if (await onOpenPicker()) return;
+    openInput.click();
+  });
 
   // "Save" writes the diagram into this browser's own storage (see
   // model/store.js) — the document that comes back on the next plain
   // visit. Links live in Share (header), files in Export, repos in GitHub.
+  // A host page may say in its own words what the save did (see main.js's
+  // handleSaveLocal): on a board's own page it is the board that took it.
   const saveButton = item('save', 'Save', async () => {
     const result = await onSaveLocal();
     if (!result.ok) {
-      showToast(`Couldn't save in this browser: ${result.error}. Use Export instead.`);
+      showToast(`Couldn't save: ${result.error}.${result.message ? '' : ' Use Export instead.'}`);
       return;
     }
-    showToast('Saved in this browser.');
+    showToast(result.message || 'Saved in this browser.');
   });
+
+  // Writes back into the file Open was given a handle to ("Save to
+  // <name>"), or asks where to save the first time ("Save as file…"). The
+  // row exists only where the browser can write files (see
+  // model/localFile.js supportsFileSystemAccess); elsewhere Export is the
+  // way to a file. Its label and unsaved dot follow refreshFile below.
+  const saveFileButton = item('save', 'Save as file…', () => onSaveFile());
+  saveFileButton.hidden = true;
 
   divider();
 
@@ -237,6 +255,21 @@ export function mountAppMenu(
       openSelect.value = String(value);
     },
 
+    // `name` is the open file's name (null when no file is held), `saved`
+    // whether it holds the current diagram; `supported` false hides the
+    // row altogether.
+    refreshFile({ supported, name, saved }) {
+      saveFileButton.hidden = !supported;
+      saveFileButton.querySelector('span').textContent = name ? `Save to ${name}` : 'Save as file…';
+      saveFileButton.classList.toggle('unsaved', Boolean(name) && saved === false);
+      saveFileButton.classList.toggle('has-file', Boolean(name));
+      saveFileButton.title = name
+        ? saved === false
+          ? `Edits since ${name} was last saved — click to write them to the file`
+          : `Write this diagram to ${name}`
+        : 'Choose a file on this computer to save the diagram to; later saves write to it directly';
+    },
+
     // The block row's label follows the selection: "Export <name>", or no
     // row at all while nothing is selected.
     refreshExportTarget(name) {
@@ -244,10 +277,12 @@ export function mountAppMenu(
       if (name) exportSelectedButton.querySelector('span').textContent = `Export ${name}`;
     },
 
-    // Ctrl/Cmd+S routes through the button rather than duplicating its
-    // logic, so the shortcut and the click can't drift apart.
+    // Ctrl/Cmd+S routes through the buttons rather than duplicating their
+    // logic, so the shortcut and the click can't drift apart: the file
+    // when one is open, this browser's storage otherwise.
     triggerSave() {
-      saveButton.click();
+      if (!saveFileButton.hidden && saveFileButton.classList.contains('has-file')) saveFileButton.click();
+      else saveButton.click();
     },
   };
 }

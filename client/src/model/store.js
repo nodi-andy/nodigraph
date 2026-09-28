@@ -38,23 +38,42 @@ function loadProjectFromLocalStorage() {
   }
 }
 
-export async function saveProject(project) {
+// Resolves to whether the shared copy took the save: true from the server
+// (or a host transport), false when it refused or could not be reached.
+// The local layer's outcome is not part of it. `flush` is the explicit
+// Save: a host transport that batches the autosaves writes this one now.
+//
+// window.nodigraphSaveProject(data, { flush }): a host page can take the
+// shared copy's write over — a page served by a device whose own API
+// cannot hold a body this size in RAM stores it through a different
+// endpoint of that device (noditron's board page). It resolves to whether
+// the write took.
+export async function saveProject(project, { flush = false } = {}) {
   const data = project.toJSON();
   try {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
   } catch {
-    // Storage full or unavailable — the server PUT below is still worth
+    // Storage full or unavailable — the shared write below is still worth
     // attempting; if that also fails the edit just isn't persisted this
     // time, exactly as before this local layer existed.
   }
+  if (typeof window !== 'undefined' && typeof window.nodigraphSaveProject === 'function') {
+    try {
+      return Boolean(await window.nodigraphSaveProject(data, { flush }));
+    } catch {
+      return false;
+    }
+  }
   try {
-    await fetch(API_URL, {
+    const res = await fetch(API_URL, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
+    return res.ok;
   } catch {
     // Best-effort: a network hiccup (or no server at all) shouldn't crash
     // the app or block the local save above, which already went through.
+    return false;
   }
 }

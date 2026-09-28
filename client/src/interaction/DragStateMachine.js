@@ -49,7 +49,7 @@ function selectionVerb(modifiers) {
   return 'replace';
 }
 import { createConnection } from '../model/Connection.js';
-import { addPort, clonePort, logicalPortOf, removePort } from '../model/BlockDescription.js';
+import { addPort, clonePort, logicalPortOf, mergeSameNamedLogicalPort, removePort, serializeBlockDescription } from '../model/BlockDescription.js';
 
 // How long the cursor has to sit in a block's edge zone before the
 // "click here to add a port" ghost actually appears — long enough that
@@ -132,6 +132,12 @@ const STATES = {
 };
 
 const BOUNDARY_MIN_SIZE = GRID_SIZE * 3;
+
+// How far a port has to be pulled across its edge — into the block, or out
+// of it — before the pull sets its direction (see flipPortByPull). Well past
+// a finger's or a hand's wobble along the edge, well short of a deliberate
+// tug.
+const PORT_PULL_FLIP_DISTANCE = 30;
 
 // How long after the last Ctrl+wheel tick the new interior scale is
 // committed as one undo step — long enough to cover the gap between
@@ -621,6 +627,19 @@ export class DragStateMachine {
         return;
       }
 
+      // A finger on a block that is not selected pans the canvas, as it
+      // would anywhere else: on a phone the canvas is mostly blocks, and a
+      // swipe that happens to start on one is nearly always meant to move
+      // the view, not the block. A block moves only once a tap has
+      // selected it — tap, then drag — so a plain tap (no movement) still
+      // selects on release (see onPointerUp's PANNING branch). A mouse
+      // press on a block stays a deliberate grab, as before.
+      if (isTouchLike(modifiers.pointerType) && !this.selection.isSelected(block.id)) {
+        this.state = STATES.PANNING;
+        this.context = { lastScreen: screen, startScreen: screen, tapBlockId: block.id, moved: false };
+        return;
+      }
+
       // Grabbing a block that's part of a multi-selection drags the whole
       // group; grabbing anything else selects just it first.
       if (!this.selection.isSelected(block.id)) this.selection.select(block.id);
@@ -918,6 +937,9 @@ export class DragStateMachine {
   }
 
   startWirePieceDrag(connectionId, index, screen, world, { fromGrip = false, pointerType } = {}) {
+    // No route editing on an embedded host: wires are port to port there
+    // (see ConnectionRenderer).
+    if (typeof window !== 'undefined' && window.nodigraphEmbedded) return false;
     const boundary = this.getBoundaryInfo();
     const primary = this.pieceDragItem(connectionId, index, boundary);
     if (!primary) return false;
@@ -1046,6 +1068,12 @@ export class DragStateMachine {
         const dy = screen.y - this.context.lastScreen.y;
         this.camera.pan(dx, dy);
         this.context.lastScreen = screen;
+        // Past a finger's own jitter, this is a swipe and not the tap on
+        // a block that would select it on release.
+        if (this.context.tapBlockId && !this.context.moved) {
+          const start = this.context.startScreen;
+          if (Math.hypot(screen.x - start.x, screen.y - start.y) > WIRE_PIECE_DRAG_THRESHOLD_TOUCH) this.context.moved = true;
+        }
         this.requestRender();
         break;
       }
@@ -1123,6 +1151,7 @@ export class DragStateMachine {
           port.side = placement.side;
           port.offset = placement.offset;
           port.manualOffset = true;
+          this.flipPortByPull(block, port, geometry, projected.side, world);
           this.requestRender();
           this.onLiveUpdate?.({ kind: 'port', blockId: block.id, portId: port.id, side: port.side, offset: port.offset });
           break;
@@ -1138,6 +1167,7 @@ export class DragStateMachine {
         port.side = projected.side;
         port.offset = nearestPortSlot(sideLength, projected.offset, occupied);
         port.manualOffset = true;
+        this.flipPortByPull(block, port, geometry, projected.side, world);
         this.requestRender();
         this.onLiveUpdate?.({ kind: 'port', blockId: block.id, portId: port.id, side: port.side, offset: port.offset });
         break;
@@ -1902,6 +1932,13 @@ export class DragStateMachine {
       }
     } else if (this.state === STATES.PENDING_LABEL_RENAME) {
       this.onRequestRename?.(this.context.blockId);
+    } else if (this.state === STATES.PANNING && this.context.tapBlockId && !this.context.moved) {
+      // A tap on an unselected block (see onPointerDown's touch rule):
+      // the finger did not travel, so it selects — the next drag on the
+      // block then moves it.
+      this.wireSelection.clear();
+      this.selection.select(this.context.tapBlockId);
+      this.requestRender();
     }
 
     this.state = STATES.IDLE;
@@ -2288,6 +2325,36 @@ export class DragStateMachine {
     this.selection.clear();
     this.wireSelection.clear();
     this.onBlocksReparented?.({ ids: moved, target });
+  }
+
+  // A port dragged along its edge moves; pulled across it, it changes
+  // direction: into the block makes it an input, out of the block an
+  // output — the way it faces, said with the pointer instead of the
+  // Inspector. On the container's own frame, seen from inside, "into the
+  // block" is into the level, which is the same thing: a pin pulled into
+  // the level is one the level receives on. `geometry` is the rectangle
+  // the port sits on (the face, or the frame from inside); `side` the edge
+  // the pointer projected onto. Past PORT_PULL_FLIP_DISTANCE either way
+  // the direction is set; nearer the edge nothing changes, so an ordinary
+  // slide along the edge never flips a port by accident.
+  flipPortByPull(block, port, geometry, side, world) {
+    const { x, y, width, height } = geometry;
+    const outward =
+      side === 'left' ? x - world.x
+      : side === 'right' ? world.x - (x + width)
+      : side === 'top' ? y - world.y
+      : world.y - (y + height);
+    if (Math.abs(outward) < PORT_PULL_FLIP_DISTANCE) return false;
+    const want = outward > 0 ? 'out' : 'in';
+    const logical = logicalPortOf(block, port);
+    if (!logical || logical.direction === want) return false;
+    logical.direction = want;
+    // A pin sharing its name with another is the same logical pin (see
+    // BlockDescription.mergeSameNamedLogicalPort), and the description is
+    // the interface as text — both kept in step, as the Inspector does.
+    mergeSameNamedLogicalPort(block, logical.id);
+    block.description = serializeBlockDescription(block);
+    return true;
   }
 
   containerAt(world) {

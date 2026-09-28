@@ -20,6 +20,7 @@ import { mountToolbar } from './ui/Toolbar.js';
 import { mountInspector } from './ui/InspectorPanel.js';
 import { mountBreadcrumb } from './ui/Breadcrumb.js';
 import { mountSearchBox } from './ui/SearchBox.js';
+import { mountFileSource } from './ui/FileSource.js';
 import { mountDocSync } from './ui/DocSyncPanel.js';
 import { ENABLE_DOC_SYNC } from './config.js';
 import { mountHeaderActions } from './ui/HeaderActions.js';
@@ -39,7 +40,7 @@ import { chainToRoot, childCameraFor, rootCameraFor } from './render/levelTransf
 import { isLevelEditable, isLevelOpen, minEditZoom, toggleForcedContent } from './render/SubPreviewRenderer.js';
 import { resolveFocus } from './interaction/LevelFocus.js';
 import { getConnectionGeometry, getConnectionLabelPosition } from './render/ConnectionRenderer.js';
-import { readProjectFile } from './model/localFile.js';
+import { readProjectFile, supportsFileSystemAccess, pickProjectFile, pickSaveHandle, writeProjectToHandle, safeFileStem } from './model/localFile.js';
 import { pasteSlimYamlText } from './model/slimFormat.js';
 import { renderCurrentLevelSvgString } from './model/diagramSvg.js';
 import { encodeProjectToParam, decodeProjectFromParam, readSharedParam, shareUrlFor } from './model/shareLink.js';
@@ -82,7 +83,15 @@ mountTopbarMenu(menuToggleEl, topbarMenuEl, topbarMenuBackdropEl);
 
 // A per-tab identity purely for telling cursors apart on other clients'
 // screens — there's no accounts system to draw a real name from yet.
-const clientId = crypto.randomUUID();
+// crypto.randomUUID exists only in a secure context; a page served over
+// plain http from a board on its own network (http://192.168.0.1/) has
+// none, so fall back to getRandomValues, which is available everywhere.
+function newClientId() {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+const clientId = newClientId();
 
 function pathsEqual(a, b) {
   return a.length === b.length && a.every((id, i) => id === b[i]);
@@ -228,6 +237,7 @@ async function bootstrap() {
   let docSyncApi = null;
   let headerActionsApi = null;
   let appMenuApi = null;
+  let fileSourceApi = null;
   let selectionFabsApi = null;
   // The diagram the address bar currently encodes, or null when it encodes
   // none — which is how "Save" knows whether there is anything to save.
@@ -248,9 +258,30 @@ async function bootstrap() {
   // pressed — null until it has been, so the menu's unsaved dot has a
   // baseline to compare against (see ui/AppMenu.js refreshSaved).
   let localSavedSnapshot = null;
+  // The file on this computer the diagram came from or was last saved to
+  // (a File System Access handle, Chromium only — see model/localFile.js),
+  // and what it held when last read or written. Null until Open or "Save
+  // as file…" picks one.
+  let fileHandle = null;
+  let fileSavedSnapshot = null;
   function refreshSaved() {
     const pendingHost = Boolean(window.nodigraphHasUnsavedChanges?.());
     appMenuApi?.refreshSaved(pendingHost ? false : localSavedSnapshot === null ? null : localSavedSnapshot === lastSyncedSnapshot);
+    const fileState = { name: fileHandle?.name ?? null, saved: fileHandle ? fileSavedSnapshot === lastSyncedSnapshot : null };
+    appMenuApi?.refreshFile({ supported: supportsFileSystemAccess(), ...fileState });
+    fileSourceApi?.refresh(fileState);
+    refreshTitle();
+  }
+
+  // The tab title is what a bookmark gets named, so it has to be the
+  // diagram's name rather than the app's — and, while a file on this
+  // computer is behind it, that file's name too, with the same unsaved
+  // dot the header chip shows, so a glance at the tab strip says which
+  // file is open and whether it has every edit.
+  function refreshTitle() {
+    const name = project.name || 'nodigraph';
+    const file = fileHandle ? ` · ${fileSavedSnapshot === lastSyncedSnapshot ? '' : '● '}${fileHandle.name}` : '';
+    document.title = project.name ? `${name}${file} · nodigraph` : 'nodigraph';
   }
 
   function persist() {
@@ -269,9 +300,6 @@ async function bootstrap() {
     // GitHub" (not this autosave) is how its edits actually get written
     // back.
     if (!isSharedView && !isLiveGuest && !isGitHubView) saveProject(project);
-    // The tab title is what a bookmark gets named, so it has to be the
-    // diagram's name rather than the app's.
-    document.title = project.name ? `${project.name} · nodigraph` : 'nodigraph';
     refreshSaved();
     // Peers get the whole tree; applyRemoteProject on the far side drops
     // it if it matches what they already have, so this can't loop.
@@ -1220,6 +1248,10 @@ async function bootstrap() {
     isGitHubView = true;
     githubConnection = { ...target, token };
     githubSyncedSnapshot = JSON.stringify(project.toJSON());
+    // Likewise not the local file that may have been open before.
+    fileHandle = null;
+    fileSavedSnapshot = null;
+    refreshSaved();
     renderLoop.requestRender();
   }
 
@@ -1332,10 +1364,13 @@ async function bootstrap() {
   function hasUnsavedEdits() {
     if (lastSyncedSnapshot === localSavedSnapshot) return false;
     if (githubSyncedSnapshot !== null && lastSyncedSnapshot === githubSyncedSnapshot) return false;
+    if (fileSavedSnapshot !== null && lastSyncedSnapshot === fileSavedSnapshot) return false;
     return Boolean(history.canUndo);
   }
 
-  async function handleOpenFile(file) {
+  // `handle`, when the browser gave one (see model/localFile.js), is kept
+  // so "Save to <file>" can write back into this same file.
+  async function handleOpenFile(file, handle = null) {
     if (hasUnsavedEdits() && !window.confirm(`Open ${file.name}? The current diagram has unsaved edits that will be lost.`)) return;
     let data;
     try {
@@ -1355,8 +1390,58 @@ async function bootstrap() {
     isGitHubView = false;
     githubConnection = null;
     githubSyncedSnapshot = null;
+    fileHandle = handle;
     persist();
+    // After persist, which is what sets lastSyncedSnapshot to this file's
+    // contents — the file is "saved" the moment it is opened.
+    fileSavedSnapshot = handle ? lastSyncedSnapshot : null;
+    refreshSaved();
     renderLoop.requestRender();
+  }
+
+  // The Open row where the browser has a file picker that hands back a
+  // writable handle. Returns false where it does not, so the menu falls
+  // back to its plain file input.
+  async function handleOpenPicker() {
+    if (!supportsFileSystemAccess()) return false;
+    let picked;
+    try {
+      picked = await pickProjectFile();
+    } catch (err) {
+      showToast(`Couldn't open a file: ${err.message}`);
+      return true;
+    }
+    if (picked) await handleOpenFile(picked.file, picked.handle);
+    return true;
+  }
+
+  // "Save to <file>" / "Save as file…": writes the diagram into the file
+  // Open was given a handle to, or asks for one first. The format follows
+  // the file's own name (.yaml/.yml is YAML, anything else JSON), so a
+  // YAML file stays YAML.
+  async function handleSaveFile() {
+    let handle = fileHandle;
+    if (!handle) {
+      try {
+        handle = await pickSaveHandle(`${safeFileStem(project.name)}.nodigraph.json`);
+      } catch (err) {
+        showToast(`Couldn't choose a file: ${err.message}`);
+        return;
+      }
+      if (!handle) return;
+    }
+    try {
+      await window.nodigraphBeforeSave?.();
+      await writeProjectToHandle(project, handle);
+    } catch (err) {
+      showToast(`Couldn't save to ${handle.name}: ${err.message}`);
+      return;
+    }
+    fileHandle = handle;
+    fileSavedSnapshot = lastSyncedSnapshot;
+    refreshSaved();
+    await window.nodigraphAfterSave?.();
+    showToast(`Saved to ${handle.name}.`);
   }
 
   // Blanks the whole tree the same way opening a file does, just with a
@@ -1387,6 +1472,10 @@ async function bootstrap() {
     isGitHubView = false;
     githubConnection = null;
     githubSyncedSnapshot = null;
+    // A new diagram is not the file that was open — saving it must ask
+    // where, not overwrite that file.
+    fileHandle = null;
+    fileSavedSnapshot = null;
     appMenuApi?.refreshSaved(null);
     persist();
     renderLoop.requestRender();
@@ -1609,7 +1698,9 @@ async function bootstrap() {
   // whatever the host is sharing — connecting to it here would just
   // overwrite this browser's screen with someone else's diagram the
   // moment it next changed.
-  const liveSync = isSharedView || isLiveGuest || isGitHubView
+  // window.nodigraphEmbedded: a host page served by a device (noditron's
+  // embedded build) — no live-sync server behind it, no installable app.
+  const liveSync = isSharedView || isLiveGuest || isGitHubView || window.nodigraphEmbedded
     ? { sendLive: () => {} }
     : connectLiveSync({ onProject: applyRemoteProject, onLive: applyLiveUpdate });
 
@@ -1707,7 +1798,7 @@ async function bootstrap() {
   // Pure hygiene: without some activity to trigger a redraw, a cursor that
   // goes stale (its owner closed the tab) would just sit there forever
   // instead of fading out within CURSOR_STALE_MS.
-  setInterval(() => renderLoop.requestRender(), 1000);
+  if (!window.nodigraphEmbedded) setInterval(() => renderLoop.requestRender(), 1000);
 
   mountToolbar(fabEl, {
     project,
@@ -1819,14 +1910,21 @@ async function bootstrap() {
   // autosave in persist() skips shared/GitHub/guest views on purpose (their
   // document lives elsewhere); pressing Save is the user saying "keep this
   // one here anyway", so it writes regardless of which view this is.
+  // Resolves to { ok, message }: the message is the host's own word on
+  // what the save did (nodigraphBeforeSave may return one, e.g. that a
+  // board took its circuit), for the menu to show in place of its own.
+  // A host that took the shared write over (window.nodigraphSaveProject)
+  // and reports it failed makes the save fail: on a device's own page
+  // "saved" means saved on the device, and nothing else would keep it.
   async function handleSaveLocal() {
     try {
-      await window.nodigraphBeforeSave?.();
-      await saveProject(project);
+      const note = await window.nodigraphBeforeSave?.();
+      const stored = await saveProject(project, { flush: true });
+      if (!stored && typeof window.nodigraphSaveProject === 'function') throw new Error('the device did not store the diagram');
       localSavedSnapshot = lastSyncedSnapshot;
       refreshSaved();
       await window.nodigraphAfterSave?.();
-      return { ok: true };
+      return { ok: true, message: typeof note === 'string' ? note : '' };
     } catch (err) {
       refreshSaved();
       return { ok: false, error: err.message };
@@ -1835,8 +1933,10 @@ async function bootstrap() {
   appMenuApi = mountAppMenu(appMenuEl, {
     onNew: handleNewDiagram,
     onOpen: handleOpenFile,
+    onOpenPicker: handleOpenPicker,
     onImport: handleImportFile,
     onSaveLocal: handleSaveLocal,
+    onSaveFile: handleSaveFile,
     onExport: handleExport,
     onOpenFromGitHub: handleOpenFromGitHub,
     onSaveToGitHub: handleSaveToGitHub,
@@ -1847,6 +1947,11 @@ async function bootstrap() {
   headerActionsApi.refreshHistory();
   headerActionsApi.refreshSession(peerSession.getState());
   appMenuApi.refreshSaved(null);
+  // A host page without a #file-source of its own (noditron's index.html)
+  // simply has no chip; the menu row and the title still say.
+  const fileSourceEl = document.getElementById('file-source');
+  if (fileSourceEl) fileSourceApi = mountFileSource(fileSourceEl, { onSave: handleSaveFile });
+  refreshSaved();
   appMenuApi.refreshAnimating(animating);
   // Remembered from last time (see render/viewOptions.js), so the checkbox
   // has to start out saying what the canvas is already drawing.
@@ -1856,7 +1961,7 @@ async function bootstrap() {
   // The render loop is dirty-gated (see toggleAnimation): an animation that
   // starts on has to ask for continuous frames from the outset.
   renderLoop.setContinuous(animating);
-  document.title = project.name ? `${project.name} · nodigraph` : 'nodigraph';
+  refreshTitle();
 
   // A diagram opened from a link lives nowhere but this tab until it is
   // saved back into the address bar, so closing with unsaved edits loses
@@ -2017,7 +2122,10 @@ async function bootstrap() {
   frameCurrentLevel();
   updateNavigationUI();
   renderLoop.start();
-  maybeShowOnboarding();
+  // Not on a device's own page (window.nodigraphEmbedded): what the tour
+  // says about the diagram staying in this browser is not true there — the
+  // device keeps it — and the host page has its own way in.
+  if (!window.nodigraphEmbedded) maybeShowOnboarding();
 
   // A generic embedding hook, not a nodigraph feature in its own right —
   // for a *host* page that loads this exact main.js as its editor (same
@@ -2052,6 +2160,10 @@ async function bootstrap() {
       return target === 'level' ? project.getContainerBlock() : target;
     },
     prepareAdd: addIntoSelection,
+    // Enter a block the way a double-click does (path, camera, breadcrumb,
+    // persist) — for a host page that opens straight inside one block,
+    // such as a board's own page opening inside that board.
+    enterBlock,
   };
   // Which build this is, in the browser console (see version.js); kept on
   // window.nodigraph too, for anything that wants to read it.
@@ -2062,8 +2174,10 @@ async function bootstrap() {
   // Installed-app plumbing (src/pwa.js): offline shell, and a .yaml/.json
   // double-clicked onto the installed app lands in the same handler as the
   // Import menu item.
-  registerServiceWorker();
-  consumeLaunchFiles(handleOpenFile);
+  if (!window.nodigraphEmbedded) {
+    registerServiceWorker();
+    consumeLaunchFiles(handleOpenFile);
+  }
 
   // joinId/isLiveGuest were resolved back at the top of bootstrap(), before
   // `project` was chosen. There's nothing on screen yet worth keeping if

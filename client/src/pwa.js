@@ -28,8 +28,11 @@ export function consumeLaunchFiles(onFile) {
   window.launchQueue.setConsumer(async (launchParams) => {
     if (!launchParams.files || launchParams.files.length === 0) return;
     try {
-      const file = await launchParams.files[0].getFile();
-      await onFile(file);
+      // The handle travels with the file: it is what a later "Save to
+      // <file>" writes back into (see main.js's handleSaveFile).
+      const handle = launchParams.files[0];
+      const file = await handle.getFile();
+      await onFile(file, handle);
     } catch (err) {
       console.warn('nodigraph: could not open launched file:', err);
     }

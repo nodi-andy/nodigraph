@@ -281,16 +281,20 @@ export function getBoundaryWireSlotOffset(block, port, index, connectionId) {
   const placement = getPortBoundaryPlacement(port, block);
   const length = sideLength(block, placement.side);
   const bounds = getPortOffsetBounds(length);
-  const baseOffset = clamp(placement.offset ?? bounds.min, bounds.min, bounds.max);
-  const baseSlot = nearestPortSlot(length, baseOffset);
-  const slots = getPortSlotOffsets(length);
-  const baseIndex = Math.max(0, slots.indexOf(baseSlot));
+  // The first wire sits exactly where the placement puts the pin — the
+  // proportional image of the exterior pin (see levelGeometry's
+  // boundaryPlacementFor), never snapped to the frame's own slot grid.
+  // The frame is the face scaled by whatever Ctrl+wheel left it at, so
+  // its slots only line up with the face's at a whole-number factor; at
+  // any other, snapping here put the pin inside up to half a slot away
+  // from the plug the level above draws for the same connector.
+  const base = clamp(placement.offset ?? bounds.min, 0, length);
   const relativeIndex = getBoundaryWireRelativeIndex(port, connectionId, index);
-  // Spills onto whichever slots follow the port's own base slot along this
-  // side — fine for a handful of wires on an otherwise uncrowded side; a
-  // side packed edge-to-edge with sibling ports can still overlap, a known
-  // limitation of this first pass rather than something routed around.
-  return slots[Math.max(0, Math.min(slots.length - 1, baseIndex + relativeIndex))];
+  // Further wires spill along the side a slot apart — fine for a handful
+  // of wires on an otherwise uncrowded side; a side packed edge-to-edge
+  // with sibling ports can still overlap, a known limitation of this
+  // first pass rather than something routed around.
+  return clamp(base + Math.max(0, relativeIndex) * PORT_SLOT_SPACING, 0, length);
 }
 
 // Kept clear of the cell boundary on every side — the previous version
@@ -1122,7 +1126,22 @@ export function getPlugRect(pos, side, inverted = false) {
 // plug of the wire on it, and the hover feedback — `hover` is 'slot' (the
 // socket outlined: this pin is about to be moved along its edge) or
 // 'plug' (the plug outlined: the wire is about to be picked up).
-function drawPin(ctx, pos, side, inverted, shape, { stroke, fill, lineWidth, wireColor = null, liveColor = null, hover = null, connected = false, shade = null }) {
+function drawPin(ctx, pos, side, inverted, shape, { stroke, fill, lineWidth, wireColor = null, liveColor = null, hover = null, connected = false, shade = null, pinScale = 1 }) {
+  // `pinScale` grows or shrinks the glyph about the pin's own point — the
+  // position is the caller's, only the drawing changes size. A nested
+  // level's boundary pins are drawn at the level's own scale, so without
+  // this a pin inside a container came out smaller (or larger) than the
+  // plug the level above draws for the very same connector (see
+  // SubPreviewRenderer's boundaryPinScale).
+  if (pinScale !== 1) {
+    ctx.save();
+    ctx.translate(pos.x, pos.y);
+    ctx.scale(pinScale, pinScale);
+    ctx.translate(-pos.x, -pos.y);
+    drawPin(ctx, pos, side, inverted, shape, { stroke, fill, lineWidth, wireColor, liveColor, hover, connected, shade });
+    ctx.restore();
+    return;
+  }
   if (inverted || shape === 'both') drawSocket(ctx, pos, side, shape, stroke, fill, lineWidth);
   if (connected && shape === 'out' && !inverted && shade) shadeTab(ctx, pos, side, stroke, shade, lineWidth);
   if (wireColor) drawPinPlug(ctx, pos, side, inverted, shape, wireColor, false, !(inverted && shape === 'in'));
@@ -1294,6 +1313,10 @@ function drawPorts(
     // actual stored slot, so it visibly follows the cursor mid-drag
     // rather than only snapping into place once you release.
     wireMoveOverride = null,
+    // Every pin glyph drawn this size relative to its ordinary one, in
+    // place — see drawPin. A nested level's boundary pins pass the
+    // inverse of the level's own scale so they match the level above.
+    pinScale = 1,
     // See drawPortLabel — ordinary blocks only.
     labelsOutside = 0,
     // Ordinary blocks: Map<portId, wire colour | null> for every pin that
@@ -1403,7 +1426,7 @@ function drawPorts(
         // wire it has no id for); a hit on the group as a whole names none
         // and lights every sub-slot.
         const hoverThis = hover && (hover.connectionId ? hover.connectionId === entry.id : hover.wireIndex == null || hover.wireIndex === index);
-        drawPin(ctx, { x: px, y: py }, effectiveSide, inverted, shape, { ...pinStyle, wireColor: entry.color || null, hover: hoverThis ? hover.part : null });
+        drawPin(ctx, { x: px, y: py }, effectiveSide, inverted, shape, { ...pinStyle, pinScale, wireColor: entry.color || null, hover: hoverThis ? hover.part : null });
         const wireRingColor = portHighlights?.get(`${block.id}:${port.id}`);
         if (wireRingColor) drawPortRing(ctx, px, py, wireRingColor, SLOT_RING_RADIUS);
         // Every wire shows only its OWN (child-side) label here — the
@@ -1424,7 +1447,7 @@ function drawPorts(
     const wired = inverted ? wireEntries.length > 0 : Boolean(pinWires?.has(port.id));
     const wireColor = wired ? liveColor || (inverted ? wireEntries[0]?.color || null : pinWires?.get(port.id) || null) : null;
     const connected = !inverted && Boolean(pinWires?.has(port.id));
-    drawPin(ctx, { x: px, y: py }, effectiveSide, inverted, shape, { ...pinStyle, wireColor, liveColor, connected, hover: hover ? hover.part : null });
+    drawPin(ctx, { x: px, y: py }, effectiveSide, inverted, shape, { ...pinStyle, pinScale, wireColor, liveColor, connected, hover: hover ? hover.part : null });
     const ringColor = portHighlights?.get(`${block.id}:${port.id}`);
     if (ringColor) drawPortRing(ctx, px, py, ringColor, SLOT_RING_RADIUS);
     // Selecting a still-plain boundary port shows the same two width grips
@@ -1839,8 +1862,8 @@ export function drawExteriorSubSlots(ctx, block, wireCounts, { palette = DEFAULT
 // label. A pin that carries several wires from inside shows one sub-slot
 // per wire (see getBoundaryWirePosition): the plug outside is one
 // connector, the level inside sees its individual pins.
-export function drawBoundaryPins(ctx, block, geometry, ports, { portHighlights = null, palette = DEFAULT_PALETTE, boundaryWireLabels = null, wireMoveOverride = null, zoom = 1, hoverPin = null, portNames = true } = {}) {
-  drawPorts(ctx, asBoundaryView(block, geometry, ports), { inverted: true, portHighlights, palette, boundaryWireLabels, wireMoveOverride, zoom, hoverPin, portNames });
+export function drawBoundaryPins(ctx, block, geometry, ports, { portHighlights = null, palette = DEFAULT_PALETTE, boundaryWireLabels = null, wireMoveOverride = null, zoom = 1, hoverPin = null, portNames = true, pinScale = 1 } = {}) {
+  drawPorts(ctx, asBoundaryView(block, geometry, ports), { inverted: true, portHighlights, palette, boundaryWireLabels, wireMoveOverride, zoom, hoverPin, portNames, pinScale });
 }
 
 // The frame representing "the current system" — the block you're inside,

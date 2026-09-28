@@ -24,7 +24,7 @@
 import { hitTest } from './HitTest.js';
 import { LevelView } from '../model/levelView.js';
 import { hasSubArchitecture } from '../render/BlockRenderer.js';
-import { isLevelEditable, MAX_DEPTH } from '../render/SubPreviewRenderer.js';
+import { isLevelEditable, MAX_DEPTH, previewDepth } from '../render/SubPreviewRenderer.js';
 import { getConnectionGeometry, hitTestConnectionPath } from '../render/ConnectionRenderer.js';
 import { chainToRoot, rootCameraFor, childCameraFor, screenToWorldWith, worldToScreenWith } from '../render/levelTransform.js';
 
@@ -69,7 +69,11 @@ export function resolveFocus(project, camera, screen, viewport, { canEnter = () 
   let container = project.rootBlock;
   const path = [];
 
-  for (let depth = 0; depth < MAX_DEPTH; depth += 1) {
+  // No deeper than the renderer draws (SubPreviewRenderer.previewDepth:
+  // one level below the one being edited on an embedded host) — a level
+  // that is not on screen cannot be edited in place.
+  const deepest = Math.min(MAX_DEPTH, project.path.length + previewDepth());
+  for (let depth = 0; depth < deepest; depth += 1) {
     const view = new LevelView(container);
     const world = screenToWorldWith(cam, screen.x, screen.y);
     const hit = hitTest(view, world.x, world.y, boundaryOf(container), null, null, cam.zoom);

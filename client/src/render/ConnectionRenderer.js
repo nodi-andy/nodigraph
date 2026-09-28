@@ -254,6 +254,9 @@ export function getConnectionGeometry(project, connection, boundary, wireMoveOve
 function computeConnectionGeometry(project, connection, boundary, wireMoveOverride, raw) {
   let base = computeGeometry(project, connection, boundary, wireMoveOverride);
   if (!base || base.manual) return base;
+  // An embedded host (window.nodigraphEmbedded, a device's own page) has
+  // no routing at all: the plain route, port to port, whatever it crosses.
+  if (typeof window !== 'undefined' && window.nodigraphEmbedded) return base;
 
   // Obstacle avoidance. When the plain route runs through a block that
   // is neither of its own ends nor a panel one of them sits in, the wire

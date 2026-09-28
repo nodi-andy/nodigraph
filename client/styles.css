@@ -1693,6 +1693,63 @@ body.inspector-open .control-bar {
   max-height: 220px;
 }
 
+/* --- File source chip (header) ------------------------------------- */
+
+/* "Working on <file>": a quiet pill after the breadcrumb, the file icon,
+   its name, and a dot once the file is behind the diagram (see
+   ui/FileSource.js). A button, since clicking it saves. */
+.file-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 200px;
+  margin-left: 6px;
+  padding: 2px 8px 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-well);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.file-source:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.file-source svg {
+  flex-shrink: 0;
+}
+
+.file-source-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The dot only exists while there is something to save. */
+.file-source-dot {
+  display: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warning);
+  flex-shrink: 0;
+}
+
+.file-source.unsaved .file-source-dot {
+  display: inline-block;
+}
+
+@media (max-width: 640px) {
+  .file-source {
+    max-width: 110px;
+  }
+}
+
 /* --- Export dialog ------------------------------------------------- */
 
 /* The menu's "Export <name>" row: a long block name trims rather than

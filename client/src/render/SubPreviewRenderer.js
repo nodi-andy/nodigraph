@@ -196,6 +196,23 @@ export function isLevelOpen(block, zoom) {
   return zoom * frameToFace(block.geometry, block.boundaryGeometry).scale >= openZoom();
 }
 
+// How many levels below the one being edited are drawn inside faces. The
+// levels on the way down to the edited one are always drawn (the scene
+// draws the whole tree from the root, see SceneRenderer.renderScene), and
+// so is the edited level itself; this is about what opens beyond it. An
+// embedded host (window.nodigraphEmbedded, a device's own page) draws
+// one: the blocks of the edited level open at the usual zoom, so a
+// board's circuit shows on its face from outside, but a level drawn
+// inside one of them keeps its own levels closed — nested passes were
+// most of what made that page heavy. (A first version closed every level
+// there; then a board's inside could not be seen at all without entering
+// it. A second capped the depth from the root, which is wrong once you
+// stand inside a block: its own level then counted as too deep and the
+// page showed the frame empty.)
+export function previewDepth() {
+  return typeof window !== 'undefined' && window.nodigraphEmbedded ? 1 : MAX_DEPTH;
+}
+
 export function toggleForcedContent(block) {
   if (block.kind === 'text' || !hasSubArchitecture(block)) return false;
   block.boundaryGeometry ||= defaultBoundaryFor(block.geometry);
@@ -577,6 +594,12 @@ export function drawLevel(
     flowOffset = null,
     requestRender = () => {},
     onDrawBlock = () => {},
+    // How big to draw this level's own boundary pins relative to the
+    // level's scale: the inverse of the frame-to-face scale when the level
+    // is drawn on its block's face (see drawSubPreview), so the pin inside
+    // is the same size on screen as the plug the level above draws for
+    // the same connector, at any frame factor. 1 for the root.
+    boundaryPinScale = 1,
   } = {},
 ) {
   const container = view.getContainerBlock();
@@ -790,7 +813,7 @@ export function drawLevel(
     const wiredPins = view.listBoundaryPorts(container).filter((port) => view.listBoundaryWires(container.id, port.id).length > 0);
     if (wiredPins.length) {
       const boundaryWireLabels = new Map(wiredPins.map((port) => [port.id, wireEntriesFor(container.id, port)]));
-      drawBoundaryPins(ctx, container, routingBoundary.geometry, wiredPins, { portHighlights, palette, boundaryWireLabels, wireMoveOverride, zoom, hoverPin, portNames: false });
+      drawBoundaryPins(ctx, container, routingBoundary.geometry, wiredPins, { portHighlights, palette, boundaryWireLabels, wireMoveOverride, zoom, hoverPin, portNames: false, pinScale: boundaryPinScale });
     }
   }
 }
@@ -814,6 +837,9 @@ export function drawSubPreview(
   const alpha = onFocusPath ? 1 : t;
   const frame = block.boundaryGeometry;
   if (alpha <= 0 || depth >= MAX_DEPTH || !hasSubArchitecture(block) || !frame) return;
+  // `depth` counts from the root; the edited level sits at the depth of
+  // the path down to it (focus.pathIds, one id per level entered).
+  if (!onFocusPath && depth > (focus?.pathIds?.size ?? 0) + previewDepth()) return;
   if (visible && !onFocusPath && !intersects(block.geometry, visible)) return;
 
   const view = new LevelView(block);
@@ -864,6 +890,7 @@ export function drawSubPreview(
     flowOffset,
     requestRender,
     onDrawBlock,
+    boundaryPinScale: 1 / layout.scale,
   });
 
   ctx.restore();
