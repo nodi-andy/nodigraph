@@ -39,8 +39,30 @@ import { getBoundaryLabelRect, getBlockTitleRect, hasSubArchitecture, isOpenable
 import { chainToRoot, childCameraFor, rootCameraFor } from './render/levelTransform.js';
 import { isLevelEditable, isLevelOpen, minEditZoom, toggleForcedContent } from './render/SubPreviewRenderer.js';
 import { resolveFocus } from './interaction/LevelFocus.js';
+import { hitTest } from './interaction/HitTest.js';
+import { LevelView } from './model/levelView.js';
+import { screenToWorldWith } from './render/levelTransform.js';
 import { getConnectionGeometry, getConnectionLabelPosition } from './render/ConnectionRenderer.js';
-import { readProjectFile, supportsFileSystemAccess, pickProjectFile, pickSaveHandle, writeProjectToHandle, safeFileStem } from './model/localFile.js';
+import {
+  readProjectFile,
+  supportsFileSystemAccess,
+  pickProjectFile,
+  pickSaveHandle,
+  writeProjectToHandle,
+  safeFileStem,
+  rememberFileHandle,
+  recallFileHandle,
+  forgetFileHandle,
+  sameProjectText,
+  pickImageFile,
+  pickImageFileFallback,
+  fileToDataUrl,
+  relativeImageRef,
+  folderReadable,
+  requestFolderRead,
+  readFolderImageUrl,
+} from './model/localFile.js';
+import { setImageResolver, forgetImage } from './render/imageCache.js';
 import { pasteSlimYamlText } from './model/slimFormat.js';
 import { renderCurrentLevelSvgString } from './model/diagramSvg.js';
 import { encodeProjectToParam, decodeProjectFromParam, readSharedParam, shareUrlFor } from './model/shareLink.js';
@@ -63,7 +85,6 @@ const ctx = canvas.getContext('2d');
 const fabEl = document.getElementById('fab-add-block');
 const fabAddIconEl = fabEl.querySelector('[data-icon="add"]');
 const fabEnterIconEl = fabEl.querySelector('[data-icon="enter"]');
-const textFabEl = document.getElementById('fab-add-text');
 const inspectorEl = document.getElementById('inspector');
 const breadcrumbEl = document.getElementById('breadcrumb');
 const parentFabEl = document.getElementById('fab-parent');
@@ -264,7 +285,121 @@ async function bootstrap() {
   // as file…" picks one.
   let fileHandle = null;
   let fileSavedSnapshot = null;
+  // The diagram's folder (a directory handle, Chromium only — see
+  // localFile.js's relativeImageRef): where an image block's picture is
+  // read from when its `image` is a relative path, and where a picked
+  // picture is imported to. Chosen once, remembered with the file.
+  let projectFolder = null;
+  // The file this browser had open when the page was last unloaded (see
+  // localFile.js's rememberFileHandle): the graph itself came back through
+  // the autosave, and without this the file it belonged to was forgotten
+  // on every reload, so the next Save asked where to put a diagram that
+  // already had a home. Not for a page opened from a link, a GitHub path
+  // or a live session — those diagrams are not the one the file holds.
+  if (!isSharedView && !isGitHubView && !isLiveGuest && supportsFileSystemAccess()) {
+    const remembered = await recallFileHandle();
+    if (remembered) {
+      fileHandle = remembered.handle;
+      projectFolder = remembered.folder;
+      // The graph came back through storage with its keys reordered, so
+      // the remembered text is compared by content; when it matches, the
+      // live snapshot string stands in for it, since everything else here
+      // compares snapshots as strings.
+      fileSavedSnapshot = sameProjectText(remembered.snapshot, lastSyncedSnapshot) ? lastSyncedSnapshot : remembered.snapshot;
+    }
+  }
+  // What was last written to that store, so refreshSaved (which runs on
+  // every edit) only writes when the file or its saved state changed.
+  let rememberedHandle = fileHandle;
+  let rememberedSnapshot = fileSavedSnapshot;
+  let rememberedFolder = projectFolder;
+  function rememberFile() {
+    if (fileHandle === rememberedHandle && fileSavedSnapshot === rememberedSnapshot && projectFolder === rememberedFolder) return;
+    rememberedHandle = fileHandle;
+    rememberedSnapshot = fileSavedSnapshot;
+    rememberedFolder = projectFolder;
+    if (fileHandle || projectFolder) rememberFileHandle(fileHandle, fileSavedSnapshot, projectFolder);
+    else forgetFileHandle();
+  }
+
+  // Image blocks whose `image` is a path: read from the diagram's folder
+  // (see render/imageCache.js's setImageResolver). After a reload the
+  // folder is remembered but reading it needs the person's say-so again,
+  // and the browser only lets that be asked from a click — so such
+  // pictures wait, a toast says why, and the next press anywhere on the
+  // page asks; granted, the waiting pictures load.
+  const pendingImageRefs = new Set();
+  let folderPromptArmed = false;
+  function armFolderReadPrompt() {
+    if (folderPromptArmed || !projectFolder) return;
+    folderPromptArmed = true;
+    showToast('Click anywhere to let nodigraph read the pictures in the diagram folder.', { actions: [] });
+    const once = async () => {
+      document.removeEventListener('pointerdown', once, true);
+      folderPromptArmed = false;
+      let granted = false;
+      try {
+        granted = await requestFolderRead(projectFolder);
+      } catch {
+        granted = false;
+      }
+      if (!granted) return;
+      for (const ref of pendingImageRefs) forgetImage(ref);
+      pendingImageRefs.clear();
+      renderLoop.requestRender();
+    };
+    document.addEventListener('pointerdown', once, true);
+  }
+  async function resolveProjectImage(ref) {
+    if (!projectFolder) return null;
+    if (!(await folderReadable(projectFolder))) {
+      pendingImageRefs.add(ref);
+      armFolderReadPrompt();
+      return null;
+    }
+    return readFolderImageUrl(projectFolder, ref);
+  }
+  setImageResolver(resolveProjectImage);
+
+  // A picture from this computer for a block's face (see the Inspector's
+  // Image field): one file dialog and nothing more. When the diagram's
+  // folder is known, the picture is referenced relative to it (and copied
+  // in when it lies elsewhere); otherwise it is embedded in the diagram
+  // as a data URL, which draws everywhere and needs no folder. Resolves
+  // to { image, name } or null when nothing was chosen.
+  const EMBED_WARN_BYTES = 2 * 1024 * 1024;
+  async function chooseImage() {
+    let file = null;
+    let handle = null;
+    try {
+      if (supportsFileSystemAccess()) {
+        const picked = await pickImageFile();
+        if (picked) ({ file, handle } = picked);
+      } else {
+        file = await pickImageFileFallback();
+      }
+    } catch (err) {
+      showToast(`Couldn't open a picture: ${err.message}`);
+      return null;
+    }
+    if (!file) return null;
+    try {
+      if (projectFolder && handle) {
+        const image = await relativeImageRef(projectFolder, handle, file);
+        forgetImage(image);
+        return { image, name: file.name };
+      }
+      if (file.size > EMBED_WARN_BYTES) {
+        showToast(`${file.name} is ${Math.round(file.size / 1024 / 1024)} MB and is stored inside the diagram — a smaller picture keeps the file and its links light.`);
+      }
+      return { image: await fileToDataUrl(file), name: file.name };
+    } catch (err) {
+      showToast(`Couldn't use that picture: ${err.message}`);
+      return null;
+    }
+  }
   function refreshSaved() {
+    rememberFile();
     const pendingHost = Boolean(window.nodigraphHasUnsavedChanges?.());
     appMenuApi?.refreshSaved(pendingHost ? false : localSavedSnapshot === null ? null : localSavedSnapshot === lastSyncedSnapshot);
     const fileState = { name: fileHandle?.name ?? null, saved: fileHandle ? fileSavedSnapshot === lastSyncedSnapshot : null };
@@ -832,10 +967,33 @@ async function bootstrap() {
   function focusLevelAt(screen) {
     if (!stateMachine.isIdle()) return null;
     const viewport = { width: canvas.clientWidth, height: canvas.clientHeight };
-    const target = resolveFocus(project, camera, screen, viewport, { canEnter: canEnterBlock });
+    const selectedBlockId = selection.count === 1 ? selection.selectedBlockId : null;
+    const target = resolveFocus(project, camera, screen, viewport, { canEnter: canEnterBlock, selectedBlockId });
     if (!target) return null;
     focusLevel(target.path, target.camera);
     return camera.screenToWorld(screen.x, screen.y);
+  }
+
+  // The pin under the idle pointer when it belongs to a level other than
+  // the one being edited (see DragStateMachine's onResolveHover): the
+  // same walk a press makes (resolveFocus), then a hit-test in that
+  // level. Null when the pointer's level is the current one, or nothing
+  // of a pin is there.
+  function hoverHitAt(screen) {
+    const viewport = { width: canvas.clientWidth, height: canvas.clientHeight };
+    const target = resolveFocus(project, camera, screen, viewport, { canEnter: canEnterBlock });
+    if (!target) return null;
+    let container = project.rootBlock;
+    let view = new LevelView(container);
+    for (const id of target.path) {
+      container = view.getBlock(id);
+      if (!container) return null;
+      view = new LevelView(container);
+    }
+    const world = screenToWorldWith(target.camera, screen.x, screen.y);
+    const boundary = container.boundaryGeometry ? { block: container, geometry: container.boundaryGeometry } : null;
+    const hit = hitTest(view, world.x, world.y, boundary, null, null, target.camera.zoom);
+    return hit && (hit.type === 'port' || hit.type === 'connector') ? hit : null;
   }
 
   // Zooming moves the focus too, so the zoom range always has room. In:
@@ -1609,7 +1767,6 @@ async function bootstrap() {
     fabEnterIconEl.style.display = 'none';
     fabEl.title = target && target !== 'level' ? `Add block inside ${target.name || 'block'}` : 'Add block';
     fabEl.setAttribute('aria-label', fabEl.title);
-    if (textFabEl) textFabEl.disabled = selectionCount() > 0;
     refreshExportTarget();
     pruneStaleCursors();
     onlineUsersApi.refresh(clientId, [...remoteCursors.keys()]);
@@ -1736,6 +1893,7 @@ async function bootstrap() {
     },
     onZoomChanged: crossLevelsForZoom,
     onResolveFocus: focusLevelAt,
+    onResolveHover: hoverHitAt,
     onOpenLink: openBlockLink,
   });
 
@@ -1812,7 +1970,6 @@ async function bootstrap() {
     selection,
     requestRender: () => renderLoop.requestRender(),
     persist,
-    textFabEl,
     beforeAdd: addIntoSelection,
   });
 
@@ -1823,6 +1980,7 @@ async function bootstrap() {
     requestRender: () => renderLoop.requestRender(),
     persist,
     deleteBlock,
+    chooseImage,
     enterBlock,
     canEnterBlock,
     deleteConnection,
@@ -1972,11 +2130,16 @@ async function bootstrap() {
   // saved back into the address bar, so closing with unsaved edits loses
   // them outright. A server-backed one is already on the server, and gets
   // no prompt — a confirmation dialog that fires when nothing is at stake
-  // is one people learn to dismiss without reading.
+  // is one people learn to dismiss without reading. A diagram with a file
+  // on this computer behind it gets the prompt while the file lacks
+  // edits: the autosave keeps the graph across a reload, but the file is
+  // what the person will hand on, and closing with it stale is the moment
+  // to say so.
   window.addEventListener('beforeunload', (event) => {
     const unsavedShared = isSharedView && urlSnapshot !== lastSyncedSnapshot;
     const unsavedGitHub = isGitHubView && githubSyncedSnapshot !== lastSyncedSnapshot;
-    if (!unsavedShared && !unsavedGitHub) return;
+    const unsavedFile = fileHandle !== null && fileSavedSnapshot !== lastSyncedSnapshot;
+    if (!unsavedShared && !unsavedGitHub && !unsavedFile) return;
     event.preventDefault();
     event.returnValue = '';
   });
@@ -2048,6 +2211,19 @@ async function bootstrap() {
     if (key === 's') {
       event.preventDefault();
       appMenuApi?.triggerSave();
+      return;
+    }
+
+    // Ctrl/Cmd+A selects every block of the level being edited — the one
+    // you are standing in, whichever block that is inside — as a marquee
+    // around the whole level would. Not while typing: a text field's own
+    // select-all is what that means there.
+    if (key === 'a') {
+      if (editingText()) return;
+      event.preventDefault();
+      wireSelection.clear();
+      selection.selectMany(project.listBlocks().map((block) => block.id));
+      renderLoop.requestRender();
       return;
     }
 

@@ -1,19 +1,18 @@
-import { DEFAULT_BLOCK_WIDTH, DEFAULT_BLOCK_HEIGHT, DEFAULT_TEXT_WIDTH, DEFAULT_TEXT_HEIGHT } from '../model/Block.js';
+import { DEFAULT_BLOCK_WIDTH, DEFAULT_BLOCK_HEIGHT } from '../model/Block.js';
 
 // The FAB is the app's single primary action (mobile convention), reused
-// as-is on desktop rather than a separate toolbar button. `textFabEl` is
-// the smaller "add text" mini-FAB stacked above it — same creation flow,
-// just a different kind and default footprint (see Block.createBlock).
+// as-is on desktop rather than a separate toolbar button. It adds a
+// block, and only that: what the block shows on its closed face — its
+// text, a picture — is the block's own, set and placed afterwards (see
+// the Inspector's Image field, and BlockRenderer.getTextStackRect /
+// getImageRect for dragging them about the face).
 //
 // It always adds. With one block selected, the new block goes inside that
 // block: `beforeAdd` (see main.js's addIntoSelection) moves the editing
 // focus into it first, zooming in if its contents are not on screen, and
 // returns the frame the new block should land in, or null to add into the
 // level being edited as before.
-export function mountToolbar(
-  fabEl,
-  { project, camera, canvas, selection, requestRender, persist, textFabEl, beforeAdd },
-) {
+export function mountToolbar(fabEl, { project, camera, canvas, selection, requestRender, persist, beforeAdd }) {
   function addCentered(kind, width, height) {
     const frame = beforeAdd?.() || null;
     const center = camera.screenToWorld(canvas.clientWidth / 2, canvas.clientHeight / 2);
@@ -32,5 +31,4 @@ export function mountToolbar(
   }
 
   fabEl.addEventListener('click', () => addCentered('block', DEFAULT_BLOCK_WIDTH, DEFAULT_BLOCK_HEIGHT));
-  textFabEl?.addEventListener('click', () => addCentered('text', DEFAULT_TEXT_WIDTH, DEFAULT_TEXT_HEIGHT));
 }

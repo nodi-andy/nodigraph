@@ -248,6 +248,10 @@ be quoted. `·`, `→`, `::`, `/`, `%`, `°` and `−` are all safe unquoted.
 | `subtitle` | — | one smaller, muted line under the title |
 | `lines` | — | a block sequence of short monospace detail rows under the title |
 | `link` | — | an `http(s)` URL this block stands for — a source file on GitHub, an endpoint, a document. Draws an ↗ glyph; clicking it opens the URL. |
+| `image` | — | a picture on the block's face: an `http(s)` URL ending in `.png`/`.jpg`/`.svg`, or a `data:` URL. Fitted into the face unless `image_box` says where. |
+| `image_box` | fitted | `[x, y, w, h]` in world units from the block's top-left corner: where the picture sits and how big it is. Resizing the block does not resize it. |
+| `title_box` | by `title_pos` | `[x, y, w, h]` in world units from the block's top-left corner: the box the text is laid out in on the closed face, when it was dragged or scaled |
+| `header_box` | along the top | `[x, y, w, h]` in the block's *interior* units from the face's top-left corner: the heading band shown over the open level, when it was dragged or scaled from inside |
 | `title_pos` | `center`, or `top` once `subtitle`/`lines` are set | `top`, `center`, `bottom` |
 | `title_align` | `center` | `left`, `center`, `right` |
 | `kind` | `block` | `text` = a bare label: no border, no fill, no ports. |
@@ -262,8 +266,9 @@ be quoted. `·`, `→`, `::`, `/`, `%`, `°` and `−` are all safe unquoted.
 | `props` | — | `{ key: value }` free-form data, shown in the Inspector. Put sources, assumptions and notes here. |
 | `blocks`, `wires`, `boundary` | — | this block's *interior* — see Nesting |
 
-A block's name doubles as an image source: give it an `http(s)` URL ending in
-`.png`/`.jpg`/`.svg` and the picture fills the block instead of the text.
+A block's name also doubles as an image source: give it an `http(s)` URL
+ending in `.png`/`.jpg`/`.svg` and the picture fills the block instead of the
+text. Prefer `image`, which keeps the name for the label.
 
 ### Port
 

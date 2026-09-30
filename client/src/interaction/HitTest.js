@@ -19,6 +19,12 @@ import {
   isOpenableLink,
   getPlugRect,
   isPluggedConnection,
+  getImageRect,
+  getBoxHandleRects,
+  getOpenHeaderRect,
+  getTextStackRect,
+  loadedImageOf,
+  nameIsImage,
 } from '../render/BlockRenderer.js';
 import { isPortHidden } from '../model/BlockDescription.js';
 import { isLevelOpen } from '../render/SubPreviewRenderer.js';
@@ -161,6 +167,14 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
         // One per wire, matching the fan drawn on the inside (see
         // BlockRenderer's own rectCount note).
         const count = Math.max(1, wireIds.length);
+        // Every wire whose plug is under the point: several wires can
+        // share one slot (see BlockRenderer.getBoundaryWireRelativeIndex),
+        // and then their plugs are drawn on top of one another. The hit
+        // names them all (`connectionIds`), and the first as the plain
+        // `connectionId`; DragStateMachine picks which of them a grab
+        // takes.
+        const ids = [];
+        let hitPlug = false;
         for (let wireIndex = 0; wireIndex < count; wireIndex += 1) {
           // Resolved against this specific wire's own pinned slot (see
           // getBoundaryWireRelativeIndex) — a wire moved into a slot other
@@ -170,9 +184,11 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
           const pos = getBoundaryWirePosition(block, port, wireIndex, wireIds[wireIndex]);
           if (portBodyClaims(pos, side)) continue;
           if (pointInRect(worldX, worldY, getPlugRect(pos, side, true), connectorPadding)) {
-            return { type: 'connector', blockId: block.id, portId: port.id, connectionId: wireIds[wireIndex] || null };
+            hitPlug = true;
+            if (wireIds[wireIndex]) ids.push(wireIds[wireIndex]);
           }
         }
+        if (hitPlug) return { type: 'connector', blockId: block.id, portId: port.id, connectionId: ids[0] || null, connectionIds: ids, inverted: true };
       } else {
         const pos = getPortPosition(block, port);
         if (portBodyClaims(pos, port.side)) continue;
@@ -211,7 +227,7 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
           const pos = getBoundaryWirePosition(block, port, wireIndex, wireIds[wireIndex]);
           const rect = getSlotRectFromBorderPoint(pos.x, pos.y, side);
           if (pointInRect(worldX, worldY, rect, padding)) {
-            hitWire = { type: 'port', blockId: block.id, portId: port.id, wireIndex, connectionId: wireIds[wireIndex] ?? null };
+            hitWire = { type: 'port', blockId: block.id, portId: port.id, wireIndex, connectionId: wireIds[wireIndex] ?? null, inverted: true };
             break;
           }
         }
@@ -223,11 +239,11 @@ function hitPortsAcrossBlocks(blocks, worldX, worldY, inverted = false, wireIdsF
         // relocate it, `wireIndex` left undefined so DragStateMachine's
         // 'port' handling falls to its plain whole-port move rather than
         // MOVING_PORT_WIRE (which requires a specific wire).
-        const rectCount = Math.max(1, wireIds.length, width);
+        const rectCount = Math.max(1, width);
         if (rectCount > 1) {
           const groupRect = getBoundaryPortBlockRect(block, port, rectCount);
           if (pointInRect(worldX, worldY, groupRect, padding)) {
-            return { type: 'port', blockId: block.id, portId: port.id };
+            return { type: 'port', blockId: block.id, portId: port.id, inverted: true };
           }
         }
       }
@@ -310,7 +326,9 @@ export function hitTest(project, worldX, worldY, boundary, resizableBlockId, res
       // "move me to another port" gesture along the same edge; grips on a
       // selected port give widening a target that guesses at nothing.
       if (port) {
-        const count = Math.max(1, wireCount);
+        // The pin's own slot count (see BlockRenderer.drawPorts' rectCount
+        // note) — its grips sit at the ends of exactly what is drawn.
+        const count = Math.max(1, getPortBoundaryPlacement(port, boundaryView).width || 1);
         // `boundaryView`, not the bare `boundary.block` — its own outer
         // geometry (how big/where it sits one level up) routinely differs
         // from its boundaryGeometry (this container's own, independently
@@ -436,8 +454,46 @@ export function hitTest(project, worldX, worldY, boundary, resizableBlockId, res
       if (isOpenableLink(block.link) && pointInRect(worldX, worldY, getLinkGlyphRect(block.geometry, zoom), 2 / zoom)) {
         return { type: 'link', blockId: block.id };
       }
-      const title = getBlockTitleRect(block, { open: isLevelOpen(block, zoom) });
-      return { type: 'body', blockId: block.id, title: Boolean(title && pointInRect(worldX, worldY, title)) };
+      const open = isLevelOpen(block, zoom);
+      const title = getBlockTitleRect(block, { open });
+      const onTitle = Boolean(title && pointInRect(worldX, worldY, title));
+      // The selected, closed block's own face has things on it that move
+      // by themselves (see BlockRenderer.drawFaceElementHandles): the
+      // picture's corner grips, the text stack, the picture. `element`
+      // names which one the press is on; DragStateMachine moves or scales
+      // that instead of the block. Only the selected block, so a first
+      // grab of any block still moves the whole block.
+      if (block.id === resizableBlockId && !open) {
+        const image = loadedImageOf(block);
+        const imageRect = image ? getImageRect(block, image) : null;
+        const textRect = nameIsImage(block) ? null : getTextStackRect(block);
+        // Grips before bodies, and the text (drawn on top) before the
+        // picture, so whatever is visible under the pointer is what a
+        // press takes.
+        for (const [element, rect] of [['textHandle', textRect], ['imageHandle', imageRect]]) {
+          if (!rect) continue;
+          for (const [corner, grip] of Object.entries(getBoxHandleRects(rect, zoom))) {
+            if (pointInRect(worldX, worldY, grip, 2 / zoom)) return { type: 'body', blockId: block.id, title: false, element, corner };
+          }
+        }
+        if (textRect && pointInRect(worldX, worldY, textRect)) return { type: 'body', blockId: block.id, title: onTitle, element: 'text' };
+        if (imageRect && pointInRect(worldX, worldY, imageRect)) return { type: 'body', blockId: block.id, title: false, element: 'image' };
+      }
+      // Open, the block's title is its heading band over the level, and
+      // the selected block's band is a box of its own (see
+      // BlockRenderer.openHeaderLayout): its corner grips scale it, its
+      // body moves it. A press there stays at this level rather than
+      // going into the level inside (see LevelFocus).
+      if (block.id === resizableBlockId && open) {
+        const band = getOpenHeaderRect(block);
+        if (band) {
+          for (const [corner, grip] of Object.entries(getBoxHandleRects(band, zoom))) {
+            if (pointInRect(worldX, worldY, grip, 2 / zoom)) return { type: 'body', blockId: block.id, title: false, element: 'headerHandle', corner };
+          }
+          if (pointInRect(worldX, worldY, band)) return { type: 'body', blockId: block.id, title: onTitle, element: 'header' };
+        }
+      }
+      return { type: 'body', blockId: block.id, title: onTitle };
     }
   }
 

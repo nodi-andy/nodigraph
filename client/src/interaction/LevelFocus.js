@@ -64,7 +64,7 @@ function boundaryOf(container) {
  * edit and the camera re-based into it — or null when the pointer's
  * level is the one already being edited.
  */
-export function resolveFocus(project, camera, screen, viewport, { canEnter = () => true } = {}) {
+export function resolveFocus(project, camera, screen, viewport, { canEnter = () => true, selectedBlockId = null } = {}) {
   let cam = rootCameraFor(camera, chainToRoot(project.getPathBlocks()));
   let container = project.rootBlock;
   const path = [];
@@ -76,14 +76,20 @@ export function resolveFocus(project, camera, screen, viewport, { canEnter = () 
   for (let depth = 0; depth < deepest; depth += 1) {
     const view = new LevelView(container);
     const world = screenToWorldWith(cam, screen.x, screen.y);
-    const hit = hitTest(view, world.x, world.y, boundaryOf(container), null, null, cam.zoom);
-    if (!hit || hit.type === 'link' || hit.title) break;
+    // `selectedBlockId` lets the hit name the selected block's own
+    // handles and the things on its face (see HitTest's `element`) — a
+    // press on those is for that block, whichever level it is drawn in.
+    const hit = hitTest(view, world.x, world.y, boundaryOf(container), selectedBlockId, null, cam.zoom);
+    if (!hit || hit.type === 'link' || hit.title || hit.element) break;
     // The level already being edited keeps the pointer as long as it lands
     // anywhere on its container — its pins included: seen from inside they
     // are the frame's own pins, and grabbing one is how a pin is moved or
     // wired from in there. Only a click outside the container, or on
-    // something that belongs to another level, moves the focus out.
-    const staying = project.path[depth] === hit.blockId;
+    // something that belongs to another level, moves the focus out. A
+    // pin's exterior plug is the level above's: the wire on it lives up
+    // there, outside the face, where the level inside has nothing to hit,
+    // so a press (or the hover before it) on that plug goes up to it.
+    const staying = project.path[depth] === hit.blockId && hit.type !== 'connector';
     if (hit.type !== 'body' && !staying) break;
     const block = view.getBlock(hit.blockId);
     if (!block || block.kind === 'text' || !hasSubArchitecture(block) || !block.boundaryGeometry) break;

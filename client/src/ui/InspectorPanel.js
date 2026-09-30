@@ -96,6 +96,9 @@ export function mountInspector(
     // Drops a wire's hand-drawn route (see main.js) — optional, so a caller
     // that never supplies one just gets a button that does nothing.
     resetConnectionRoute = () => {},
+    // Picks a picture for the Image field (see main.js's chooseImage) —
+    // optional; without it the field is a plain text box for a URL.
+    chooseImage = null,
     toggleButton,
     extraTabs = [],
     // A host page's own veto over whether a given block may be entered at
@@ -294,6 +297,84 @@ export function mountInspector(
     subtitleInput.addEventListener('change', persist);
     container_.appendChild(field('Subtitle', subtitleInput));
 
+    // The block's title picture (see render/imageCache.js's imageSourceOf,
+    // BlockRenderer.getImageRect): from a URL, or from a file on this
+    // computer — one file dialog, nothing else asked (see main.js's
+    // chooseImage). On the canvas the picture is dragged about the face
+    // and scaled from its corners while the block is selected.
+    const imageRow = document.createElement('div');
+    imageRow.className = 'inspector-image-row';
+    const isFileImage = (value) => Boolean(value) && !/^https?:/i.test(value);
+    const sourceSelect = document.createElement('select');
+    for (const [value, label] of [['', 'None'], ['url', 'URL'], ['file', 'File']]) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      sourceSelect.appendChild(option);
+    }
+    sourceSelect.value = !block.image ? '' : isFileImage(block.image) ? 'file' : 'url';
+    const detail = document.createElement('div');
+    detail.className = 'inspector-image-detail';
+    const describeFile = (value) => {
+      if (value.startsWith('data:')) return `embedded picture · ${Math.max(1, Math.round((value.length * 3) / 4 / 1024))} KB`;
+      return value;
+    };
+    const renderDetail = () => {
+      detail.replaceChildren();
+      const mode = sourceSelect.value;
+      if (mode === 'url') {
+        const imageInput = document.createElement('input');
+        imageInput.type = 'text';
+        imageInput.placeholder = 'https://…/picture.png';
+        imageInput.value = isFileImage(block.image) ? '' : block.image || '';
+        imageInput.addEventListener('input', () => {
+          const value = imageInput.value.trim();
+          if (value) block.image = value;
+          else delete block.image;
+          requestRender();
+        });
+        imageInput.addEventListener('change', persist);
+        detail.appendChild(imageInput);
+      } else if (mode === 'file') {
+        const chooseButton = document.createElement('button');
+        chooseButton.type = 'button';
+        chooseButton.className = 'inspector-mini-button';
+        chooseButton.textContent = isFileImage(block.image) ? 'Choose another…' : 'Choose file…';
+        chooseButton.disabled = !chooseImage;
+        chooseButton.addEventListener('click', async () => {
+          const picked = await chooseImage?.();
+          if (!picked?.image) return;
+          block.image = picked.image;
+          delete block.imageBox;
+          persist();
+          requestRender();
+          renderDetail();
+        });
+        const label = document.createElement('span');
+        label.className = 'inspector-image-name';
+        label.textContent = isFileImage(block.image) ? describeFile(block.image) : 'no file yet';
+        label.title = label.textContent;
+        detail.append(chooseButton, label);
+      }
+    };
+    sourceSelect.addEventListener('change', () => {
+      if (sourceSelect.value === '') {
+        delete block.image;
+        delete block.imageBox;
+        persist();
+        requestRender();
+      } else if (sourceSelect.value === 'url' && isFileImage(block.image)) {
+        delete block.image;
+        delete block.imageBox;
+        persist();
+        requestRender();
+      }
+      renderDetail();
+    });
+    renderDetail();
+    imageRow.append(sourceSelect, detail);
+    container_.appendChild(field('Picture', imageRow));
+
     const linesInput = document.createElement('textarea');
     linesInput.rows = 2;
     linesInput.placeholder = 'one detail per line';
@@ -336,6 +417,8 @@ export function mountInspector(
       makeSelect([['', 'Auto'], ['top', 'Top'], ['center', 'Middle'], ['bottom', 'Bottom']], block.style.titlePos, (v) => {
         if (v) block.style.titlePos = v;
         else delete block.style.titlePos;
+        // A picked position replaces wherever the text was dragged to.
+        delete block.titleBox;
       }),
       makeSelect([['', 'Auto'], ['left', 'Left'], ['center', 'Center'], ['right', 'Right']], block.style.titleAlign, (v) => {
         if (v) block.style.titleAlign = v;

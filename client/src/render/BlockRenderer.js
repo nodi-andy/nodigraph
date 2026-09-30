@@ -12,7 +12,7 @@ import {
 import { getStateColor, logicalPortOf, isPortHidden } from '../model/BlockDescription.js';
 import { DEFAULT_BLOCK_COLOR, TITLE_POSITIONS, TITLE_ALIGNMENTS } from '../model/Block.js';
 import { boundaryPlacementFor, exteriorPlacementFor, frameToFace } from '../model/levelGeometry.js';
-import { isImageUrl, getCachedImage } from './imageCache.js';
+import { isImageUrl, getCachedImage, imageSourceOf } from './imageCache.js';
 import { getCanvasPalette } from './canvasPalette.js';
 import { getFontFamily, ensureFontLoaded } from './fonts.js';
 import { isImprovedView } from './viewOptions.js';
@@ -248,6 +248,22 @@ export function getBoundaryWirePosition(block, port, index, connectionId) {
 // Project.listBoundaryWires, same positioning a wire has always had by
 // default.
 export function getBoundaryWireRelativeIndex(port, connectionId, fallbackIndex) {
+  const width = port.boundary?.width || 1;
+  // The pin has exactly the slots its owner gave it (see
+  // getPortBoundaryPlacement's width) and never grows one to fit a wire:
+  // a wire whose slot lies past the last one shares that last slot — the
+  // same way every wire of a never-widened pin shares its one slot. A
+  // slot can hold any number of wires; only the count of slots is the
+  // user's. (While a pin is being narrowed the wires past its new end
+  // gather on that end like this, and are cut loose on release — see
+  // DragStateMachine's RESIZING_PORT release.)
+  return Math.max(0, Math.min(width - 1, getBoundaryWireRawIndex(port, connectionId, fallbackIndex)));
+}
+
+// The slot a wire is pinned to as stored, unclamped — the number the
+// resize bookkeeping works with (see DragStateMachine.applyPortResize),
+// where "past the end" is exactly the fact that matters.
+export function getBoundaryWireRawIndex(port, connectionId, fallbackIndex) {
   const stored = connectionId ? port.boundary?.wireSlots?.[connectionId] : undefined;
   return stored !== undefined ? stored : fallbackIndex;
 }
@@ -331,47 +347,43 @@ export function getBoundaryPortBlockRect(block, port, count) {
   return { x: first.x - thickHalf, y: y0, width: BOUNDARY_PORT_THICKNESS, height: y1 - y0 };
 }
 
-// The two ends of a port's boundary block, along whichever axis it
-// actually spreads on — the "resize its width" handles from the design.
-// Kept *entirely inside* the block's own rect (never straddling past its
-// edge) so there's no pixel a handle and a neighboring cell's own
-// affordance both claim — the geometric fix for that, rather than the
-// hit-testing priority order alone. Each still spans the block's full
-// thickness so it reads as a graspable end-cap, not a dot in the middle.
-// Kept short enough that, even after HitTest pads its hit area (see
-// PORT_RESIZE_HIT_PADDING there), the two padded handle zones don't meet
-// in the middle of a single-wire (narrowest) port — that gap is exactly
-// what tells a plain "move this port" click apart from a resize. Only
-// drawn/hit-tested while that port is the selected one (see
-// DragStateMachine.getResizablePortId), same gating a block's own resize
-// handles get.
-export const PORT_RESIZE_HANDLE_LENGTH = 10;
+// The two ends of a pin's span along its edge — the "how many slots"
+// grips. Each is a bar on the end line of the pin's group rect (see
+// getBoundaryPortBlockRect), reaching from the border into the level:
+// the slots are the pin's inside, and so are the grips that add and take
+// them away — nothing about them shows on the exterior face. They stay
+// clear of the plugs, which sit on the axis of each slot, never at the
+// group's ends. Only drawn/hit-tested while that pin is the selected one
+// (see DragStateMachine.getResizablePortId), same gating a block's own
+// resize handles get.
+export const PORT_RESIZE_GRIP_THICKNESS = 8;
+export const PORT_RESIZE_GRIP_LENGTH = 24;
 export function getPortResizeHandleRects(block, port, count) {
   const rect = getBoundaryPortBlockRect(block, port, count);
-  const placement = getPortBoundaryPlacement(port, block);
-  // Never wider than half the block, so on a single-wire (narrowest) port
-  // the two handles still leave a sliver of body between them rather than
-  // overlapping each other.
-  if (sideAxis(placement.side) === 'y') {
-    const len = Math.min(PORT_RESIZE_HANDLE_LENGTH, rect.width / 2);
+  const { side } = getPortBoundaryPlacement(port, block);
+  const t = PORT_RESIZE_GRIP_THICKNESS;
+  const len = PORT_RESIZE_GRIP_LENGTH;
+  if (sideAxis(side) === 'y') {
+    const border = rect.y + rect.height / 2;
+    const y = side === 'top' ? border : border - len;
     return {
-      start: { x: rect.x, y: rect.y, width: len, height: rect.height },
-      end: { x: rect.x + rect.width - len, y: rect.y, width: len, height: rect.height },
+      start: { x: rect.x - t / 2, y, width: t, height: len },
+      end: { x: rect.x + rect.width - t / 2, y, width: t, height: len },
     };
   }
-  const len = Math.min(PORT_RESIZE_HANDLE_LENGTH, rect.height / 2);
+  const border = rect.x + rect.width / 2;
+  const x = side === 'left' ? border : border - len;
   return {
-    start: { x: rect.x, y: rect.y, width: rect.width, height: len },
-    end: { x: rect.x, y: rect.y + rect.height - len, width: rect.width, height: len },
+    start: { x, y: rect.y - t / 2, width: len, height: t },
+    end: { x, y: rect.y + rect.height - t / 2, width: len, height: t },
   };
 }
 
 function drawPortResizeHandles(ctx, rects, palette) {
   ctx.save();
-  ctx.globalAlpha = RESIZE_HANDLE_ALPHA;
   for (const rect of Object.values(rects)) {
-    ctx.beginPath();
-    ctx.rect(rect.x, rect.y, rect.width, rect.height);
+    const radius = Math.min(rect.width, rect.height) / 2;
+    roundRectPath(ctx, rect.x, rect.y, rect.width, rect.height, radius);
     ctx.fillStyle = palette.resizeHandleFill;
     ctx.fill();
     ctx.strokeStyle = SELECTION_COLOR;
@@ -477,9 +489,9 @@ const HANDLE_PIN_GAP = 3;
 // axis. The handle then steps to the nearest clear stretch of the edge
 // instead, staying attached at its usual distance rather than floating
 // out past the plug. `spans` are the pins on this edge (see pinSpansOf);
-// `preferBefore` picks which side of a pin to try first, so the handle
-// lands in the same place from one frame to the next rather than
-// flipping between two equally clear stretches.
+// `preferBefore` picks which side of a pin to try first — the side its
+// name does not run to (see drawPortLabel: a top or bottom pin's name
+// runs rightward from the axis, a left or right pin's sits above it).
 // Returns null when no clear stretch of the edge is long enough for the
 // grip, which the caller answers by moving the handle outward instead.
 function edgeHandleOffset(from, to, spans, zoom, preferBefore) {
@@ -753,23 +765,140 @@ export function getEdgeZoneOffset(geometry, ports, worldX, worldY, boundaryBlock
 // centered, without distorting its aspect ratio.
 const IMAGE_PADDING = 8;
 
-function drawContainImage(ctx, img, x, y, width, height) {
-  const availW = width - IMAGE_PADDING * 2;
-  const availH = height - IMAGE_PADDING * 2;
+// A stored box ({ x, y, w, h } from the block's top-left, see
+// Block.hydrateBlock) as a world rect on the face, kept inside it: a box
+// wider or taller than the face is scaled down to fit (uniformly when
+// `keepAspect`, a picture; each axis on its own for text), and one
+// hanging over an edge is pulled in. The stored box is left as it is —
+// this is what the block being smaller than its contents looks like,
+// not an edit.
+function boxOnFace(block, box, keepAspect) {
+  const { x, y, width, height } = block.geometry;
+  let w = box.w;
+  let h = box.h;
+  if (keepAspect) {
+    const fit = Math.min(1, width / w, height / h);
+    w *= fit;
+    h *= fit;
+  } else {
+    w = Math.min(w, width);
+    h = Math.min(h, height);
+  }
+  const bx = Math.min(Math.max(x + box.x, x), x + width - w);
+  const by = Math.min(Math.max(y + box.y, y), y + height - h);
+  return { x: bx, y: by, width: w, height: h };
+}
+
+// Where a block's picture is drawn on its face: `block.imageBox` — the
+// rect the person moved or scaled it to, in world units from the block's
+// corner, so resizing the block leaves the picture the size it is — else
+// fitted whole into the face with a small margin, centred, its aspect
+// ratio kept. Null while the picture has not loaded and there is no box
+// (nothing to size from).
+export function getImageRect(block, img) {
+  const { x, y, width, height } = block.geometry;
+  const box = block.imageBox;
+  if (box) return boxOnFace(block, box, true);
+  if (!img?.naturalWidth || !img?.naturalHeight) return null;
+  const availW = Math.max(1, width - IMAGE_PADDING * 2);
+  const availH = Math.max(1, height - IMAGE_PADDING * 2);
   const scale = Math.min(availW / img.naturalWidth, availH / img.naturalHeight);
   const w = img.naturalWidth * scale;
   const h = img.naturalHeight * scale;
-  ctx.drawImage(img, x + width / 2 - w / 2, y + height / 2 - h / 2, w, h);
+  return { x: x + width / 2 - w / 2, y: y + height / 2 - h / 2, width: w, height: h };
+}
+
+// A world rect on `block`'s face as the box `titleBox` / `imageBox` store.
+export function faceBoxOf(block, rect) {
+  const { x, y } = block.geometry;
+  return { x: rect.x - x, y: rect.y - y, w: rect.width, h: rect.height };
+}
+
+// The four corner grips of a box on a selected block's face — its picture
+// or its text (see drawFaceElementHandles) — screen-sized squares centred
+// on the corners.
+export const BOX_HANDLE_SIZE = 9;
+export function getBoxHandleRects(rect, zoom = 1) {
+  const size = BOX_HANDLE_SIZE / zoom;
+  const at = (cx, cy) => ({ x: cx - size / 2, y: cy - size / 2, width: size, height: size });
+  return {
+    nw: at(rect.x, rect.y),
+    ne: at(rect.x + rect.width, rect.y),
+    sw: at(rect.x, rect.y + rect.height),
+    se: at(rect.x + rect.width, rect.y + rect.height),
+  };
+}
+
+// The picture that draws on `block`, when it has loaded.
+export function loadedImageOf(block) {
+  const source = imageSourceOf(block);
+  return source ? getCachedImage(source) : null;
+}
+
+// Whether the block's name is itself the picture (the older way: a name
+// that is an image URL), in which case no text is drawn on the face.
+export function nameIsImage(block) {
+  const source = imageSourceOf(block);
+  return Boolean(source) && source === (block.name || '').trim();
+}
+
+// The outline and grips a selected, closed block shows on the things on
+// its face that can be dragged: the picture and the text stack, each a
+// box with corner grips — drag the box to move it, a grip to scale it
+// (the picture keeps its aspect ratio, the text box is free) — see
+// HitTest's `element` and DragStateMachine's MOVING_TEXT / MOVING_IMAGE /
+// SCALING_TEXT / SCALING_IMAGE. The text box's outline is dashed, so the
+// two read apart where they overlap.
+function drawFaceElementHandles(ctx, block, palette, zoom) {
+  const grips = (rect) => {
+    for (const grip of Object.values(getBoxHandleRects(rect, zoom))) {
+      roundRectPath(ctx, grip.x, grip.y, grip.width, grip.height, 2 / zoom);
+      ctx.fillStyle = palette.resizeHandleFill;
+      ctx.fill();
+      ctx.lineWidth = 1.25 / zoom;
+      ctx.stroke();
+    }
+  };
+  ctx.save();
+  ctx.strokeStyle = SELECTION_COLOR;
+  const image = loadedImageOf(block);
+  const imageRect = image ? getImageRect(block, image) : null;
+  if (imageRect) {
+    ctx.lineWidth = 1 / zoom;
+    ctx.strokeRect(imageRect.x, imageRect.y, imageRect.width, imageRect.height);
+    grips(imageRect);
+  }
+  const textRect = nameIsImage(block) ? null : getTextStackRect(block);
+  if (textRect) {
+    ctx.lineWidth = 1 / zoom;
+    ctx.setLineDash([4 / zoom, 3 / zoom]);
+    ctx.strokeRect(textRect.x, textRect.y, textRect.width, textRect.height);
+    ctx.setLineDash([]);
+    grips(textRect);
+  }
+  ctx.restore();
 }
 
 // The label always sits inside the block's own face, open or not. It
 // used to step outside to beside the pin's stub once the block's level
 // was drawn on the face — but "outside" is exactly where the next block
 // over sits when blocks are stacked edge to edge, and a label there read
-// as that neighbour's, twice. A name stays with the pin it names; the
-// level's wires arriving underneath it are the lesser evil (the ports are
-// drawn again over the level — see SubPreviewRenderer.drawLevel).
-function drawPortLabel(ctx, port, pos, inverted = false, palette = DEFAULT_PALETTE, zoom = 1) {
+// as that neighbour's, twice. A name stays with the pin it names.
+//
+// On a closed block it is centred on the pin's axis, the plain reading.
+// `beside` (0..1) moves it off the axis: a wire leaves a pin straight
+// along that axis — into the face on a frame pin seen from inside
+// (`inverted`, always beside), and on an open block's face the level's
+// own wires arrive at the same pins from within — so a name centred on
+// the axis was crossed out by its own wire once the level showed. A left
+// or right pin's name then sits above the axis, a top or bottom pin's to
+// its right; both start inward past the socket, so the text clears the
+// plug across the axis and the socket along it. Fractions draw both,
+// fading, in step with the level opening.
+// `pinScale` is how much larger than usual the pin glyphs are drawn (see
+// drawPorts) — the clearances grow with them, or a label placed to clear
+// an ordinary plug lands on a plug three times that size.
+function drawPortLabel(ctx, port, pos, inverted = false, palette = DEFAULT_PALETTE, zoom = 1, beside = inverted ? 1 : 0, pinScale = 1) {
   if (!port.name) return;
   ctx.fillStyle = palette.portLabel;
   ctx.font = `${portLabelFontSize(zoom)}px -apple-system, Segoe UI, Roboto, sans-serif`;
@@ -782,9 +911,30 @@ function drawPortLabel(ctx, port, pos, inverted = false, palette = DEFAULT_PALET
   // label text starts — an ordinary block's pipe-sized slot on one side,
   // the much thicker boundary port block on the other (see
   // BOUNDARY_PORT_THICKNESS / getBoundaryPortBlockRect).
-  const gap = (inverted ? BOUNDARY_PORT_THICKNESS / 2 : PORT_LENGTH / 2) + PORT_LABEL_GAP;
+  const gap = ((inverted ? BOUNDARY_PORT_THICKNESS / 2 : PORT_LENGTH / 2) + PORT_LABEL_GAP) * pinScale;
+  const clearance = PORT_LABEL_AXIS_CLEARANCE * pinScale;
+  const alongAxis = Math.abs(dirX) > Math.abs(dirY);
+  const t = Math.max(0, Math.min(1, beside));
 
-  if (Math.abs(dirX) > Math.abs(dirY)) {
+  if (t > 0) {
+    ctx.save();
+    ctx.globalAlpha *= t;
+    if (alongAxis) {
+      ctx.textAlign = dirX > 0 ? 'left' : 'right';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(port.name, pos.x + dirX * gap, pos.y - clearance);
+    } else {
+      ctx.textAlign = 'left';
+      ctx.textBaseline = dirY > 0 ? 'top' : 'bottom';
+      ctx.fillText(port.name, pos.x + clearance, pos.y + dirY * gap);
+    }
+    ctx.restore();
+    if (t >= 1) return;
+  }
+
+  ctx.save();
+  ctx.globalAlpha *= 1 - t;
+  if (alongAxis) {
     ctx.textAlign = dirX > 0 ? 'left' : 'right';
     ctx.textBaseline = 'middle';
     ctx.fillText(port.name, pos.x + dirX * gap, pos.y);
@@ -793,6 +943,7 @@ function drawPortLabel(ctx, port, pos, inverted = false, palette = DEFAULT_PALET
     ctx.textBaseline = dirY > 0 ? 'top' : 'bottom';
     ctx.fillText(port.name, pos.x, pos.y + dirY * gap);
   }
+  ctx.restore();
 }
 
 // A pin is a socket cut into the block's own border, and the wire that
@@ -809,6 +960,11 @@ function drawPortLabel(ctx, port, pos, inverted = false, palette = DEFAULT_PALET
 // inside its container, keeps the exterior's shape: the wire arrives from
 // the inside, so its plug sits on that side of the same socket.
 export const SOCKET_HALF_OUTER = PORT_LENGTH / 2 + 1;
+// How far a pin's name sits off the pin's own axis, across it: past the
+// socket's outer half-width (the widest thing on the axis — the plug and
+// the wire's stem are narrower), plus a little air, so the text clears
+// the whole connector and the wire leaving it along that axis.
+const PORT_LABEL_AXIS_CLEARANCE = SOCKET_HALF_OUTER + 2;
 export const SOCKET_HALF_INNER = PORT_WIDTH / 2;
 export const SOCKET_DEPTH = PORT_LENGTH / 2;
 export const SOCKET_RING_RADIUS = SOCKET_HALF_OUTER - 0.5;
@@ -849,6 +1005,8 @@ const SOCKET_HOVER_WIDTH = 2;
 const HOVER_HALO_COLOR = 'rgba(255, 255, 255, 0.9)';
 const HOVER_HALO_EXTRA = 2.5;
 const PLUG_HOVER_FILL = 'rgba(79, 140, 255, 0.35)';
+const PLUG_SELECTED_FILL = 'rgba(255, 180, 84, 0.35)';
+const PLUG_SELECTED_HALO = '#ffb454';
 const PLUG_HOVER_WIDTH = 1.5;
 
 function strokeWithHalo(ctx, color, width) {
@@ -1107,6 +1265,17 @@ function drawPinPlug(ctx, p, side, inverted, shape, color, hover = false, showGr
       // ordinary detachable-wire grip here made that one DI look like two
       // adjacent slots. Join the wire directly to the socket instead.
       const x0 = Math.min(0, w * CONNECTOR_NUB_LENGTH);
+      // A halo colour (a selected or hovered plug with no grip to outline)
+      // becomes a band behind the stem, the way the wire's own halo runs
+      // behind the wire.
+      if (hover) {
+        ctx.save();
+        ctx.globalAlpha *= 0.55;
+        ctx.fillStyle = typeof hover === 'string' ? hover : SOCKET_HOVER_COLOR;
+        ctx.fillRect(x0, -PLUG_STEM_HALF - 3, CONNECTOR_NUB_LENGTH, 2 * PLUG_STEM_HALF + 6);
+        ctx.restore();
+        ctx.fillStyle = color;
+      }
       ctx.fillRect(x0, -PLUG_STEM_HALF, CONNECTOR_NUB_LENGTH, 2 * PLUG_STEM_HALF);
       return;
     }
@@ -1114,7 +1283,9 @@ function drawPinPlug(ctx, p, side, inverted, shape, color, hover = false, showGr
     gripPath(ctx, w, gripFrom);
     ctx.fill();
     if (hover) {
-      strokeWithHalo(ctx, SOCKET_HOVER_COLOR, PLUG_HOVER_WIDTH);
+      // `hover` as a colour string is the halo's own colour (see drawPin's
+      // selected plug); plain true is the pointer's hover.
+      strokeWithHalo(ctx, typeof hover === 'string' ? hover : SOCKET_HOVER_COLOR, PLUG_HOVER_WIDTH);
     } else {
       ctx.strokeStyle = GRIP_BORDER_COLOR;
       ctx.lineWidth = GRIP_BORDER_WIDTH;
@@ -1189,7 +1360,11 @@ export function getPlugRect(pos, side, inverted = false) {
 // plug of the wire on it, and the hover feedback — `hover` is 'slot' (the
 // socket outlined: this pin is about to be moved along its edge) or
 // 'plug' (the plug outlined: the wire is about to be picked up).
-function drawPin(ctx, pos, side, inverted, shape, { stroke, fill, lineWidth, wireColor = null, liveColor = null, hover = null, connected = false, shade = null, pinScale = 1 }) {
+// `selected`: the wire on this plug is the selected one — the plug is
+// filled in the selection colour, so the grip a drag would take (see
+// DragStateMachine's 'connector' branch) is the one that shows as
+// selected, not only the wire's own line.
+function drawPin(ctx, pos, side, inverted, shape, { stroke, fill, lineWidth, wireColor = null, liveColor = null, hover = null, connected = false, shade = null, pinScale = 1, selected = false }) {
   // `pinScale` grows or shrinks the glyph about the pin's own point — the
   // position is the caller's, only the drawing changes size. A nested
   // level's boundary pins are drawn at the level's own scale, so without
@@ -1201,13 +1376,21 @@ function drawPin(ctx, pos, side, inverted, shape, { stroke, fill, lineWidth, wir
     ctx.translate(pos.x, pos.y);
     ctx.scale(pinScale, pinScale);
     ctx.translate(-pos.x, -pos.y);
-    drawPin(ctx, pos, side, inverted, shape, { stroke, fill, lineWidth, wireColor, liveColor, hover, connected, shade });
+    drawPin(ctx, pos, side, inverted, shape, { stroke, fill, lineWidth, wireColor, liveColor, hover, connected, shade, selected });
     ctx.restore();
     return;
   }
   if (inverted || shape === 'both') drawSocket(ctx, pos, side, shape, stroke, fill, lineWidth);
   if (connected && shape === 'out' && !inverted && shade) shadeTab(ctx, pos, side, stroke, shade, lineWidth);
-  if (wireColor) drawPinPlug(ctx, pos, side, inverted, shape, wireColor, false, !(inverted && shape === 'in'));
+  // Every wired pin has its grip, on either side of the border: a frame
+  // pin's inner plug used to draw as a bare stem on an input, which left
+  // the pins of one block with grips and its neighbour's without, and
+  // nothing to aim a "pick this wire up" press at.
+  if (wireColor) drawPinPlug(ctx, pos, side, inverted, shape, wireColor);
+  // The selected wire's plug wears the same halo as the wire itself (see
+  // SubPreviewRenderer's WIRE_SELECTED_HALO), so the grip a drag would
+  // take is the one that reads as selected.
+  if (selected && wireColor) drawPinPlug(ctx, pos, side, inverted, shape, PLUG_SELECTED_FILL, PLUG_SELECTED_HALO);
   // A pin with a live state but no wire on this side shows the state in
   // its socket alone. The plug is the wire at the pin, so a pin whose wire
   // arrives from the other side of the border (a board's input, wired
@@ -1391,6 +1574,16 @@ function drawPorts(
     // for the pin under the mouse (see DragStateMachine.getHoverPin), or
     // null.
     hoverPin = null,
+    // Ordinary blocks: how far (0..1) the pin names have moved off their
+    // pins' axes — see drawPortLabel. The level opening on the face is
+    // what moves them (see SubPreviewRenderer.drawLevel); a closed block
+    // keeps them centred.
+    labelsBeside = 0,
+    // Ordinary blocks: Set<portId> of the pins whose wire is selected
+    // (see SubPreviewRenderer.drawLevel) — their plugs draw selected. A
+    // frame's wires carry `selected` on their boundaryWireLabels entries
+    // instead.
+    selectedPins = null,
     // Whether each port's own name is written next to it. Off for a
     // level's pins drawn on the frame inside its block's face (see
     // SubPreviewRenderer.drawLevel): the block's exterior pin, drawn by
@@ -1408,7 +1601,11 @@ function drawPorts(
   const socketStroke = getStateColor(block) || accent || DEFAULT_BLOCK_COLOR;
   const socketFill = block.style?.fill === 'transparent' ? null : block.style?.fill || palette.blockFill;
   const socketWidth = Math.min(BORDER_WIDTH, BORDER_MAX_SCREEN_WIDTH / zoom);
-  const hoverHere = hoverPin && hoverPin.blockId === block.id ? hoverPin : null;
+  // The hover names a pin by ids, and a container's pin is drawn twice —
+  // on its face by the level above, on the frame by its own level — so
+  // the hover also says which of the two it is on (`inverted`); the plug
+  // on the other side is another wire's, and stays unlit.
+  const hoverHere = hoverPin && hoverPin.blockId === block.id && Boolean(hoverPin.inverted) === inverted ? hoverPin : null;
 
   // Shown while selected (about to add or drag a port there) — showing
   // them all the time, on every block, cluttered ones you weren't
@@ -1436,19 +1633,16 @@ function drawPorts(
     // (see getBoundaryWireRelativeIndex).
     const wireEntries = inverted ? boundaryWireLabels?.get(port.id) || [] : [];
     const reservedWidth = inverted ? getPortBoundaryPlacement(port, block).width || 1 : 1;
-    // One slot per wire on the INSIDE — the fan the interface actually
-    // has — even when the port was never explicitly widened. This is the
-    // interior view (`inverted`), and it is the half that should split:
-    // seen from in here, a container's single outer pin is exactly a
-    // bundle of the individual wires attached to it, each with its own
-    // child-side label. The EXTERIOR face is the half that must stay one
-    // pin, and that is handled separately (see drawExteriorSubSlots).
-    //
-    // Wires have to be counted here and not just the reserved width: wire
-    // routing positions each wire at its own slot index regardless, so
-    // drawing fewer pins than there are wires left the extra wires running
-    // to a point with no pin on it.
-    const rectCount = Math.max(1, wireEntries.length, reservedWidth);
+    // The pin's slots on the INSIDE are exactly the ones its owner gave it
+    // by dragging its width grips (see getPortResizeHandleRects) — never
+    // one per wire. A pin that was never widened is one slot however many
+    // wires reach it from inside, and they all share it; a widened pin's
+    // spare slots sit empty until something is wired to them. The
+    // exterior face stays one pin either way (see drawExteriorSubSlots,
+    // which shows the same slots on the face). Every wire is positioned
+    // within these slots (see getBoundaryWireRelativeIndex), so no wire
+    // ever runs to a point with no pin on it.
+    const rectCount = Math.max(1, reservedWidth);
     const effectiveSide = inverted ? getPortBoundaryPlacement(port, block).side : port.side;
     const shape = pinShapeOf(portDirection);
     const hover = hoverHere && hoverHere.portId === port.id ? hoverHere : null;
@@ -1476,7 +1670,7 @@ function drawPorts(
         drawPortResizeHandles(ctx, getPortResizeHandleRects(block, port, rectCount), palette);
       }
       const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-      if (portNames) drawPortLabel(ctx, { name: displayedPortName, side: effectiveSide }, center, inverted, palette, zoom);
+      if (portNames) drawPortLabel(ctx, { name: displayedPortName, side: effectiveSide }, center, inverted, palette, zoom, 1, pinScale);
 
       wireEntries.forEach((entry, index) => {
         const isMoving = wireMoveOverride && wireMoveOverride.portId === port.id && wireMoveOverride.connectionId === entry.id;
@@ -1487,13 +1681,14 @@ function drawPorts(
         // wire it has no id for); a hit on the group as a whole names none
         // and lights every sub-slot.
         const hoverThis = hover && (hover.connectionId ? hover.connectionId === entry.id : hover.wireIndex == null || hover.wireIndex === index);
-        drawPin(ctx, { x: px, y: py }, effectiveSide, inverted, shape, { ...pinStyle, pinScale, wireColor: entry.color || null, hover: hoverThis ? hover.part : null });
         const wireRingColor = portHighlights?.get(`${block.id}:${port.id}`);
-        if (wireRingColor) drawPortRing(ctx, px, py, wireRingColor, SLOT_RING_RADIUS);
+        const selectedHere = wireRingColor === PORT_SELECTED_RING_COLOR;
+        drawPin(ctx, { x: px, y: py }, effectiveSide, inverted, shape, { ...pinStyle, ...(selectedHere ? { stroke: SELECTION_COLOR } : {}), pinScale, wireColor: entry.color || null, hover: hoverThis ? hover.part : null, selected: Boolean(entry.selected) });
+        if (wireRingColor && !selectedHere) drawPortRing(ctx, px, py, wireRingColor, SLOT_RING_RADIUS);
         // Every wire shows only its OWN (child-side) label here — the
         // port's own name/identity is the centered one drawn once above,
         // never repeated (or substituted in) at any individual wire.
-        if (entry.label) drawPortLabel(ctx, { name: entry.label, side: effectiveSide }, { x: px, y: py }, inverted, palette, zoom);
+        if (entry.label) drawPortLabel(ctx, { name: entry.label, side: effectiveSide }, { x: px, y: py }, inverted, palette, zoom, 1, pinScale);
       });
       continue;
     }
@@ -1508,9 +1703,16 @@ function drawPorts(
     const wired = inverted ? wireEntries.length > 0 : Boolean(pinWires?.has(port.id));
     const wireColor = wired ? liveColor || (inverted ? wireEntries[0]?.color || null : pinWires?.get(port.id) || null) : null;
     const connected = !inverted && Boolean(pinWires?.has(port.id));
-    drawPin(ctx, { x: px, y: py }, effectiveSide, inverted, shape, { ...pinStyle, pinScale, wireColor, liveColor, connected, hover: hover ? hover.part : null });
+    // The selected pin is the one drawn in the selection colour — its
+    // socket, not a ring around it, which on a frame pin drawn at a
+    // nested level's scale was a circle the size of a block. The rings
+    // stay for the transient states of a wire being drawn (its source,
+    // and a valid or invalid target under the cursor).
     const ringColor = portHighlights?.get(`${block.id}:${port.id}`);
-    if (ringColor) drawPortRing(ctx, px, py, ringColor, SLOT_RING_RADIUS);
+    const selected = ringColor === PORT_SELECTED_RING_COLOR;
+    const selectedWire = inverted ? wireEntries.some((entry) => entry.selected) : Boolean(selectedPins?.has(port.id));
+    drawPin(ctx, { x: px, y: py }, effectiveSide, inverted, shape, { ...pinStyle, ...(selected ? { stroke: SELECTION_COLOR } : {}), pinScale, wireColor, liveColor, connected, hover: hover ? hover.part : null, selected: selectedWire });
+    if (ringColor && !selected) drawPortRing(ctx, px, py, ringColor, SLOT_RING_RADIUS);
     // Selecting a still-plain boundary port shows the same two width grips
     // a widened one has, so growing it into a multi-wire container is an
     // explicit target rather than a direction-sensitive drag of its own
@@ -1519,7 +1721,7 @@ function drawPorts(
     if (inverted && ringColor === PORT_SELECTED_RING_COLOR) {
       drawPortResizeHandles(ctx, getPortResizeHandleRects(block, port, rectCount), palette);
     }
-    if (portNames) drawPortLabel(ctx, { name: displayedPortName, side: effectiveSide }, { x: px, y: py }, inverted, palette, zoom);
+    if (portNames) drawPortLabel(ctx, { name: displayedPortName, side: effectiveSide }, { x: px, y: py }, inverted, palette, zoom, inverted ? 1 : labelsBeside, pinScale);
   }
 }
 
@@ -1610,6 +1812,44 @@ export function blockTextRows(block) {
   return rows;
 }
 
+// A little air around the text stack's widest row, inside its rect.
+const TEXT_STACK_PAD = 4;
+
+// Where the block's text stack (title, subtitle, lines — see
+// blockTextRows) sits on the closed face: { x, y, width, height, align }.
+// `block.titleBox` — the box the person dragged or scaled the text to, in
+// world units from the block's corner (see DragStateMachine's MOVING_TEXT
+// / SCALING_TEXT) — places it anywhere, kept inside the face; the rows
+// are laid out inside it, aligned by `style.titleAlign` and centred top
+// to bottom, and squeezed to its width. Without it the older
+// `style.titlePos` / `style.titleAlign` rules apply: centred for a lone
+// title, along the top once there is more, past the names of any pins on
+// that edge (see textInset), the box being just the rows' own size. Null
+// when there is no text.
+export function getTextStackRect(block) {
+  const rows = blockTextRows(block);
+  if (rows.length === 0) return null;
+  const g = block.geometry;
+  const style = block.style || {};
+  const align = TITLE_ALIGNMENTS.includes(style.titleAlign) ? style.titleAlign : 'center';
+  if (block.titleBox) return { ...boxOnFace(block, block.titleBox, false), align };
+  const total = rows.reduce((sum, row) => sum + row.height, 0);
+  const widest = Math.max(...rows.map((row) => measureText(row.text, row.font)));
+  const available = Math.max(1, g.width - 2 * TEXT_PAD_X);
+  const width = Math.min(available, widest + 2 * TEXT_STACK_PAD);
+  const height = Math.min(total, g.height);
+  const hasExtra = rows.length > 1 || !block.name;
+  const pos = TITLE_POSITIONS.includes(style.titlePos) ? style.titlePos : hasExtra ? 'top' : 'center';
+  const y = pos === 'top' ? g.y + textInset(block, 'top') : pos === 'bottom' ? g.y + g.height - textInset(block, 'bottom') - total : g.y + (g.height - total) / 2;
+  const x = align === 'left' ? g.x + TEXT_PAD_X : align === 'right' ? g.x + g.width - TEXT_PAD_X - width : g.x + (g.width - width) / 2;
+  return { x, y, width, height, align };
+}
+
+// The rows' own height, for laying them out inside the stack's box.
+function textRowsHeight(block) {
+  return blockTextRows(block).reduce((sum, row) => sum + row.height, 0);
+}
+
 // Shared by title hit-testing and the inline editor. Match both the closed
 // text stack and the smaller heading drawn above an open interior.
 export function getBlockTitleRect(block, { open = false } = {}) {
@@ -1618,39 +1858,43 @@ export function getBlockTitleRect(block, { open = false } = {}) {
   if (!title || isImageUrl(title.text)) return null;
   const g = block.geometry;
   const style = block.style || {};
-  const scale = open && block.boundaryGeometry ? frameToFace(g, block.boundaryGeometry).scale : 1;
-  const align = TITLE_ALIGNMENTS.includes(style.titleAlign) ? style.titleAlign : 'center';
-  const total = rows.reduce((sum, row) => sum + row.height, 0);
-  const pos = TITLE_POSITIONS.includes(style.titlePos) ? style.titlePos : rows.length > 1 ? 'top' : 'center';
-  const y = open ? g.y + TEXT_PAD_Y * scale
-    : pos === 'top' ? g.y + textInset(block, 'top')
-    : pos === 'bottom' ? g.y + g.height - textInset(block, 'bottom') - total : g.y + (g.height - total) / 2;
-  const available = Math.max(1, g.width - 2 * TEXT_PAD_X * scale);
-  const width = Math.min(available, measureText(title.text, title.font) * scale + 8 * scale);
-  const x = align === 'left' ? g.x + TEXT_PAD_X * scale
-    : align === 'right' ? g.x + g.width - TEXT_PAD_X * scale - width : g.x + (g.width - width) / 2;
-  return { x, y, width, height: Math.min(title.height * scale, g.height), fontSize: (style.fontSize || 13) * scale };
+  const fontSize = style.fontSize || 13;
+  if (open) {
+    // The first row of the heading band (see openHeaderLayout).
+    const l = openHeaderLayout(block);
+    if (!l) return null;
+    const { scale, titleAlign, bandX, bandY, bandWidth, bandHeight, rowsHeight } = l;
+    const inner = Math.max(1, bandWidth - 2 * TEXT_PAD_X);
+    const w = Math.min(inner, measureText(title.text, title.font) + 8);
+    const tx = titleAlign === 'left' ? bandX + TEXT_PAD_X : titleAlign === 'right' ? bandX + bandWidth - TEXT_PAD_X - w : bandX + (bandWidth - w) / 2;
+    const ty = bandY + (bandHeight - rowsHeight) / 2;
+    return { x: g.x + tx * scale, y: g.y + ty * scale, width: w * scale, height: Math.min(title.height * scale, g.height), fontSize: fontSize * scale };
+  }
+  // Closed: the title is the first row of the text stack, wherever the
+  // stack sits (see getTextStackRect), the rows centred in its box.
+  const stack = getTextStackRect(block);
+  if (!stack) return null;
+  const width = Math.min(stack.width, measureText(title.text, title.font) + 8);
+  const x = stack.align === 'left' ? stack.x : stack.align === 'right' ? stack.x + stack.width - width : stack.x + (stack.width - width) / 2;
+  const y = stack.y + (stack.height - textRowsHeight(block)) / 2;
+  return { x, y, width, height: Math.min(title.height, g.height), fontSize };
 }
 
-function drawBlockText(ctx, block, { x, y, width, height, textColor, requestRender }) {
+function drawBlockText(ctx, block, { textColor, requestRender }) {
   const rows = blockTextRows(block);
-  if (rows.length === 0) return;
-  const style = block.style || {};
-  const hasExtra = rows.length > 1 || !block.name;
-  const titlePos = TITLE_POSITIONS.includes(style.titlePos) ? style.titlePos : hasExtra ? 'top' : 'center';
-  const titleAlign = TITLE_ALIGNMENTS.includes(style.titleAlign) ? style.titleAlign : 'center';
+  const stack = getTextStackRect(block);
+  if (rows.length === 0 || !stack) return;
   // Canvas text can't await a web font mid-render — draws with the
   // fallback stack immediately and asks for a redraw once the real one
   // is ready, the same pattern the image case uses.
   for (const row of rows) ensureFontLoaded(row.font, requestRender);
-  const total = rows.reduce((sum, row) => sum + row.height, 0);
-  let cursor = titlePos === 'top' ? y + textInset(block, 'top') : titlePos === 'bottom' ? y + height - textInset(block, 'bottom') - total : y + height / 2 - total / 2;
-  const tx = titleAlign === 'left' ? x + TEXT_PAD_X : titleAlign === 'right' ? x + width - TEXT_PAD_X : x + width / 2;
-  const maxWidth = width - 16;
+  const tx = stack.align === 'left' ? stack.x + TEXT_STACK_PAD : stack.align === 'right' ? stack.x + stack.width - TEXT_STACK_PAD : stack.x + stack.width / 2;
+  const maxWidth = stack.width;
   const baseAlpha = ctx.globalAlpha;
   ctx.fillStyle = textColor;
-  ctx.textAlign = titleAlign;
+  ctx.textAlign = stack.align;
   ctx.textBaseline = 'middle';
+  let cursor = stack.y + (stack.height - textRowsHeight(block)) / 2;
   for (const row of rows) {
     ctx.font = row.font;
     ctx.globalAlpha = baseAlpha * row.alpha;
@@ -1679,20 +1923,93 @@ function drawBlockText(ctx, block, { x, y, width, height, textColor, requestRend
  * Call it after the level has been painted onto the face, so the band sits
  * over the children rather than under them.
  */
-export function drawOpenHeader(ctx, block, { alpha = 1, palette = DEFAULT_PALETTE, requestRender = () => {} } = {}) {
+// The heading band's layout, in the level's own units (see drawOpenHeader):
+// its rows, the face-to-level scale, and where the band sits. Along the
+// top by `style.titleAlign`, sized to its text, unless the block has a
+// `headerBox` — the box the person dragged or scaled the heading to from
+// inside the block's view, in these same units from the face's corner —
+// then the band is that box, kept inside the face, its rows centred in
+// it and squeezed to its width. Its own record, apart from the closed
+// face's `titleBox`: the heading over a level and the title on a face are
+// placed and sized apart. Null when the block has no frame or no heading.
+function openHeaderLayout(block) {
   const frame = block.boundaryGeometry;
-  if (alpha <= 0 || !frame) return;
+  if (!frame) return null;
   const rows = blockTextRows(block).filter(
     (row) => row.role === 'subtitle' || (row.role === 'title' && !isImageUrl(row.text)),
   );
-  if (rows.length === 0) return;
+  if (rows.length === 0) return null;
+  const { width, height } = block.geometry;
+  const { scale } = frameToFace(block.geometry, frame);
+  const style = block.style || {};
+  const titleAlign = TITLE_ALIGNMENTS.includes(style.titleAlign) ? style.titleAlign : 'center';
+  const faceWidth = width / scale;
+  const faceHeight = height / scale;
+  const rowsHeight = rows.reduce((sum, row) => sum + row.height, 0);
+  let bandHeight = rowsHeight + TEXT_PAD_Y * 2;
+  const textWidth = Math.max(...rows.map((row) => measureText(row.text, row.font)));
+  let bandWidth = Math.min(faceWidth, textWidth + TEXT_PAD_X * 2);
+  let bandX = titleAlign === 'left' ? 0 : titleAlign === 'right' ? faceWidth - bandWidth : (faceWidth - bandWidth) / 2;
+  let bandY = 0;
+  if (block.headerBox) {
+    const clamp = (v, hi) => Math.min(Math.max(v, 0), Math.max(0, hi));
+    bandWidth = Math.min(faceWidth, block.headerBox.w);
+    bandHeight = Math.min(faceHeight, block.headerBox.h);
+    bandX = clamp(block.headerBox.x, faceWidth - bandWidth);
+    bandY = clamp(block.headerBox.y, faceHeight - bandHeight);
+  }
+  return { rows, rowsHeight, scale, titleAlign, bandX, bandY, bandWidth, bandHeight };
+}
 
-  const { x, y, width, height } = block.geometry;
-  const layout = frameToFace(block.geometry, frame);
+// The heading band of an open block as a world rect on its face, or null
+// — what a press on the heading grabs to move or scale it (see HitTest's
+// `element` and DragStateMachine's MOVING_HEADER / SCALING_HEADER).
+export function getOpenHeaderRect(block) {
+  const l = openHeaderLayout(block);
+  if (!l) return null;
+  const { x, y } = block.geometry;
+  return { x: x + l.bandX * l.scale, y: y + l.bandY * l.scale, width: l.bandWidth * l.scale, height: l.bandHeight * l.scale };
+}
+
+// A world rect on the face as the `headerBox` the block stores: the
+// level's own units, from the face's corner.
+export function headerBoxOf(block, rect) {
+  const { x, y } = block.geometry;
+  const { scale } = frameToFace(block.geometry, block.boundaryGeometry);
+  return { x: (rect.x - x) / scale, y: (rect.y - y) / scale, w: rect.width / scale, h: rect.height / scale };
+}
+
+// The heading band's outline and corner grips, for the selected block
+// whose level is open (see SubPreviewRenderer.drawLevel) — the same
+// affordance the closed face gives its text box.
+export function drawOpenHeaderHandles(ctx, block, palette = DEFAULT_PALETTE, zoom = 1) {
+  const rect = getOpenHeaderRect(block);
+  if (!rect) return;
+  ctx.save();
+  ctx.strokeStyle = SELECTION_COLOR;
+  ctx.lineWidth = 1 / zoom;
+  ctx.setLineDash([4 / zoom, 3 / zoom]);
+  ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+  ctx.setLineDash([]);
+  for (const grip of Object.values(getBoxHandleRects(rect, zoom))) {
+    roundRectPath(ctx, grip.x, grip.y, grip.width, grip.height, 2 / zoom);
+    ctx.fillStyle = palette.resizeHandleFill;
+    ctx.fill();
+    ctx.lineWidth = 1.25 / zoom;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+export function drawOpenHeader(ctx, block, { alpha = 1, palette = DEFAULT_PALETTE, requestRender = () => {} } = {}) {
+  if (alpha <= 0) return;
+  const l = openHeaderLayout(block);
+  if (!l) return;
+  const { rows, rowsHeight, scale, titleAlign, bandX, bandY, bandWidth, bandHeight } = l;
+  const { x, y } = block.geometry;
   const style = block.style || {};
   const scrimColor = style.fill && style.fill !== 'transparent' ? style.fill : palette.blockFill;
   const textColor = style.fill && style.fill !== 'transparent' ? readableTextColor(style.fill) : palette.blockText;
-  const titleAlign = TITLE_ALIGNMENTS.includes(style.titleAlign) ? style.titleAlign : 'center';
   for (const row of rows) ensureFontLoaded(row.font, requestRender);
 
   ctx.save();
@@ -1702,33 +2019,27 @@ export function drawOpenHeader(ctx, block, { alpha = 1, palette = DEFAULT_PALETT
   ctx.clip();
   ctx.globalAlpha *= alpha;
   ctx.translate(x, y);
-  ctx.scale(layout.scale, layout.scale);
+  ctx.scale(scale, scale);
 
   // From here on the units are the level's own, the same ones its blocks
   // are laid out in.
-  const faceWidth = width / layout.scale;
-  const bandHeight = rows.reduce((sum, row) => sum + row.height, 0) + TEXT_PAD_Y * 2;
-  const textWidth = Math.max(...rows.map((row) => measureText(row.text, row.font)));
-  const bandWidth = Math.min(faceWidth, textWidth + TEXT_PAD_X * 2);
-  const bandX = titleAlign === 'left' ? 0 : titleAlign === 'right' ? faceWidth - bandWidth : (faceWidth - bandWidth) / 2;
   const baseAlpha = ctx.globalAlpha;
-
   ctx.globalAlpha = baseAlpha * HEADER_SCRIM_ALPHA;
   ctx.fillStyle = scrimColor;
-  ctx.fillRect(bandX, 0, bandWidth, bandHeight);
+  ctx.fillRect(bandX, bandY, bandWidth, bandHeight);
   ctx.globalAlpha = baseAlpha;
   ctx.fillStyle = palette.emptySlotStroke;
-  ctx.fillRect(bandX, bandHeight - HEADER_RULE_WIDTH, bandWidth, HEADER_RULE_WIDTH);
+  ctx.fillRect(bandX, bandY + bandHeight - HEADER_RULE_WIDTH, bandWidth, HEADER_RULE_WIDTH);
 
   ctx.fillStyle = textColor;
   ctx.textAlign = titleAlign;
   ctx.textBaseline = 'middle';
   const tx = titleAlign === 'left' ? bandX + TEXT_PAD_X : titleAlign === 'right' ? bandX + bandWidth - TEXT_PAD_X : bandX + bandWidth / 2;
-  let cursor = TEXT_PAD_Y;
+  let cursor = bandY + (bandHeight - rowsHeight) / 2;
   for (const row of rows) {
     ctx.font = row.font;
     ctx.globalAlpha = baseAlpha * row.alpha;
-    ctx.fillText(row.text, tx, cursor + row.height / 2, bandWidth - TEXT_PAD_X * 2);
+    ctx.fillText(row.text, tx, cursor + row.height / 2, Math.max(1, bandWidth - TEXT_PAD_X * 2));
     cursor += row.height;
   }
   ctx.restore();
@@ -1753,9 +2064,14 @@ export function drawBlock(
     // level to show, which leaves this drawing precisely what it always
     // drew.
     contentAlpha = 1,
+    // How far the pin names have moved off their pins' axes (0..1) — they
+    // move as the level inside arrives, whose wires reach those pins
+    // along the same axes. See drawPortLabel.
+    portLabelsBeside = 0,
     // See drawPorts.
     pinWires = null,
     hoverPin = null,
+    selectedPins = null,
     // Whether this block draws as a chip — the side wall and the drop
     // shadow under it — or as its plain face alone. Defaults to the user's
     // own Settings > Improved view choice (see render/viewOptions.js),
@@ -1849,12 +2165,19 @@ export function drawBlock(
   // back to the plain name (as the URL, admittedly not pretty, but
   // truthful about what's there) until the image has actually loaded, or
   // if it never does.
-  const image = isImageUrl(block.name) ? getCachedImage(block.name, requestRender) : null;
+  // The picture, then the text over it — both are the block's own
+  // content and both fade together as its level opens. A block whose
+  // name is the picture's URL (the older way) draws no text: the picture
+  // is its label, and the raw URL would be a worse one.
+  const imageSource = imageSourceOf(block);
+  const image = imageSource ? getCachedImage(imageSource, requestRender) : null;
   if (contentAlpha < 1) ctx.globalAlpha = contentAlpha;
   if (image) {
-    drawContainImage(ctx, image, x, y, width, height);
-  } else {
-    drawBlockText(ctx, block, { x, y, width, height, textColor, requestRender });
+    const rect = getImageRect(block, image);
+    if (rect) ctx.drawImage(image, rect.x, rect.y, rect.width, rect.height);
+  }
+  if (!(image && nameIsImage(block))) {
+    drawBlockText(ctx, block, { textColor, requestRender });
   }
 
   ctx.restore();
@@ -1865,17 +2188,21 @@ export function drawBlock(
   // The free slots also show while a pin of this block is hovered: they
   // are where it can be moved to.
   const slotHover = hoverPin?.blockId === block.id && hoverPin.part === 'slot';
-  drawPorts(ctx, block, { portHighlights, showEmptySlots: (selected || slotHover) && block.kind !== 'text', palette, zoom, pinWires, hoverPin });
+  drawPorts(ctx, block, { portHighlights, showEmptySlots: (selected || slotHover) && block.kind !== 'text', palette, zoom, labelsBeside: portLabelsBeside, pinWires, hoverPin, selectedPins });
   if (isOpenableLink(block.link)) drawLinkGlyph(ctx, block.geometry, palette, zoom);
   if (selected) drawResizeHandles(ctx, block.geometry, palette, zoom, pinSpansOf(block));
+  // The movable things on a closed face show their grips only while the
+  // block is selected and shut: once its level is open, the face belongs
+  // to the level and the heading has moved to its band.
+  if (selected && contentAlpha >= 1) drawFaceElementHandles(ctx, block, palette, zoom);
 }
 
 // A block's pins alone, drawn again over the wires of its level (see
 // SubPreviewRenderer.drawLevel): a wire's z-index is that of its front
 // endpoint, so it would otherwise cover the arrowhead of the pin it
 // leaves from on the other block.
-export function drawBlockPorts(ctx, block, { portHighlights = null, palette = DEFAULT_PALETTE, zoom = 1, pinWires = null, hoverPin = null } = {}) {
-  drawPorts(ctx, block, { portHighlights, palette, zoom, pinWires, hoverPin });
+export function drawBlockPorts(ctx, block, { portHighlights = null, palette = DEFAULT_PALETTE, zoom = 1, labelsBeside = 0, pinWires = null, hoverPin = null, selectedPins = null } = {}) {
+  drawPorts(ctx, block, { portHighlights, palette, zoom, labelsBeside, pinWires, hoverPin, selectedPins });
 }
 
 // The sub-slots of a container's multi-wire pins, drawn at the exterior
@@ -1888,7 +2215,7 @@ export function drawBlockPorts(ctx, block, { portHighlights = null, palette = DE
 // plug, n pins" without the level's own tiny frame glyphs having to.
 export function drawExteriorSubSlots(ctx, block, wireCounts, { palette = DEFAULT_PALETTE, alpha = 1 } = {}) {
   const frame = block.boundaryGeometry;
-  if (!frame || !wireCounts?.size) return;
+  if (!frame) return;
   const accent = block.style?.color && block.style.color !== 'transparent' ? block.style.color : null;
   const color = getStateColor(block) || accent || DEFAULT_BLOCK_COLOR;
   const fill = block.style?.fill === 'transparent' ? null : block.style?.fill || palette.blockFill;
@@ -1907,7 +2234,6 @@ export function drawExteriorSubSlots(ctx, block, wireCounts, { palette = DEFAULT
     // one of which nothing could be connected to.
     const count = Math.max(1, getPortBoundaryPlacement(port, view).width || 1, 0);
     if (count < 2) continue;
-    if (!wireCounts.get(port.id)) continue;
     const side = getPortBoundaryPlacement(port, view).side;
     const shape = pinShapeOf(logicalPortOf(block, port)?.direction ?? null);
     for (let i = 1; i < count; i += 1) {

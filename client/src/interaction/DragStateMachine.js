@@ -1,6 +1,8 @@
 import { hitTest } from './HitTest.js';
+import { faceBoxOf, getImageRect, getOpenHeaderRect, getTextStackRect, headerBoxOf, loadedImageOf } from '../render/BlockRenderer.js';
 import { MIN_BLOCK_WIDTH, MIN_BLOCK_HEIGHT, normalizeBoundary } from '../model/Block.js';
 import { defaultBoundaryFor, frameAtFactor, frameFactorOf, frameToFace, normalizeFrame } from '../model/levelGeometry.js';
+import { chainToRoot, childCameraFor, rootCameraFor } from '../render/levelTransform.js';
 import { snap, snapToCellCenter, GRID_SIZE, sideAxis, nearestPortSlot, getPortSlotOffsets } from '../model/grid.js';
 import {
   findConnectorPosition,
@@ -13,6 +15,7 @@ import {
   getPortResizeHandleRects,
   getOccupiedWireIndicesExcluding,
   getBoundaryWireRelativeIndex,
+  getBoundaryWireRawIndex,
   hasSubArchitecture,
   isOpenableLink,
   isPluggedConnection,
@@ -129,7 +132,32 @@ const STATES = {
   PENDING_LABEL_RENAME: 'pendingLabelRename',
   // Shift-dragging the background sweeps out a selection rectangle.
   MARQUEE: 'marquee',
+  // The things on a selected, closed block's face (see HitTest's
+  // `element`): its text box or its picture dragged to a new place
+  // (`titleBox`, `imageBox`), or scaled from a corner grip.
+  MOVING_TEXT: 'movingText',
+  MOVING_IMAGE: 'movingImage',
+  SCALING_TEXT: 'scalingText',
+  SCALING_IMAGE: 'scalingImage',
+  // The heading band of the selected block whose level is open
+  // (`headerBox`) — moved, or scaled from a corner grip.
+  MOVING_HEADER: 'movingHeader',
+  SCALING_HEADER: 'scalingHeader',
 };
+
+const FACE_ELEMENT_STATES = new Set(['movingText', 'movingImage', 'scalingText', 'scalingImage', 'movingHeader', 'scalingHeader']);
+
+// A picture or a text box cannot be scaled below this, in world units, so
+// a grip never collapses it to nothing.
+const MIN_IMAGE_SIZE = 16;
+const MIN_TEXT_BOX = { w: 24, h: 12 };
+// How far a press on a face element travels before it counts as a drag —
+// a plain click on the title still opens the rename editor.
+const FACE_ELEMENT_DRAG_THRESHOLD = 3;
+
+function imageCornerCursor(corner) {
+  return corner === 'nw' || corner === 'se' ? 'nwse-resize' : 'nesw-resize';
+}
 
 const BOUNDARY_MIN_SIZE = GRID_SIZE * 3;
 
@@ -179,7 +207,7 @@ function invertDirection(direction) {
  * a wire" vs "drag a piece of a wire" vs "pan background" unambiguous.
  */
 export class DragStateMachine {
-  constructor({ camera, project, selection, wireSelection, requestRender, persist, onEnterBlock, onToggleContent, onRequestRename, onRequestWireLabel, onLiveUpdate, onZoomChanged, onResolveFocus, onOpenLink }) {
+  constructor({ camera, project, selection, wireSelection, requestRender, persist, onEnterBlock, onToggleContent, onRequestRename, onRequestWireLabel, onLiveUpdate, onZoomChanged, onResolveFocus, onResolveHover, onOpenLink }) {
     this.onToggleContent = onToggleContent;
     this.camera = camera;
     this.project = project;
@@ -213,6 +241,13 @@ export class DragStateMachine {
     // the pointer's world point in the level now being edited, or null if
     // the level did not change.
     this.onResolveFocus = onResolveFocus;
+    // (screen) => a 'port' | 'connector' hit in whichever level the pointer
+    // is over when that is not the level being edited, else null — so a
+    // pin of another level lights up under the idle pointer the way a pin
+    // of this one does (see onPointerMove's idle branch). A press there
+    // moves the focus to that level first (onResolveFocus), so what the
+    // hover shows is what the press will do.
+    this.onResolveHover = onResolveHover;
     // Opens an artifact block's link (see BlockRenderer.drawLinkGlyph) —
     // a click on its corner glyph, or a double-click on a link block
     // without an interior of its own.
@@ -252,10 +287,10 @@ export class DragStateMachine {
       // Ctrl held aims the same drag at the interior of the container
       // under the pointer instead of at the canvas — the pan to
       // Ctrl+wheel's zoom. With no container there it pans as usual.
-      const block = modifiers.ctrlKey ? this.containerAt(world) : null;
-      if (block) {
+      const target = modifiers.ctrlKey ? this.interiorTargetAt(world) : null;
+      if (target) {
         this.state = STATES.PANNING_INTERIOR;
-        this.context = { blockId: block.id, lastWorld: world };
+        this.context = { blockId: target.block.id, inside: target.inside, lastWorld: world, lastScreen: screen };
         return;
       }
       this.state = STATES.PANNING;
@@ -371,6 +406,11 @@ export class DragStateMachine {
         return;
       }
     }
+    // What was selected as the press landed — read before the clear just
+    // below, for the one press that still wants it: a grab of a plug that
+    // several wires share takes the selected one of them (see the
+    // 'connector' branch).
+    const selectedWiresAtPress = this.wireSelection.list();
     if (hit) this.wireSelection.clear();
 
     // Same opt-in diagnostic as the hover pass (window.__ndDebug) — logged
@@ -407,26 +447,21 @@ export class DragStateMachine {
       // Captured once, at drag start, so the *other* end stays fixed at
       // its original world position throughout — recomputing this live
       // off the port's own (changing) placement would make the fixed end
-      // drift as the drag continues. Width has to be the *effective*
-      // one — at least as wide as the port's real wire count, same as
-      // what's actually drawn and hit-tested (see getBoundaryPortBlockRect)
-      // — not the raw stored value, or a port whose wire count already
-      // exceeds its stored width would resize from the wrong far edge:
-      // the handle you can see and grab sits at the effective width, but
-      // the drag math would still measure from the smaller stored one.
+      // drift as the drag continues.
       const placement = getPortBoundaryPlacement(port, block);
       const wireIds = this.project.listBoundaryWires(hit.blockId, hit.portId);
-      const wireCount = wireIds.length;
-      // Every real wire's own CURRENT relative index, snapshotted — the
-      // baseline applyPortResize compensates from when the anchor itself
-      // moves (see its own note on the 'start' edge), so an existing wire
-      // never visually shifts just because the port grew to make room for
-      // more.
+      // Every real wire's own CURRENT slot, snapshotted — the baseline
+      // applyPortResize compensates from when the anchor itself moves
+      // (see its own note on the 'start' edge), so an existing wire never
+      // visually shifts just because the port grew to make room for more.
+      // As stored, not clamped to the width: a wire that already sits past
+      // the end (an older diagram) is past the end, and the release below
+      // has to know that.
       const wireSlots = {};
       wireIds.forEach((id, rank) => {
-        wireSlots[id] = getBoundaryWireRelativeIndex(port, id, rank);
+        wireSlots[id] = getBoundaryWireRawIndex(port, id, rank);
       });
-      const startPlacement = { ...placement, width: Math.max(placement.width || 1, wireCount, 1), wireSlots };
+      const startPlacement = { ...placement, width: placement.width || 1, wireSlots };
       this.state = STATES.RESIZING_PORT;
       this.context = { blockId: hit.blockId, portId: hit.portId, edge: hit.edge, startPlacement };
       this.requestRender();
@@ -490,11 +525,22 @@ export class DragStateMachine {
       // that moves, so the drag anchors at the connection's *other* end
       // (see otherEndOfConnection) — anchoring at the clicked end instead
       // would silently move the opposite one on a successful drop.
+      // A plug several wires share (a frame pin's slot, seen from inside —
+      // see HitTest's `connectionIds`) is grabbed whole: every wire on it
+      // moves to wherever it is dropped. Unless one of them is selected —
+      // then the grab takes that wire alone, which is how a single wire
+      // is pulled out of a shared plug.
+      let redirecting = hit.connectionId ? [hit.connectionId] : [];
+      if (hit.connectionIds?.length > 1) {
+        const chosen = hit.connectionIds.filter((id) => selectedWiresAtPress.includes(id));
+        redirecting = chosen.length ? chosen : hit.connectionIds;
+      }
+      const primaryId = redirecting[0] || null;
       let sourceBlockId = hit.blockId;
       let sourcePortId = hit.portId;
       let sourceInverted = isBoundary;
-      if (hit.connectionId) {
-        const connection = this.project.getConnection(hit.connectionId);
+      if (primaryId) {
+        const connection = this.project.getConnection(primaryId);
         if (connection) {
           const anchor = this.otherEndOfConnection(connection, hit.blockId);
           sourceBlockId = anchor.blockId;
@@ -509,7 +555,19 @@ export class DragStateMachine {
         sourceInverted,
         currentWorld: world,
         moved: false,
-        redirectingConnectionId: hit.connectionId || null,
+        redirectingConnectionId: primaryId,
+        // The rest of a shared plug's wires, moved along with the first on
+        // a successful drop (see tryCompleteConnection), each from its own
+        // far end; `redirectingFromBlockId` is the end they were grabbed at.
+        redirectingConnectionIds: redirecting,
+        redirectingFromBlockId: hit.blockId,
+        // A press on a frame pin's wire plug that never turns into a drag
+        // is a click on that wire: it selects the wire (see onPointerUp),
+        // the same as clicking a wire's plug on an ordinary block, and
+        // leaves the pin's own selection alone — the pin's slot grips are
+        // the pin's, shown by selecting the pin itself. A shared plug's
+        // click selects the wire the grab would take.
+        clickedBoundaryWire: isBoundary && primaryId ? { connectionId: primaryId } : null,
       };
       this.requestRender();
       return;
@@ -638,6 +696,24 @@ export class DragStateMachine {
         this.state = STATES.PANNING;
         this.context = { lastScreen: screen, startScreen: screen, tapBlockId: block.id, moved: false };
         return;
+      }
+
+      // On the selected block's own face, a press on its text or picture
+      // moves that rather than the block (see HitTest's `element`).
+      if (hit.element && this.selection.isSelected(block.id) && this.selection.count === 1) {
+        const onText = hit.element === 'text' || hit.element === 'textHandle';
+        const onHeader = hit.element === 'header' || hit.element === 'headerHandle';
+        const image = onText || onHeader ? null : loadedImageOf(block);
+        const rect = onHeader ? getOpenHeaderRect(block) : onText ? getTextStackRect(block) : image ? getImageRect(block, image) : null;
+        if (rect) {
+          this.state = hit.element === 'text' ? STATES.MOVING_TEXT
+            : hit.element === 'textHandle' ? STATES.SCALING_TEXT
+            : hit.element === 'header' ? STATES.MOVING_HEADER
+            : hit.element === 'headerHandle' ? STATES.SCALING_HEADER
+            : hit.element === 'image' ? STATES.MOVING_IMAGE : STATES.SCALING_IMAGE;
+          this.context = { blockId: block.id, startWorld: world, startRect: rect, corner: hit.corner || null, clickedTitle: hit.title, moved: false };
+          return;
+        }
       }
 
       // Grabbing a block that's part of a multi-selection drags the whole
@@ -1078,20 +1154,35 @@ export class DragStateMachine {
         break;
       }
       case STATES.PANNING_INTERIOR: {
-        const block = this.project.getBlock(this.context.blockId);
+        const { inside } = this.context;
+        const block = inside ? this.project.getContainerBlock() : this.project.getBlock(this.context.blockId);
         const frame = block?.boundaryGeometry;
-        if (!frame) break;
-        // The pointer has moved this far across the block's face; the
-        // level inside is drawn at `scale`, so this is the same distance
-        // in the level's own units.
-        const { scale } = frameToFace(block.geometry, frame);
-        if (!(scale > 0)) break;
+        if (!frame || block.id !== this.context.blockId) break;
         // Moving the frame one way shows the children the other way (the
         // frame is the window, not the content), so dragging right pulls
         // the contents right, the way dragging a map does.
-        frame.x -= (world.x - this.context.lastWorld.x) / scale;
-        frame.y -= (world.y - this.context.lastWorld.y) / scale;
+        if (inside) {
+          // Standing in the level itself: `world` is already in its units,
+          // but it is re-based below along with the camera, so the
+          // pointer's travel is measured on screen and scaled by the
+          // level's own zoom instead.
+          const dx = (screen.x - this.context.lastScreen.x) / this.camera.zoom;
+          const dy = (screen.y - this.context.lastScreen.y) / this.camera.zoom;
+          this.withParentFixed(block, () => {
+            frame.x -= dx;
+            frame.y -= dy;
+          });
+        } else {
+          // The pointer has moved this far across the block's face; the
+          // level inside is drawn at `scale`, so this is the same distance
+          // in the level's own units.
+          const { scale } = frameToFace(block.geometry, frame);
+          if (!(scale > 0)) break;
+          frame.x -= (world.x - this.context.lastWorld.x) / scale;
+          frame.y -= (world.y - this.context.lastWorld.y) / scale;
+        }
         this.context.lastWorld = world;
+        this.context.lastScreen = screen;
         this.requestRender();
         this.onLiveUpdate?.({ kind: 'boundary', blockId: block.id, boundaryGeometry: frame });
         break;
@@ -1262,11 +1353,31 @@ export class DragStateMachine {
         this.resizeEdge(world);
         break;
       }
+      case STATES.MOVING_TEXT:
+      case STATES.MOVING_IMAGE:
+      case STATES.SCALING_TEXT:
+      case STATES.SCALING_IMAGE:
+      case STATES.MOVING_HEADER:
+      case STATES.SCALING_HEADER: {
+        this.moveFaceElement(world);
+        break;
+      }
       default: {
         // Idle hover: recompute which cursor to show (see getCursor()) so
         // an edge you can resize looks like one before you've pressed
         // anything, not just once you're mid-drag.
         this.hoverCursor = this.computeHoverCursor(world);
+        // Nothing of this level under the pointer that a press would act
+        // on: the pointer may be over a pin of another level, drawn right
+        // there on screen (every level is), which a press would reach by
+        // moving the focus first.
+        if (!this.hoverPin) {
+          const foreign = this.onResolveHover?.(screen);
+          if (foreign) {
+            this.setHoverPin(foreign);
+            this.hoverCursor = foreign.type === 'connector' ? 'crosshair' : 'move';
+          }
+        }
         this.updateHoverGhost(world);
         // Temporary, opt-in diagnostic: run `window.__ndDebug = true` in
         // the console, then hover the mouse — logs exactly what's being
@@ -1397,7 +1508,16 @@ export class DragStateMachine {
       return;
     }
 
-    const target = this.resolveGhostZone(world, { requireSelected: true });
+    let target = this.resolveGhostZone(world, { requireSelected: true });
+    // The selected block's own title or picture under the pointer wins
+    // over the "+" ghost of the edge beside it: an open block's heading
+    // band lies along its top edge, exactly where that ghost would sit,
+    // and a press there is meant for the heading (see HitTest's
+    // `element`), not for a new pin.
+    if (target) {
+      const over = hitTest(this.project, world.x, world.y, this.getBoundaryInfo(), this.getResizableBlockId(), this.getResizablePortId(), this.camera.zoom);
+      if (over?.type === 'body' && (over.title || over.element)) target = null;
+    }
     const current = this.hoverGhost;
     const same = target && current && current.blockId === target.blockId
       && current.side === target.side && current.offset === target.offset;
@@ -1524,6 +1644,8 @@ export class DragStateMachine {
     // gets the wiring cue instead; showing the same cursor for both is what
     // made the two feel interchangeable. The pin itself is lit to match
     // (see getHoverPin).
+    if (hit?.type === 'body' && (hit.element === 'imageHandle' || hit.element === 'textHandle' || hit.element === 'headerHandle')) return imageCornerCursor(hit.corner);
+    if (hit?.type === 'body' && hit.element) return 'move';
     if (hit?.type === 'port') return 'move';
     if (hit?.type === 'connector') return 'crosshair';
     if (hit?.type === 'boundaryLabel') return 'text';
@@ -1540,13 +1662,13 @@ export class DragStateMachine {
   setHoverPin(hit) {
     const pin =
       hit?.type === 'port' || hit?.type === 'connector'
-        ? { blockId: hit.blockId, portId: hit.portId, part: hit.type === 'port' ? 'slot' : 'plug', connectionId: hit.connectionId ?? null, wireIndex: hit.wireIndex ?? null }
+        ? { blockId: hit.blockId, portId: hit.portId, part: hit.type === 'port' ? 'slot' : 'plug', connectionId: hit.connectionId ?? null, wireIndex: hit.wireIndex ?? null, inverted: Boolean(hit.inverted) }
         : null;
     const before = this.hoverPin;
     this.hoverPin = pin;
     const same =
       before === pin ||
-      (before && pin && before.blockId === pin.blockId && before.portId === pin.portId && before.part === pin.part && before.connectionId === pin.connectionId && before.wireIndex === pin.wireIndex);
+      (before && pin && before.blockId === pin.blockId && before.portId === pin.portId && before.part === pin.part && before.connectionId === pin.connectionId && before.wireIndex === pin.wireIndex && before.inverted === pin.inverted);
     if (!same) this.requestRender();
   }
 
@@ -1629,6 +1751,8 @@ export class DragStateMachine {
   // while the pointer sits exactly on the handle), otherwise whatever the
   // last hover pass computed.
   getCursor() {
+    if (this.state === STATES.MOVING_TEXT || this.state === STATES.MOVING_IMAGE || this.state === STATES.MOVING_HEADER) return 'move';
+    if (this.state === STATES.SCALING_IMAGE || this.state === STATES.SCALING_TEXT || this.state === STATES.SCALING_HEADER) return imageCornerCursor(this.context.corner);
     if (this.state === STATES.RESIZING_EDGE) return cursorForResizeEdge(this.context.edge);
     if (this.state === STATES.RESIZING_PORT) {
       return sideAxis(this.context.startPlacement.side) === 'y' ? 'ew-resize' : 'ns-resize';
@@ -1677,6 +1801,77 @@ export class DragStateMachine {
     port.boundary.wireSlots[connectionId] = index;
   }
 
+  // Removes every wire of `portId` (seen from inside `blockId`) whose slot
+  // lies outside the pin's current width — see onPointerUp's
+  // RESIZING_PORT case. The slot map entries of removed wires go with
+  // them (see Project.removeConnection).
+  detachWiresPastWidth(blockId, portId) {
+    const block = this.project.getBlock(blockId);
+    const port = block?.ports.find((p) => p.id === portId);
+    if (!port) return;
+    const width = getPortBoundaryPlacement(port, block).width || 1;
+    const wireIds = this.project.listBoundaryWires(blockId, portId);
+    wireIds.forEach((id, rank) => {
+      const slot = getBoundaryWireRawIndex(port, id, rank);
+      if (slot < 0 || slot >= width) {
+        this.project.removeConnection(id);
+        this.wireSelection.remove(id);
+      }
+    });
+  }
+
+  // MOVING_TEXT / MOVING_IMAGE / SCALING_TEXT / SCALING_IMAGE: the text
+  // box or the picture follows the pointer across the block's face, never
+  // leaving it, and is written to the block in world units from its
+  // corner (`titleBox`, `imageBox`) — so resizing the block later leaves
+  // it the size it is. Scaling keeps the corner opposite the grip fixed;
+  // the picture keeps its aspect ratio, the text box is free.
+  moveFaceElement(world) {
+    const block = this.project.getBlock(this.context.blockId);
+    if (!block) return;
+    const g = block.geometry;
+    const dx = world.x - this.context.startWorld.x;
+    const dy = world.y - this.context.startWorld.y;
+    if (!this.context.moved && Math.hypot(dx, dy) < FACE_ELEMENT_DRAG_THRESHOLD / this.camera.zoom) return;
+    this.context.moved = true;
+    const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), Math.max(lo, hi));
+    const r = this.context.startRect;
+    const header = this.state === STATES.MOVING_HEADER || this.state === STATES.SCALING_HEADER;
+    const key = header ? 'headerBox' : this.state === STATES.MOVING_TEXT || this.state === STATES.SCALING_TEXT ? 'titleBox' : 'imageBox';
+    // The heading's box is kept in the level's units (see
+    // BlockRenderer.headerBoxOf); the face's boxes in world units.
+    const store = (rect) => (header ? headerBoxOf(block, rect) : faceBoxOf(block, rect));
+
+    if (this.state === STATES.MOVING_TEXT || this.state === STATES.MOVING_IMAGE || this.state === STATES.MOVING_HEADER) {
+      const nx = clamp(r.x + dx, g.x, g.x + g.width - r.width);
+      const ny = clamp(r.y + dy, g.y, g.y + g.height - r.height);
+      block[key] = store({ x: nx, y: ny, width: r.width, height: r.height });
+    } else {
+      const corner = this.context.corner || 'se';
+      const sx = corner.includes('e') ? 1 : -1;
+      const sy = corner.includes('s') ? 1 : -1;
+      const fixed = { x: sx > 0 ? r.x : r.x + r.width, y: sy > 0 ? r.y : r.y + r.height };
+      const roomX = Math.max(1, sx > 0 ? g.x + g.width - fixed.x : fixed.x - g.x);
+      const roomY = Math.max(1, sy > 0 ? g.y + g.height - fixed.y : fixed.y - g.y);
+      let w;
+      let h;
+      if (this.state === STATES.SCALING_IMAGE) {
+        const aspect = r.width / Math.max(1e-6, r.height);
+        // The pointer's reach past the fixed corner, along whichever axis
+        // asks for the larger picture; the other follows the aspect ratio.
+        w = Math.max((world.x - fixed.x) * sx, ((world.y - fixed.y) * sy) * aspect);
+        const maxW = Math.min(roomX, roomY * aspect);
+        w = clamp(w, Math.min(MIN_IMAGE_SIZE, maxW), maxW);
+        h = w / aspect;
+      } else {
+        w = clamp((world.x - fixed.x) * sx, Math.min(MIN_TEXT_BOX.w, roomX), roomX);
+        h = clamp((world.y - fixed.y) * sy, Math.min(MIN_TEXT_BOX.h, roomY), roomY);
+      }
+      block[key] = store({ x: sx > 0 ? fixed.x : fixed.x - w, y: sy > 0 ? fixed.y : fixed.y - h, width: w, height: h });
+    }
+    this.requestRender();
+  }
+
   applyPortResize(world) {
     const boundary = this.getBoundaryInfo();
     const block = boundary?.block;
@@ -1693,31 +1888,26 @@ export class DragStateMachine {
     const cursorIndex = slots.indexOf(nearestPortSlot(length, cursorCoord - axisOrigin));
     const anchorIndex = Math.max(0, slots.indexOf(nearestPortSlot(length, startPlacement.offset)));
     const startWidth = startPlacement.width || 1;
-    // Every real wire's own relative index as it stood when this drag
-    // started (see onPointerDown's portResizeHandle branch) — resizing
-    // must never let an existing wire fall outside the reserved range
-    // that results, or it'd be silently orphaned past the port's own
-    // edge.
+    // Every real wire's own slot as it stood when this drag started (see
+    // onPointerDown's portResizeHandle branch). The slots are the user's
+    // to add and take away: narrowing the pin past a wire's slot is
+    // allowed, the wire gathers on the new end while the drag lasts (see
+    // BlockRenderer.getBoundaryWireRelativeIndex) and is cut loose on
+    // release (see onPointerUp's RESIZING_PORT case).
     const startWireSlots = startPlacement.wireSlots || {};
-    const existingRelIndices = Object.values(startWireSlots);
-    const maxExistingRel = existingRelIndices.length ? Math.max(...existingRelIndices) : -1;
-    const minExistingRel = existingRelIndices.length ? Math.min(...existingRelIndices) : 0;
 
     if (edge === 'end') {
       // The anchor (index 0 of the port's span) never moves; only how far
       // it reaches does — existing wires' relative indices are pinned
       // exactly as they were, completely untouched by this.
-      const width = Math.max(1, maxExistingRel + 1, cursorIndex - anchorIndex + 1);
+      const width = Math.max(1, cursorIndex - anchorIndex + 1);
       port.boundary = { width, wireSlots: { ...startWireSlots } };
     } else {
       // The far end stays fixed at its original world position (same
       // idea as resizing a block from its left/top edge — see
-      // resizeEdge) while the anchor itself slides to meet the cursor —
-      // never past the closest-to-anchor existing wire, same reasoning as
-      // the 'end' edge's own width floor above.
+      // resizeEdge) while the anchor itself slides to meet the cursor.
       const farIndex = anchorIndex + startWidth - 1;
-      const maxNewAnchorIndex = anchorIndex + minExistingRel;
-      const newAnchorIndex = Math.max(0, Math.min(cursorIndex, farIndex, maxNewAnchorIndex));
+      const newAnchorIndex = Math.max(0, Math.min(cursorIndex, farIndex));
       const width = Math.max(1, farIndex - newAnchorIndex + 1);
       // The anchor just moved by this many slots — every existing wire's
       // OWN relative index shifts by the same amount the opposite way, so
@@ -1856,6 +2046,23 @@ export class DragStateMachine {
   }
 
   onPointerUp(world) {
+    if (FACE_ELEMENT_STATES.has(this.state)) {
+      // A click on the title (no drag) still opens the rename editor, the
+      // same as a click on the title of a block being dragged.
+      if ((this.state === STATES.MOVING_TEXT || this.state === STATES.MOVING_HEADER) && this.context.clickedTitle && !this.context.moved) {
+        const blockId = this.context.blockId;
+        clearTimeout(this.renameTimer);
+        this.renameTimer = setTimeout(() => {
+          this.renameTimer = null;
+          this.onRequestRename?.(blockId);
+        }, RENAME_CLICK_DELAY_MS);
+      }
+      if (this.context.moved) this.persist();
+      this.state = STATES.IDLE;
+      this.context = null;
+      this.requestRender();
+      return;
+    }
     if (
       this.state === STATES.DRAGGING_BLOCK ||
       this.state === STATES.DRAGGING_PORT
@@ -1879,7 +2086,13 @@ export class DragStateMachine {
       // drag is one undo step like any other.
       this.persist();
     } else if (this.state === STATES.DRAWING_CONNECTION) {
-      this.tryCompleteConnection(world);
+      const clicked = !this.context.moved ? this.context.clickedBoundaryWire : null;
+      if (clicked) {
+        this.wireSelection.selectOnly(clicked.connectionId);
+        this.requestRender();
+      } else {
+        this.tryCompleteConnection(world);
+      }
     } else if (this.state === STATES.DRAGGING_WIRE_PIECE) {
       this.finishWirePieceDrag(world);
     } else if (this.state === STATES.RESIZING_EDGE || this.state === STATES.RESIZING_PORT) {
@@ -1889,6 +2102,11 @@ export class DragStateMachine {
         const resized = this.project.getBlock(this.context.blockId);
         if (resized && resized !== this.project.rootBlock) normalizeBoundary(resized);
       }
+      // A slot taken away takes its wires with it: a pin narrowed past a
+      // wire's slot leaves that wire nothing to attach to, so it is
+      // detached (removed) rather than silently squeezed onto a slot the
+      // user did not put it on. One undo step with the resize itself.
+      if (this.state === STATES.RESIZING_PORT) this.detachWiresPastWidth(this.context.blockId, this.context.portId);
       this.persist();
     } else if (this.state === STATES.MOVING_PORT_WIRE) {
       // Committed only onto a genuinely free slot — its own current one
@@ -2145,6 +2363,34 @@ export class DragStateMachine {
           this.assignWireSlot(side.blockId, side.portId, added.id, preferred);
         }
       }
+      // The other wires of a shared plug (see onPointerDown's 'connector'
+      // branch) follow the first to the same pin, each from its own far
+      // end, oriented the way the first one landed: the far end is the
+      // output when the first wire's far end is.
+      const others = (this.context.redirectingConnectionIds || []).filter((id) => id !== this.context.redirectingConnectionId);
+      if (others.length) {
+        const anchorIsOut = target.outSide.blockId === this.context.sourceBlockId && target.outSide.portId === this.context.sourcePortId;
+        const landed = anchorIsOut ? target.inSide : target.outSide;
+        for (const id of others) {
+          const connection = this.project.getConnection(id);
+          if (!connection) continue;
+          const anchor = this.otherEndOfConnection(connection, this.context.redirectingFromBlockId);
+          const out = anchorIsOut ? anchor : landed;
+          const inn = anchorIsOut ? landed : anchor;
+          const moved = this.project.addConnection(
+            createConnection({ sourceBlockId: out.blockId, sourcePortId: out.portId, targetBlockId: inn.blockId, targetPortId: inn.portId }),
+            { replacing: id },
+          );
+          if (!moved) continue;
+          if (this.wireSelection.isSelected(id)) this.wireSelection.selectOnly(moved.id);
+          this.project.removeConnection(id);
+          if (boundary) {
+            for (const side of [out, inn]) {
+              if (side.blockId === boundary.block.id) this.assignWireSlot(side.blockId, side.portId, moved.id, undefined);
+            }
+          }
+        }
+      }
     }
     if (typeof window !== 'undefined' && window.__ndDebug) {
       // eslint-disable-next-line no-console
@@ -2369,6 +2615,52 @@ export class DragStateMachine {
     return null;
   }
 
+  // The block whose interior an interior-view gesture at `world` aims at:
+  // a container of the level being edited under the pointer (`inside`
+  // false — the frame is adjusted from outside, as it always was), else
+  // the block the level being edited is itself the inside of, when the
+  // pointer is on its face (`inside` true). Every level is on screen at
+  // once and the focus follows the pointer down into a block as soon as
+  // its level opens (see interaction/LevelFocus.js), so by the time a
+  // block's contents are big enough to want scrolling, the pointer is
+  // usually standing in that level — where `world` is in its units and
+  // containerAt finds only its children, none of which is the block
+  // itself. Without this second case the gesture fell through to the
+  // canvas exactly when it was wanted. Null over nothing at all.
+  interiorTargetAt(world) {
+    const block = this.containerAt(world);
+    if (block) return { block, inside: false };
+    const container = this.project.getContainerBlock();
+    const frame = container?.boundaryGeometry;
+    if (!container || !frame || container === this.project.rootBlock) return null;
+    // `world` is in the level's own units; the face is in the level
+    // above's. frameToFace maps one onto the other.
+    const t = frameToFace(container.geometry, frame);
+    const fx = world.x * t.scale + t.offsetX;
+    const fy = world.y * t.scale + t.offsetY;
+    const g = container.geometry;
+    if (fx < g.x || fx > g.x + g.width || fy < g.y || fy > g.y + g.height) return null;
+    return { block: container, inside: true };
+  }
+
+  // Runs `mutate` (which changes `container`'s frame) with the camera
+  // re-based afterwards so that the level above stays exactly where it is
+  // on screen. The camera is in the coordinates of the level being edited,
+  // and the scene is drawn from the root through the chain of frames (see
+  // render/levelTransform.js): change a frame on that chain and keep the
+  // camera, and it is the ancestors that shift on screen, not the
+  // contents. Keeping the parent's camera across the change makes the
+  // block stand still and its contents move, the same picture the
+  // from-outside gesture paints.
+  withParentFixed(container, mutate) {
+    const parentCamera = rootCameraFor(this.camera, chainToRoot([container]));
+    mutate();
+    const next = childCameraFor(parentCamera, container);
+    this.camera.zoom = next.zoom;
+    this.camera.offsetX = next.offsetX;
+    this.camera.offsetY = next.offsetY;
+  }
+
   /**
    * Scales the interior of whichever container the cursor is over.
    *
@@ -2388,28 +2680,39 @@ export class DragStateMachine {
    * Returns whether it took the gesture.
    */
   scaleInteriorAt(world, factor) {
-    const block = this.containerAt(world);
-    if (block) {
-      // The wheel says nothing about which block it landed on, so the
-      // block being scaled becomes the selection — its handles and the
-      // Inspector then say what is changing, and nothing else stays
-      // highlighted to compete with it. A plain wheel (camera zoom)
-      // leaves the selection alone.
+    const target = this.interiorTargetAt(world);
+    if (!target) return false;
+    const { block, inside } = target;
+    // The wheel says nothing about which block it landed on, so the
+    // block being scaled becomes the selection — its handles and the
+    // Inspector then say what is changing, and nothing else stays
+    // highlighted to compete with it. A plain wheel (camera zoom)
+    // leaves the selection alone. Not from inside: the block is not in
+    // the level being edited, so it is not something that level selects.
+    if (!inside) {
       this.wireSelection.clear();
       this.selection.select(block.id);
-      const g = block.geometry;
-      const frame = block.boundaryGeometry || defaultBoundaryFor(g);
-      const next = frameAtFactor(g, frame, frameFactorOf(g, frame) / factor);
-      // At either end of the range the clamp hands back the frame it was
-      // given; taking the gesture anyway is what stops a scroll that can
-      // go no further from silently zooming the canvas instead.
-      block.boundaryGeometry = normalizeFrame(g, next);
-      this.requestRender();
-      this.onLiveUpdate?.({ kind: 'boundary', blockId: block.id, boundaryGeometry: block.boundaryGeometry });
-      this.scheduleInteriorScalePersist();
-      return true;
     }
-    return false;
+    const g = block.geometry;
+    const frame = block.boundaryGeometry || defaultBoundaryFor(g);
+    const next = frameAtFactor(g, frame, frameFactorOf(g, frame) / factor);
+    // At either end of the range the clamp hands back the frame it was
+    // given; taking the gesture anyway is what stops a scroll that can
+    // go no further from silently zooming the canvas instead.
+    const apply = () => {
+      block.boundaryGeometry = normalizeFrame(g, next);
+    };
+    if (inside) this.withParentFixed(block, apply);
+    else apply();
+    this.requestRender();
+    this.onLiveUpdate?.({ kind: 'boundary', blockId: block.id, boundaryGeometry: block.boundaryGeometry });
+    this.scheduleInteriorScalePersist();
+    // From inside, the level's own zoom just changed with its frame: less
+    // room inside draws it larger, more room smaller — the same crossings
+    // a camera zoom makes, so the focus is re-checked the same way (see
+    // main.js's crossLevelsForZoom).
+    if (inside) this.onZoomChanged?.();
+    return true;
   }
 
   // A wheel gesture has no release to commit on, and one history entry per

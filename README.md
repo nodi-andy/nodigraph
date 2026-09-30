@@ -131,13 +131,20 @@ own client architecture, drawn and kept up to date this way.
   restores automatic visibility. A selected wire (or
   block) opens in the Inspector too, where its label, colour, and line
   style (solid, dashed, dotted) are all editable fields.
-- **Block pictures** — a block's name doubles as an image URL: point it at
-  a picture instead of typing a label, and that's what fills the block.
+- **A block's face is yours to arrange** — select a block and drag its
+  title anywhere on it, or scale its box from a corner. While the block's
+  level is open, its heading band is a box of its own, dragged and scaled
+  the same way and kept apart from the closed face's. Give it a picture
+  (Inspector → Picture: a URL, or a file from this computer with one file
+  dialog) and drag the picture about the face or scale it from a corner.
+  Both keep their size when the block is resized. A file picture is
+  embedded in the diagram, so it draws everywhere and exports with it. A
+  block's name doubling as an image URL still works too.
 - **Multi-select** — shift-click or shift-drag a marquee to toggle blocks
   in and out of a selection; Ctrl/Cmd-click or -drag always adds, and
-  Ctrl/Cmd+Shift always removes. Move the group, or copy/paste it (wires
-  between selected blocks come along, and nested sub-architecture is
-  copied too).
+  Ctrl/Cmd+Shift always removes; Ctrl/Cmd+A selects every block of the
+  level you are in. Move the group, or copy/paste it (wires between
+  selected blocks come along, and nested sub-architecture is copied too).
 - **Undo/redo** — toolbar buttons, Ctrl/Cmd+Z, and Ctrl/Cmd+Shift+Z or
   Ctrl+Y to redo, across every edit.
 - **Flow animation** — Animate marches the wires as moving dashes, from
@@ -147,6 +154,9 @@ own client architecture, drawn and kept up to date this way.
   dot on the button marks edits that aren't in the address yet.
 - **Share by link** — the whole diagram, gzip-compressed into a URL.
 - **Local files** — Download/Upload plain JSON, independent of any server.
+  In Chrome and Edge, Open and "Save as file…" work on the file itself, and
+  the browser remembers which file is open across a reload. Closing or
+  reloading the tab while the file lacks edits asks first.
 - **Live sessions** — invite someone with a link and edit the same diagram
   together, blocks mid-drag included. A public broker only introduces the
   two browsers to each other; the diagram itself travels directly between

@@ -141,6 +141,29 @@ export function hydrateBlock(raw) {
   // artifact reference — a source file, an endpoint — that opens in a new
   // tab. Optional like the two above.
   if (!(typeof block.link === 'string' && block.link !== '')) delete block.link;
+  // `image` (see render/imageCache.js's imageSourceOf) fills the block
+  // with a picture: an http(s) URL, or a path relative to the folder the
+  // diagram file is in. Optional like the ones above.
+  if (typeof block.image === 'string' && block.image.trim() !== '') block.image = block.image.trim();
+  else delete block.image;
+  // Where the text stack and the picture sit on the face — { x, y, w, h }
+  // in world units from the block's top-left corner (see
+  // BlockRenderer.getTextStackRect / getImageRect) — written when the
+  // person drags or scales them, absent otherwise. Absolute, not
+  // fractions of the face: resizing the block must not resize what is on
+  // it, only give it more or less room.
+  // `headerBox` is the third: the heading band of the block while its
+  // level is open, in the level's own units from the face's corner (see
+  // BlockRenderer.openHeaderLayout) — its own record, since the heading
+  // over a level and the title on a closed face are placed and sized
+  // apart.
+  const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+  for (const key of ['titleBox', 'imageBox', 'headerBox']) {
+    const box = block[key];
+    if (box && [box.x, box.y, box.w, box.h].every(finite) && box.w > 0 && box.h > 0) {
+      block[key] = { x: box.x, y: box.y, w: box.w, h: box.h };
+    } else delete block[key];
+  }
   // A pin's interior side/offset used to be stored (dragged from inside,
   // independent of the exterior pin). It is derived now — see
   // model/levelGeometry.js — so only the two facts that are still data

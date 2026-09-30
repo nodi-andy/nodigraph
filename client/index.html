@@ -114,12 +114,8 @@
            stack when nothing is selected). -->
       <div id="fab-stack" class="fab-stack"></div>
       <div class="control-bar-divider"></div>
-      <button id="fab-add-text" class="fab fab-mini" type="button" aria-label="Add text">
-        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-          <text x="12" y="17" text-anchor="middle" font-size="17" font-weight="700" fill="currentColor" font-family="Georgia, serif">T</text>
-        </svg>
-      </button>
-      <!-- Doubles as "enter this block" when exactly one enterable block is
+      <!-- Adds a block (see ui/Toolbar.js).
+           Doubles as "enter this block" when exactly one enterable block is
            selected instead of nothing — same button, same spot, main.js's
            draw() swaps which icon shows and what a click does. Mirrors
            fab-parent's own up/add-parent icon swap above. -->

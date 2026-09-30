@@ -1380,6 +1380,52 @@ body.inspector-open .control-bar {
   outline: 1px solid var(--accent-strong);
 }
 
+/* The Image field: the reference, and beside it the button that picks a
+   file next to the diagram (see InspectorPanel.js). */
+#inspector .inspector-image-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#inspector .inspector-image-detail {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+#inspector .inspector-image-detail input {
+  flex: 1;
+  min-width: 0;
+}
+
+#inspector .inspector-image-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+#inspector .inspector-mini-button {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  background: var(--bg-well);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+#inspector .inspector-mini-button:hover {
+  border-color: var(--accent-strong);
+}
+
 #inspector .empty {
   color: var(--text-muted);
   font-style: italic;

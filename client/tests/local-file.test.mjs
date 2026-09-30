@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatForFileName, projectFileText, supportsFileSystemAccess } from '../src/model/localFile.js';
+import { formatForFileName, projectFileText, sameProjectText, supportsFileSystemAccess } from '../src/model/localFile.js';
 import { Project } from '../src/model/Project.js';
 
 globalThis.document = globalThis.document || {
@@ -30,4 +30,18 @@ test('the file text is the same project in either format', () => {
 
 test('no picker outside a browser', () => {
   assert.equal(supportsFileSystemAccess(), false);
+});
+
+// The snapshot remembered beside the open file (see rememberFileHandle)
+// is compared with the diagram after a reload, which came back through
+// storage with its keys in another order — that must still count as the
+// same diagram, and a real change must not.
+test('a remembered snapshot matches the same diagram with keys reordered', () => {
+  const a = JSON.stringify({ rootBlock: { id: 'r', ports: [{ id: 'p', side: 'left', offset: 20 }] } });
+  const b = JSON.stringify({ rootBlock: { ports: [{ side: 'left', id: 'p', offset: 20 }], id: 'r' } });
+  const c = JSON.stringify({ rootBlock: { ports: [{ side: 'left', id: 'p', offset: 60 }], id: 'r' } });
+  assert.equal(sameProjectText(a, b), true);
+  assert.equal(sameProjectText(a, c), false);
+  assert.equal(sameProjectText(a, null), false);
+  assert.equal(sameProjectText('not json', 'not json'), true);
 });

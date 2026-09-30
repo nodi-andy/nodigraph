@@ -38,7 +38,7 @@ import {
   endRoutingPass,
   FLOW_DASH,
 } from './ConnectionRenderer.js';
-import { asBoundaryView, drawBlock, drawBoundary, drawBoundaryPins, drawBlockPorts, drawExteriorSubSlots, drawOpenHeader, drawResizeHandles, hasSubArchitecture, isPluggedConnection, pinSpansOf } from './BlockRenderer.js';
+import { asBoundaryView, drawBlock, drawBoundary, drawBoundaryPins, drawBlockPorts, drawExteriorSubSlots, drawOpenHeader, drawOpenHeaderHandles, drawResizeHandles, hasSubArchitecture, isPluggedConnection, pinSpansOf } from './BlockRenderer.js';
 import { LevelView } from '../model/levelView.js';
 import { logicalPortOf } from '../model/BlockDescription.js';
 import { defaultBoundaryFor, frameToFace } from '../model/levelGeometry.js';
@@ -393,6 +393,31 @@ function levelSignature(view, boundary, wireMoveOverride, hidden) {
     mixNumber(frame.y);
     mixNumber(frame.width);
     mixNumber(frame.height);
+    // The frame's pins are the container's own pins, placed on the frame
+    // from where they sit on its face (see levelGeometry.boundaryPlacementFor),
+    // so everything that placement reads is part of this level's routing:
+    // the face, and each pin's side, offset, hidden flag, reserved width
+    // and per-wire slots. The container is not one of this level's blocks,
+    // so the loop above never saw any of it — a pin dragged along the
+    // frame from inside moved the pin and left the wires to it where the
+    // pin had been, until something else happened to change the signature.
+    const container = boundary.block;
+    const face = container?.geometry || {};
+    mixNumber(face.x);
+    mixNumber(face.y);
+    mixNumber(face.width);
+    mixNumber(face.height);
+    for (const port of container?.ports || []) {
+      mix(hashId(port.id));
+      mix(hashId(port.side));
+      mixNumber(port.offset);
+      mix(port.hidden ? 1 : 2);
+      mixNumber(port.boundary?.width);
+      for (const [connectionId, slot] of Object.entries(port.boundary?.wireSlots || {})) {
+        mix(hashId(connectionId));
+        mixNumber(slot);
+      }
+    }
   }
   if (wireMoveOverride) {
     mix(hashId(wireMoveOverride.connectionId));
@@ -604,7 +629,11 @@ export function drawLevel(
   const wireSelection = focused ? focus.wireSelection : null;
   const hiddenConnectionId = focused ? focus.hiddenConnectionId : null;
   const wireMoveOverride = focused ? focus.wireMoveOverride : null;
-  const hoverPin = focused ? focus.hoverPin || null : null;
+  // Every level, not only the focused one: the pointer can rest on a pin
+  // of any level drawn on screen, and the hover names its pin by ids,
+  // which are unique across the tree (see DragStateMachine's
+  // onResolveHover).
+  const hoverPin = focus?.hoverPin || null;
 
   // Wires that end on the container's own pins route to the frame
   // whether or not the frame itself is drawn.
@@ -618,8 +647,22 @@ export function drawLevel(
   const wireEntriesFor = (blockId, port) =>
     view.listBoundaryWires(blockId, port.id).map((id, rank) => {
       const connection = view.getConnection(id);
-      return { id, rank, label: connection?.label || '', color: connection ? wireColorOf(connection) : null };
+      return { id, rank, label: connection?.label || '', color: connection ? wireColorOf(connection) : null, selected: Boolean(wireSelection?.isSelected(id)) };
     });
+  // Map<blockId, Set<portId>>: the pins of this level whose wire is the
+  // selected one — their plugs draw selected (see BlockRenderer.drawPin).
+  const selectedPins = new Map();
+  if (wireSelection) {
+    const markSelected = (blockId, portId) => {
+      if (!selectedPins.has(blockId)) selectedPins.set(blockId, new Set());
+      selectedPins.get(blockId).add(portId);
+    };
+    for (const { connection } of routed) {
+      if (!wireSelection.isSelected(connection.id)) continue;
+      markSelected(connection.sourceBlockId, connection.sourcePortId);
+      markSelected(connection.targetBlockId, connection.targetPortId);
+    }
+  }
 
   const blocks = view.listBlocks();
   // A block just off the visible rect can still reach into it with a
@@ -739,8 +782,10 @@ export function drawLevel(
       palette,
       zoom,
       contentAlpha: contentAlphaFor(previewT),
+      portLabelsBeside: previewT,
       pinWires: pinWires.get(block.id) || null,
       hoverPin,
+      selectedPins: selectedPins.get(block.id) || null,
     });
     if (previewT > 0) {
       drawSubPreview(ctx, block, { zoom, t: previewT, palette, depth: depth + 1, visible, focus, flowOffset, requestRender, onDrawBlock });
@@ -748,6 +793,10 @@ export function drawLevel(
       // face — it fades in by the same number the centred name fades out
       // by, so the two never both show at full strength.
       drawOpenHeader(ctx, block, { alpha: previewT, palette, requestRender });
+      // The selected block's heading can be dragged and scaled from here
+      // (see BlockRenderer.drawOpenHeaderHandles): once the level is
+      // fully open, so the grips never show over a face still fading.
+      if (previewT >= 1 && selectedBlockIds.has(block.id) && selectedBlockIds.size === 1) drawOpenHeaderHandles(ctx, block, palette, zoom);
     }
     // The host's per-block drawing hook (see SceneRenderer.renderScene).
     // Fires for every level drawn, not only the one being edited: a host
@@ -786,7 +835,7 @@ export function drawLevel(
     if (!wiredIds.has(block.id) && !hasSubArchitecture(block)) continue;
     if (cullRect && !intersects(block.geometry, cullRect)) continue;
     const openAlpha = showSubPreviews && hasSubArchitecture(block) && block.boundaryGeometry ? (focus?.pathIds?.has(block.id) ? 1 : previewAlphaFor(block, zoom, requestRender)) : 0;
-    drawBlockPorts(ctx, block, { portHighlights, palette, zoom, pinWires: pinWires.get(block.id) || null, hoverPin });
+    drawBlockPorts(ctx, block, { portHighlights, palette, zoom, labelsBeside: openAlpha, pinWires: pinWires.get(block.id) || null, hoverPin, selectedPins: selectedPins.get(block.id) || null });
     // An open container's multi-wire pins split into sub-slots at this
     // level's scale (see BlockRenderer.drawExteriorSubSlots), arriving
     // with the level.

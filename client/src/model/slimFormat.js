@@ -18,6 +18,11 @@
 //     and gets rebuilt from those after import, never stored twice.
 import { generateId, hydrateBlockTree, DEFAULT_BLOCK_WIDTH, DEFAULT_BLOCK_HEIGHT, DEFAULT_TEXT_WIDTH, DEFAULT_TEXT_HEIGHT, DEFAULT_BLOCK_COLOR, TITLE_POSITIONS, TITLE_ALIGNMENTS, normalizeBoundary } from './Block.js';
 
+// [x, y, w, h] → { x, y, w, h } (see Block.hydrateBlock, which validates).
+function boxFromSlim(values) {
+  return { x: Number(values[0]), y: Number(values[1]), w: Number(values[2]), h: Number(values[3]) };
+}
+
 // A block's own `props` are host-defined data this module has no opinion
 // about (see Block.js's own doc) — most of it (a pin number, a toggle
 // value, a kind tag a host like noditron uses to know what a block *is*)
@@ -154,6 +159,14 @@ function blockToSlim(block) {
   if (typeof block.subtitle === 'string' && block.subtitle !== '') slim.subtitle = block.subtitle;
   if (Array.isArray(block.lines) && block.lines.length) slim.lines = block.lines.map(String);
   if (typeof block.link === 'string' && block.link !== '') slim.link = block.link;
+  if (typeof block.image === 'string' && block.image !== '') slim.image = block.image;
+  // Where the text and the picture sit on the face (see Block.hydrateBlock)
+  // — [x, y, w, h] from the block's top-left corner, one decimal.
+  const unit = (v) => Math.round(v * 10) / 10;
+  const boxOf = (box) => [unit(box.x), unit(box.y), unit(box.w), unit(box.h)];
+  if (block.titleBox) slim.title_box = boxOf(block.titleBox);
+  if (block.imageBox) slim.image_box = boxOf(block.imageBox);
+  if (block.headerBox) slim.header_box = boxOf(block.headerBox);
   // A linked block's children live in the file `source` names, never here.
   if (typeof block.source === 'string' && block.source !== '') slim.source = block.source;
   if (isText) slim.kind = 'text';
@@ -343,6 +356,10 @@ function slimBlockToData(slimBlock) {
     ...(typeof slimBlock.subtitle === 'string' && slimBlock.subtitle !== '' ? { subtitle: slimBlock.subtitle } : {}),
     ...(normalizeLines(slimBlock.lines) ? { lines: normalizeLines(slimBlock.lines) } : {}),
     ...(typeof slimBlock.link === 'string' && slimBlock.link !== '' ? { link: slimBlock.link } : {}),
+    ...(typeof slimBlock.image === 'string' && slimBlock.image !== '' ? { image: slimBlock.image } : {}),
+    ...(Array.isArray(slimBlock.title_box) && slimBlock.title_box.length === 4 ? { titleBox: boxFromSlim(slimBlock.title_box) } : {}),
+    ...(Array.isArray(slimBlock.image_box) && slimBlock.image_box.length === 4 ? { imageBox: boxFromSlim(slimBlock.image_box) } : {}),
+    ...(Array.isArray(slimBlock.header_box) && slimBlock.header_box.length === 4 ? { headerBox: boxFromSlim(slimBlock.header_box) } : {}),
     ...(typeof slimBlock.source === 'string' && slimBlock.source !== '' ? { source: slimBlock.source } : {}),
     logicalPorts,
     ports: pins,
