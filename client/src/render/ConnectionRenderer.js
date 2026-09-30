@@ -52,6 +52,26 @@ function simplifyPath(rawPoints) {
 // stubs and sub-slots sit, and a trunk laid in it makes every wire there
 // look joined to every pin it passes.
 const BOUNDARY_KEEPOUT = GRID_SIZE * 1.5;
+// The least a stub keeps of its length when the wire's first turn falls
+// within it (see shortenStub): enough to clear the plug on the pin.
+const MIN_STUB = GRID_SIZE / 2;
+
+// A route whose first free line lies within a stub's length turns there:
+// the stub is cut back to that line, so the wire leaves the pin straight
+// and turns once, instead of running the whole stub, doubling back along
+// it to the turn, and drawing a fold on the pin. Two pins facing each
+// other closer than two stubs apart always meet this, as does a trunk the
+// frame keep-out or the channel pass has moved toward a pin. `line` is the
+// route's first (or last) free line, which is perpendicular to the stub;
+// nothing changes when it lies past the stub's end, or so close to the pin
+// that the wire would turn inside the plug.
+function shortenStub(pos, stub, line) {
+  const key = line.o === 'h' ? 'y' : 'x';
+  const dir = Math.sign(stub[key] - pos[key]);
+  if (dir === 0) return;
+  const along = (line.value - pos[key]) * dir;
+  if (along >= MIN_STUB && along < WIRE_STUB_LENGTH) stub[key] = line.value;
+}
 
 // Automatic trunks of parallel wires between the same two rows fan out
 // by this much so they never lie on top of each other — a shared trunk
@@ -93,17 +113,36 @@ export function computeConnectionPath(
     const key = first === 'x' ? 'x' : 'y';
     let trunk = autoTrunk ?? coords[0];
     // Keep-out from a frame pin: the trunk stays at least BOUNDARY_KEEPOUT
-    // inside the frame, measured from the pin along its own inward stub.
-    for (const [inverted, pos, stub] of [[sourceInverted, sourcePos, stubA], [targetInverted, targetPos, stubB]]) {
-      if (!inverted) continue;
+    // inside the frame, measured from the pin along its own inward stub —
+    // but never past the far pin's own stub. When the far pin's stub
+    // points back at this one and the two are closer than the keep-out,
+    // the trunk stops MIN_STUB short of the far pin instead: pushed past
+    // it, the wire folded back over the far stub, the fold ran through the
+    // far block, and the obstacle router sent the wire on a detour around
+    // its own pin.
+    const ends = [[sourceInverted, sourcePos, stubA], [targetInverted, targetPos, stubB]];
+    ends.forEach(([inverted, pos, stub], i) => {
+      if (!inverted) return;
       const inward = Math.sign(stub[key] - pos[key]);
-      if (inward === 0) continue;
-      const limit = pos[key] + inward * BOUNDARY_KEEPOUT;
+      if (inward === 0) return;
+      let limit = pos[key] + inward * BOUNDARY_KEEPOUT;
+      const [, farPos, farStub] = ends[1 - i];
+      const farInward = Math.sign(farStub[key] - farPos[key]);
+      if (farInward === -inward) {
+        const farLimit = farPos[key] + farInward * MIN_STUB;
+        if ((limit - farLimit) * inward > 0) limit = farLimit;
+      }
       if ((trunk - limit) * inward < 0) trunk = limit;
-    }
+    });
     coords = [trunk];
   }
   const lines = buildRouteLines(stubA, sourceSide, stubB, coords);
+  // A hand-routed wire's pieces are the author's, folds included: the
+  // stubs it was drawn with stay as they are.
+  if (!manual && lines.length >= 2) {
+    shortenStub(sourcePos, stubA, lines[1]);
+    shortenStub(targetPos, stubB, lines[lines.length - 2]);
+  }
   const { corners, pieces } = routePieces(lines, stubA, stubB);
   return {
     points: simplifyPath([sourcePos, stubA, ...corners, stubB, targetPos]),

@@ -38,7 +38,7 @@ import {
   endRoutingPass,
   FLOW_DASH,
 } from './ConnectionRenderer.js';
-import { drawBlock, drawBoundary, drawBoundaryPins, drawBlockPorts, drawExteriorSubSlots, drawOpenHeader, drawResizeHandles, hasSubArchitecture, isPluggedConnection } from './BlockRenderer.js';
+import { asBoundaryView, drawBlock, drawBoundary, drawBoundaryPins, drawBlockPorts, drawExteriorSubSlots, drawOpenHeader, drawResizeHandles, hasSubArchitecture, isPluggedConnection, pinSpansOf } from './BlockRenderer.js';
 import { LevelView } from '../model/levelView.js';
 import { logicalPortOf } from '../model/BlockDescription.js';
 import { defaultBoundaryFor, frameToFace } from '../model/levelGeometry.js';
@@ -139,33 +139,27 @@ export function drawGridDots(ctx, rect, zoom, palette, alpha = 1) {
   ctx.restore();
 }
 
-/**
- * The grid of the level *inside* `block`, painted on its face — for a
- * block whose level is not drawn there (closed at this zoom, or empty and
- * so never opening at all). drawSubPreview draws the same grid as part of
- * an open level; this is the standalone version, so the one container new
- * blocks land in (see `focus.gridBlockId`) shows its grid whether or not
- * its contents happen to be on screen. A block never entered yet has no
- * frame; the one it would get on being entered stands in, so the dots are
- * at the same scale they will be a moment later.
- */
-function drawFaceGrid(ctx, block, { zoom = 1, palette, visible = null } = {}) {
-  const frame = block.boundaryGeometry || defaultBoundaryFor(block.geometry);
-  if (!frame) return;
-  const layout = frameToFace(block.geometry, frame);
+// The grid of the level inside `block`, on its face and nowhere else:
+// clipped to the face, and generated only for the part of the face on
+// screen (`childVisible`, in the level's own coordinates) rather than for
+// the whole viewport, most of which the clip would throw away. Drawn only
+// as part of an open level (see drawSubPreview): a closed face used to
+// get the same dots on its own whenever it was the container a new block
+// would land in, which made a shut block look like the level being
+// edited. The dots now mean one thing — an open level's floor — and the
+// level being edited keeps its dots inside its face even though its
+// contents are deliberately *not* clipped to it (see drawSubPreview):
+// drawn for the whole viewport and unclipped, they covered the parent
+// level and every other block on screen.
+function drawLevelGrid(ctx, block, layout, childVisible, levelZoom, palette) {
   const { x, y, width, height } = block.geometry;
-  // The face itself, in the coordinates of the level inside it. Unlike an
-  // open level — which has contents of its own reaching to the edge of
-  // the viewport — there is nothing here but the dots, so the rect is
-  // clamped to the face rather than handing drawGridDots the whole
-  // viewport to generate a screenful of dots the clip then throws away.
   const face = {
     x: (x - layout.offsetX) / layout.scale,
     y: (y - layout.offsetY) / layout.scale,
     width: width / layout.scale,
     height: height / layout.scale,
   };
-  const rect = visible ? intersection(face, toChildRect(visible, layout)) : face;
+  const rect = childVisible ? intersection(face, childVisible) : face;
   if (!rect) return;
   ctx.save();
   ctx.beginPath();
@@ -173,7 +167,7 @@ function drawFaceGrid(ctx, block, { zoom = 1, palette, visible = null } = {}) {
   ctx.clip();
   ctx.translate(layout.offsetX, layout.offsetY);
   ctx.scale(layout.scale, layout.scale);
-  drawGridDots(ctx, rect, zoom * layout.scale, palette);
+  drawGridDots(ctx, rect, levelZoom, palette);
   ctx.restore();
 }
 
@@ -714,8 +708,15 @@ export function drawLevel(
     // border from, and it is what a new parent would be wrapped around.
     // Only the resize handles survive here, and only while the container
     // is the selected thing — they are how its frame is resized from
-    // inside, and they are not a border.
-    drawResizeHandles(ctx, routingBoundary.geometry, palette, zoom);
+    // inside, and they are not a border. They keep clear of every pin of
+    // the frame, wired from inside or not: an unwired pin is not drawn on
+    // the frame from in here, but the level above draws the same pin on
+    // the face, right where the frame's own would be.
+    const pins = pinSpansOf(asBoundaryView(container, routingBoundary.geometry, view.listBoundaryPorts(container)), {
+      inverted: true,
+      wireCountFor: (portId) => view.listBoundaryWires(container.id, portId).length,
+    });
+    drawResizeHandles(ctx, routingBoundary.geometry, palette, zoom, pins);
   }
 
   for (const item of drawItems) {
@@ -738,7 +739,6 @@ export function drawLevel(
       palette,
       zoom,
       contentAlpha: contentAlphaFor(previewT),
-      portLabelsOutside: previewT,
       pinWires: pinWires.get(block.id) || null,
       hoverPin,
     });
@@ -748,11 +748,6 @@ export function drawLevel(
       // face — it fades in by the same number the centred name fades out
       // by, so the two never both show at full strength.
       drawOpenHeader(ctx, block, { alpha: previewT, palette, requestRender });
-    } else if (focus?.gridBlockId === block.id) {
-      // The block a new block would land in, with its level not drawn on
-      // its face — closed at this zoom, or still empty, which is exactly
-      // the case where "the next block goes in here" most needs saying.
-      drawFaceGrid(ctx, block, { zoom, palette, visible });
     }
     // The host's per-block drawing hook (see SceneRenderer.renderScene).
     // Fires for every level drawn, not only the one being edited: a host
@@ -791,7 +786,7 @@ export function drawLevel(
     if (!wiredIds.has(block.id) && !hasSubArchitecture(block)) continue;
     if (cullRect && !intersects(block.geometry, cullRect)) continue;
     const openAlpha = showSubPreviews && hasSubArchitecture(block) && block.boundaryGeometry ? (focus?.pathIds?.has(block.id) ? 1 : previewAlphaFor(block, zoom, requestRender)) : 0;
-    drawBlockPorts(ctx, block, { portHighlights, palette, zoom, labelsOutside: openAlpha, pinWires: pinWires.get(block.id) || null, hoverPin });
+    drawBlockPorts(ctx, block, { portHighlights, palette, zoom, pinWires: pinWires.get(block.id) || null, hoverPin });
     // An open container's multi-wire pins split into sub-slots at this
     // level's scale (see BlockRenderer.drawExteriorSubSlots), arriving
     // with the level.
@@ -863,17 +858,19 @@ export function drawSubPreview(
     ctx.clip();
   }
 
-  ctx.translate(layout.offsetX, layout.offsetY);
-  ctx.scale(layout.scale, layout.scale);
-
   // The level's own grid — over the face's fill, under its contents,
   // exactly what the canvas shows behind the root level. Only the one
   // container a new block would land in gets it (see `focus.gridBlockId`),
   // so the dotted background reads as "here" rather than as scenery every
-  // level repeats.
+  // level repeats. Clipped to the face on its own (see drawLevelGrid),
+  // since the level's contents are not when this block is on the way
+  // down to the level being edited.
   if (childVisible && (focus?.gridBlockId == null || focus.gridBlockId === block.id)) {
-    drawGridDots(ctx, childVisible, effectiveZoom, palette);
+    drawLevelGrid(ctx, block, layout, childVisible, effectiveZoom, palette);
   }
+
+  ctx.translate(layout.offsetX, layout.offsetY);
+  ctx.scale(layout.scale, layout.scale);
 
   // The level drawn exactly as the level being edited is drawn (same
   // drawLevel), so moving the editing focus into it changes nothing on

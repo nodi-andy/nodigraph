@@ -1392,6 +1392,16 @@ body.inspector-open .control-bar {
 
 #inspector .row .field {
   flex: 1;
+  /* A flex item will not shrink below its content's own width, and a
+     number input's intrinsic width is more than half the panel — the
+     second field of each row ran off the panel's right edge. */
+  min-width: 0;
+}
+
+#inspector .row .field input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 /* App-like layout below the mobile breakpoint: the inspector becomes a

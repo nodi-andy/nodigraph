@@ -446,6 +446,90 @@ export function projectPointToPerimeter(block, worldX, worldY) {
 // other block.
 export const RESIZE_HANDLE_SIZE = 12;
 export const RESIZE_HANDLE_OUTSET = 20;
+// The outset is a screen distance, but the sockets it has to clear are
+// world-sized (SOCKET_DEPTH out from the border, see
+// getSlotRectFromBorderPoint) — zoomed in far enough, twenty screen
+// pixels is less than one socket's depth, and the handle sat inside the
+// empty-slot square at the edge's midpoint. So the outset is floored at
+// the socket's depth plus the usual gap, in world units: at zoom 1 the
+// screen constant still wins, and past about 2x the floor takes over.
+
+// A grip bar running *along* its edge — wide and short on top/bottom
+// (which resize vertically), tall and narrow on left/right (which resize
+// horizontally) — the same "bar perpendicular to the drag axis" shape
+// most resize grips use, so the handle's own silhouette already tells you
+// which way it moves before you touch it. Independent of the square hit
+// area from getResizeHandleRects, which stays generous and un-rotated —
+// a bar this thin would be a fussy target to actually grab otherwise.
+const RESIZE_GRIP_LENGTH = 20;
+const RESIZE_GRIP_THICKNESS = 4;
+// The least daylight between a handle's grip and a pin, in screen pixels.
+// Small on purpose: two pins in neighbouring slots leave a stretch of edge
+// between their sockets only a little longer than the grip, and that
+// stretch has to stay a place the handle can stand.
+const HANDLE_PIN_GAP = 3;
+
+// Where along an edge — from `from` to `to`, in the world coordinate that
+// runs along it — the edge's resize handle sits: the midpoint, unless a
+// pin is there. A side with an odd number of slots has a slot exactly at
+// its midpoint, and a pin in it put the handle right on the pin's plug,
+// and on the wire leaving it, since both run straight out along the same
+// axis. The handle then steps to the nearest clear stretch of the edge
+// instead, staying attached at its usual distance rather than floating
+// out past the plug. `spans` are the pins on this edge (see pinSpansOf);
+// `preferBefore` picks which side of a pin to try first, so the handle
+// lands in the same place from one frame to the next rather than
+// flipping between two equally clear stretches.
+// Returns null when no clear stretch of the edge is long enough for the
+// grip, which the caller answers by moving the handle outward instead.
+function edgeHandleOffset(from, to, spans, zoom, preferBefore) {
+  const reach = (RESIZE_GRIP_LENGTH / 2 + HANDLE_PIN_GAP) / zoom;
+  const clear = (at) => spans.every((span) => at + reach <= span.from || at - reach >= span.to);
+  const mid = (from + to) / 2;
+  if (clear(mid)) return mid;
+  let best = null;
+  const consider = (at) => {
+    if (at - reach < from || at + reach > to || !clear(at)) return;
+    if (best === null || Math.abs(at - mid) < Math.abs(best - mid)) best = at;
+  };
+  for (const span of spans) consider(preferBefore ? span.from - reach : span.to + reach);
+  if (best !== null) return best;
+  for (const span of spans) consider(preferBefore ? span.to + reach : span.from - reach);
+  return best;
+}
+
+// The stretch of each edge a block's pins occupy — { side, from, to } in
+// the world coordinate that runs along that edge (x on top and bottom, y
+// on left and right) — for the resize handles to keep clear of (see
+// getResizeHandleRects). A hidden pin (see BlockDescription.isPortHidden)
+// is not drawn, so there is nothing to keep clear of. `inverted` reads a
+// boundary view's pins at their frame placement (see asBoundaryView), and
+// `wireCountFor(portId)` is how many wires such a pin holds from inside,
+// which is how wide it draws (see drawPorts).
+export function pinSpansOf(block, { inverted = false, wireCountFor = () => 1 } = {}) {
+  const spans = [];
+  for (const port of block.ports || []) {
+    if (isPortHidden(block, port)) continue;
+    let side;
+    let rect;
+    if (inverted) {
+      const placement = getPortBoundaryPlacement(port, block);
+      side = placement.side;
+      const count = Math.max(1, placement.width || 1, wireCountFor(port.id));
+      if (count > 1) {
+        rect = getBoundaryPortBlockRect(block, port, count);
+      } else {
+        const { x, y } = getBoundaryWirePosition(block, port, 0);
+        rect = getSlotRectFromBorderPoint(x, y, side);
+      }
+    } else {
+      side = port.side;
+      rect = getPortSlotRect(block, port);
+    }
+    spans.push(sideAxis(side) === 'y' ? { side, from: rect.x, to: rect.x + rect.width } : { side, from: rect.y, to: rect.y + rect.height });
+  }
+  return spans;
+}
 
 // These constants are screen-pixel sizes, not world sizes — geometry is
 // drawn (and hit-tested) under the camera's zoom transform, so a rect this
@@ -454,14 +538,28 @@ export const RESIZE_HANDLE_OUTSET = 20;
 // this, a fixed world-unit handle shrinks toward nothing at low zoom (no way
 // to grab it to resize a block you've zoomed out to see the whole diagram)
 // and balloons absurdly large at high zoom.
-export function getResizeHandleRects(geometry, zoom = 1) {
+// `pins` (see pinSpansOf) is where the block's own pins sit along each
+// edge: an edge handle steps aside from them (see edgeHandleOffset), and
+// where it cannot, moves out past their plugs instead — the handle never
+// draws over a pin, or over the wire leaving it, at any zoom.
+export function getResizeHandleRects(geometry, zoom = 1, pins = []) {
   const { x, y, width, height } = geometry;
   const handleSize = RESIZE_HANDLE_SIZE / zoom;
-  const outset = RESIZE_HANDLE_OUTSET / zoom;
   const half = handleSize / 2;
-  const cx = x + width / 2;
-  const cy = y + height / 2;
+  const outset = Math.max(RESIZE_HANDLE_OUTSET / zoom, SOCKET_DEPTH + HANDLE_PIN_GAP / zoom + half);
   const square = (side, cx2, cy2) => ({ side, x: cx2 - half, y: cy2 - half, width: handleSize, height: handleSize });
+  // An edge handle that has nowhere to step keeps the midpoint and sits
+  // clear of the plugs instead: HANDLE_PIN_GAP past the farthest a plug
+  // reaches, plus its own half size to its centre.
+  const clearOutset = PLUG_REACH + HANDLE_PIN_GAP / zoom + half;
+  const edge = (side, from, to) => {
+    const at = edgeHandleOffset(from, to, pins.filter((pin) => pin.side === side), zoom, side === 'top' || side === 'bottom');
+    return at === null ? { at: (from + to) / 2, outset: Math.max(outset, clearOutset) } : { at, outset };
+  };
+  const top = edge('top', x, x + width);
+  const bottom = edge('bottom', x, x + width);
+  const left = edge('left', y, y + height);
+  const right = edge('right', y, y + height);
   // A corner's x and y offsets compound diagonally — offsetting both by
   // the same outset an edge handle uses would put the corner handle
   // sqrt(2) times farther from the shape than an edge one is. Dividing
@@ -470,10 +568,10 @@ export function getResizeHandleRects(geometry, zoom = 1) {
   // one it is.
   const cornerOutset = outset / Math.SQRT2;
   return {
-    top: square('top', cx, y - outset),
-    bottom: square('bottom', cx, y + height + outset),
-    left: square('left', x - outset, cy),
-    right: square('right', x + width + outset, cy),
+    top: square('top', top.at, y - top.outset),
+    bottom: square('bottom', bottom.at, y + height + bottom.outset),
+    left: square('left', x - left.outset, left.at),
+    right: square('right', x + width + right.outset, right.at),
     // Corners resize both axes from the one drag — 'nw' etc. name which
     // corner, and DragStateMachine.resizeEdge reads that as its own
     // horizontal + vertical edge pair rather than needing a separate code
@@ -485,15 +583,6 @@ export function getResizeHandleRects(geometry, zoom = 1) {
   };
 }
 
-// A grip bar running *along* its edge — wide and short on top/bottom
-// (which resize vertically), tall and narrow on left/right (which resize
-// horizontally) — the same "bar perpendicular to the drag axis" shape
-// most resize grips use, so the handle's own silhouette already tells you
-// which way it moves before you touch it. Independent of the square hit
-// area from getResizeHandleRects, which stays generous and un-rotated —
-// a bar this thin would be a fussy target to actually grab otherwise.
-const RESIZE_GRIP_LENGTH = 20;
-const RESIZE_GRIP_THICKNESS = 4;
 // Selection used to also draw its own outline ring around the block (see
 // drawBlock) — with these handles now the only thing that shows up on
 // selecting something, that redundant ring is gone, and these lean a
@@ -508,8 +597,8 @@ const RESIZE_HANDLE_ALPHA = 0.75;
 // second shape just for corners.
 const CORNER_ROTATION = { nw: Math.PI / 4, se: Math.PI / 4, ne: -Math.PI / 4, sw: -Math.PI / 4 };
 
-export function drawResizeHandles(ctx, geometry, palette = DEFAULT_PALETTE, zoom = 1) {
-  const rects = getResizeHandleRects(geometry, zoom);
+export function drawResizeHandles(ctx, geometry, palette = DEFAULT_PALETTE, zoom = 1, pins = []) {
+  const rects = getResizeHandleRects(geometry, zoom, pins);
   const gripLength = RESIZE_GRIP_LENGTH / zoom;
   const gripThickness = RESIZE_GRIP_THICKNESS / zoom;
   ctx.save();
@@ -673,43 +762,17 @@ function drawContainImage(ctx, img, x, y, width, height) {
   ctx.drawImage(img, x + width / 2 - w / 2, y + height / 2 - h / 2, w, h);
 }
 
-// `outside` (0..1) moves an ordinary block's label from inside the face
-// to beside the pin's stub outside it — the schematic convention, and
-// the only place that stays clear of the block's own level once that is
-// drawn on the face. Beside the stub, not on its axis, so the wire leaving
-// the pin never runs through its own name. Fractions draw both, fading.
-function drawPortLabel(ctx, port, pos, inverted = false, palette = DEFAULT_PALETTE, zoom = 1, outside = 0) {
+// The label always sits inside the block's own face, open or not. It
+// used to step outside to beside the pin's stub once the block's level
+// was drawn on the face — but "outside" is exactly where the next block
+// over sits when blocks are stacked edge to edge, and a label there read
+// as that neighbour's, twice. A name stays with the pin it names; the
+// level's wires arriving underneath it are the lesser evil (the ports are
+// drawn again over the level — see SubPreviewRenderer.drawLevel).
+function drawPortLabel(ctx, port, pos, inverted = false, palette = DEFAULT_PALETTE, zoom = 1) {
   if (!port.name) return;
   ctx.fillStyle = palette.portLabel;
   ctx.font = `${portLabelFontSize(zoom)}px -apple-system, Segoe UI, Roboto, sans-serif`;
-
-  if (!inverted && outside > 0) {
-    const n = sideNormal(port.side);
-    const mid = PORT_LENGTH / 2 + CONNECTOR_NUB_LENGTH / 2;
-    const m = { x: pos.x + n.x * mid, y: pos.y + n.y * mid };
-    ctx.save();
-    ctx.globalAlpha *= Math.min(1, outside);
-    if (n.y !== 0) {
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(port.name, m.x + PORT_LABEL_GAP, m.y);
-    } else {
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'bottom';
-      ctx.fillText(port.name, m.x, m.y - PORT_LABEL_GAP * 0.6);
-    }
-    ctx.restore();
-    if (outside >= 1) return;
-    ctx.save();
-    ctx.globalAlpha *= 1 - outside;
-    drawPortLabelInside(ctx, port, pos, inverted, palette);
-    ctx.restore();
-    return;
-  }
-  drawPortLabelInside(ctx, port, pos, inverted, palette);
-}
-
-function drawPortLabelInside(ctx, port, pos, inverted, palette) {
 
   const n = sideNormal(port.side);
   const sign = inverted ? 1 : -1;
@@ -1317,8 +1380,6 @@ function drawPorts(
     // place — see drawPin. A nested level's boundary pins pass the
     // inverse of the level's own scale so they match the level above.
     pinScale = 1,
-    // See drawPortLabel — ordinary blocks only.
-    labelsOutside = 0,
     // Ordinary blocks: Map<portId, wire colour | null> for every pin that
     // is connected in this level (see SubPreviewRenderer.drawLevel). A
     // colour is the wire's, for its grip; null is a pin plugged straight
@@ -1458,7 +1519,7 @@ function drawPorts(
     if (inverted && ringColor === PORT_SELECTED_RING_COLOR) {
       drawPortResizeHandles(ctx, getPortResizeHandleRects(block, port, rectCount), palette);
     }
-    if (portNames) drawPortLabel(ctx, { name: displayedPortName, side: effectiveSide }, { x: px, y: py }, inverted, palette, zoom, labelsOutside);
+    if (portNames) drawPortLabel(ctx, { name: displayedPortName, side: effectiveSide }, { x: px, y: py }, inverted, palette, zoom);
   }
 }
 
@@ -1506,6 +1567,13 @@ function readableTextColor(hex) {
 // always was, never wrapped.
 const TEXT_PAD_X = 10;
 const TEXT_PAD_Y = 8;
+// How far a pin's own name reaches into the face from the border it sits
+// on (see drawPortLabel: the socket's inner half, the gap, then the
+// text), plus a little air. A text stack placed at the top or bottom
+// starts this far in when a named pin sits on that edge — a heading with
+// a subtitle defaults to the top, and at TEXT_PAD_Y it ran straight
+// through the names of the pins along the top edge.
+const PIN_LABEL_INSET = PORT_LENGTH / 2 + PORT_LABEL_GAP + PORT_LABEL_FONT_SIZE + 4;
 const SUBTITLE_SCALE = 0.85;
 const LINE_SCALE = 0.8;
 const SUBTITLE_ALPHA = 0.72;
@@ -1517,6 +1585,13 @@ const LINE_ALPHA = 0.85;
 // rather than a lid over it.
 const HEADER_SCRIM_ALPHA = 0.86;
 const HEADER_RULE_WIDTH = 1;
+
+// Where the text stack starts on `side` ('top' or 'bottom'): past the
+// names of the pins on that edge when it has any, else the plain pad.
+function textInset(block, side) {
+  const named = (block.ports || []).some((port) => port.side === side && !isPortHidden(block, port) && logicalPortOf(block, port)?.name);
+  return named ? PIN_LABEL_INSET : TEXT_PAD_Y;
+}
 
 export function blockTextRows(block) {
   const style = block.style || {};
@@ -1547,8 +1622,9 @@ export function getBlockTitleRect(block, { open = false } = {}) {
   const align = TITLE_ALIGNMENTS.includes(style.titleAlign) ? style.titleAlign : 'center';
   const total = rows.reduce((sum, row) => sum + row.height, 0);
   const pos = TITLE_POSITIONS.includes(style.titlePos) ? style.titlePos : rows.length > 1 ? 'top' : 'center';
-  const y = open || pos === 'top' ? g.y + TEXT_PAD_Y * scale
-    : pos === 'bottom' ? g.y + g.height - TEXT_PAD_Y - total : g.y + (g.height - total) / 2;
+  const y = open ? g.y + TEXT_PAD_Y * scale
+    : pos === 'top' ? g.y + textInset(block, 'top')
+    : pos === 'bottom' ? g.y + g.height - textInset(block, 'bottom') - total : g.y + (g.height - total) / 2;
   const available = Math.max(1, g.width - 2 * TEXT_PAD_X * scale);
   const width = Math.min(available, measureText(title.text, title.font) * scale + 8 * scale);
   const x = align === 'left' ? g.x + TEXT_PAD_X * scale
@@ -1568,7 +1644,7 @@ function drawBlockText(ctx, block, { x, y, width, height, textColor, requestRend
   // is ready, the same pattern the image case uses.
   for (const row of rows) ensureFontLoaded(row.font, requestRender);
   const total = rows.reduce((sum, row) => sum + row.height, 0);
-  let cursor = titlePos === 'top' ? y + TEXT_PAD_Y : titlePos === 'bottom' ? y + height - TEXT_PAD_Y - total : y + height / 2 - total / 2;
+  let cursor = titlePos === 'top' ? y + textInset(block, 'top') : titlePos === 'bottom' ? y + height - textInset(block, 'bottom') - total : y + height / 2 - total / 2;
   const tx = titleAlign === 'left' ? x + TEXT_PAD_X : titleAlign === 'right' ? x + width - TEXT_PAD_X : x + width / 2;
   const maxWidth = width - 16;
   const baseAlpha = ctx.globalAlpha;
@@ -1677,11 +1753,6 @@ export function drawBlock(
     // level to show, which leaves this drawing precisely what it always
     // drew.
     contentAlpha = 1,
-    // How far the pin labels have moved from inside the face to beside
-    // the pins outside it (0..1) — they move out as the level inside
-    // arrives, where they would otherwise sit right where its wires
-    // reach the frame. See drawPortLabel.
-    portLabelsOutside = 0,
     // See drawPorts.
     pinWires = null,
     hoverPin = null,
@@ -1794,17 +1865,17 @@ export function drawBlock(
   // The free slots also show while a pin of this block is hovered: they
   // are where it can be moved to.
   const slotHover = hoverPin?.blockId === block.id && hoverPin.part === 'slot';
-  drawPorts(ctx, block, { portHighlights, showEmptySlots: (selected || slotHover) && block.kind !== 'text', palette, zoom, labelsOutside: portLabelsOutside, pinWires, hoverPin });
+  drawPorts(ctx, block, { portHighlights, showEmptySlots: (selected || slotHover) && block.kind !== 'text', palette, zoom, pinWires, hoverPin });
   if (isOpenableLink(block.link)) drawLinkGlyph(ctx, block.geometry, palette, zoom);
-  if (selected) drawResizeHandles(ctx, block.geometry, palette, zoom);
+  if (selected) drawResizeHandles(ctx, block.geometry, palette, zoom, pinSpansOf(block));
 }
 
 // A block's pins alone, drawn again over the wires of its level (see
 // SubPreviewRenderer.drawLevel): a wire's z-index is that of its front
 // endpoint, so it would otherwise cover the arrowhead of the pin it
 // leaves from on the other block.
-export function drawBlockPorts(ctx, block, { portHighlights = null, palette = DEFAULT_PALETTE, zoom = 1, labelsOutside = 0, pinWires = null, hoverPin = null } = {}) {
-  drawPorts(ctx, block, { portHighlights, palette, zoom, labelsOutside, pinWires, hoverPin });
+export function drawBlockPorts(ctx, block, { portHighlights = null, palette = DEFAULT_PALETTE, zoom = 1, pinWires = null, hoverPin = null } = {}) {
+  drawPorts(ctx, block, { portHighlights, palette, zoom, pinWires, hoverPin });
 }
 
 // The sub-slots of a container's multi-wire pins, drawn at the exterior
@@ -1918,7 +1989,10 @@ export function drawBoundary(
   // 'boundaryLine' hit and DragStateMachine's handling of it), so there's
   // a real selected state to hang this on instead of showing handles
   // unconditionally.
-  if (selected) drawResizeHandles(ctx, geometry, palette, zoom);
+  if (selected) {
+    const pins = pinSpansOf(asBoundaryView(block, geometry), { inverted: true, wireCountFor: (portId) => boundaryWireLabels?.get(portId)?.length ?? 1 });
+    drawResizeHandles(ctx, geometry, palette, zoom, pins);
+  }
 }
 
 export const BOUNDARY_LABEL_FONT = '11px -apple-system, Segoe UI, Roboto, sans-serif';

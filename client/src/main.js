@@ -1640,7 +1640,12 @@ async function bootstrap() {
       // wire), it falls back to the level being edited: that is where
       // adding resumes the moment the selection is cleared, and it keeps
       // the grid from simply vanishing while something else is selected.
-      gridBlockId: target && target !== 'level' ? target.id : project.getContainerBlock()?.id ?? null,
+      // The same fallback while the selected block's level is closed on
+      // its face: the dots are an open level's floor and nothing else
+      // (see SubPreviewRenderer.drawLevelGrid), so a shut block never
+      // wears them — the FAB's own tooltip still says where it adds.
+      gridBlockId:
+        target && target !== 'level' && isLevelOpen(target, camera.zoom) ? target.id : project.getContainerBlock()?.id ?? null,
       // Derived from the clock rather than counted in frames, so the
       // dashes travel at the same speed on any refresh rate. Negative
       // because a decreasing offset moves them along the path's own

@@ -7,6 +7,7 @@ import {
   getPortBoundaryPlacement,
   asBoundaryView,
   getResizeHandleRects,
+  pinSpansOf,
   getBoundaryLabelRect,
   getBlockTitleRect,
   getPortSlotRect,
@@ -69,12 +70,15 @@ function pointInRect(px, py, rect, padding = 0) {
   );
 }
 
-function hitResizeHandle(geometry, worldX, worldY, zoom = 1) {
+// `pins` (see BlockRenderer.pinSpansOf) has to be what the drawing was
+// given, or a handle that stepped aside from a pin on screen would still
+// be grabbed where it used to be.
+function hitResizeHandle(geometry, worldX, worldY, zoom = 1, pins = []) {
   // The padding, like the rects themselves (see getResizeHandleRects),
   // needs to shrink in world units as zoom grows so it reads as the same
   // constant few screen pixels of extra grab room at any zoom level.
   const padding = RESIZE_HANDLE_HIT_PADDING / zoom;
-  for (const rect of Object.values(getResizeHandleRects(geometry, zoom))) {
+  for (const rect of Object.values(getResizeHandleRects(geometry, zoom, pins))) {
     if (pointInRect(worldX, worldY, rect, padding)) return rect.side;
   }
   return null;
@@ -405,9 +409,19 @@ export function hitTest(project, worldX, worldY, boundary, resizableBlockId, res
   // to move" if it happens to sit over another block.
   if (resizableBlockId) {
     const isBoundaryTarget = Boolean(boundary) && resizableBlockId === boundary.block.id;
-    const geometry = isBoundaryTarget ? boundary.geometry : project.getBlock(resizableBlockId)?.geometry;
+    const target = isBoundaryTarget ? null : project.getBlock(resizableBlockId);
+    const geometry = isBoundaryTarget ? boundary.geometry : target?.geometry;
     if (geometry) {
-      const side = hitResizeHandle(geometry, worldX, worldY, zoom);
+      // The same pins the handles were drawn clear of (see
+      // BlockRenderer.drawBlock and drawBoundary, and
+      // SubPreviewRenderer.drawLevel for a nested level's frame).
+      const pins = isBoundaryTarget
+        ? pinSpansOf(asBoundaryView(boundary.block, boundary.geometry, project.listBoundaryPorts(boundary.block)), {
+            inverted: true,
+            wireCountFor: (portId) => project.listBoundaryWires(boundary.block.id, portId).length,
+          })
+        : pinSpansOf(target);
+      const side = hitResizeHandle(geometry, worldX, worldY, zoom, pins);
       if (side) return { type: 'resizeHandle', blockId: resizableBlockId, side, isBoundary: isBoundaryTarget };
     }
   }

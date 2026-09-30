@@ -630,15 +630,6 @@ export function mountInspector(
     });
     addPortRow.appendChild(addPortButton);
     container_.appendChild(addPortRow);
-
-    if (block.logicalPorts.length) {
-      const hint = document.createElement('p');
-      hint.className = 'hint-text';
-      hint.textContent = isContainer
-        ? "Drag a port dot on the canvas to reposition it, or from the small handle beside it to wire a connection. From in here, wiring a second connection to the same port fans it out into several wires side by side — double-click each one to give it its own label."
-        : 'Drag a port dot on the canvas to reposition it, or from the small handle beside it to wire a connection. Click a block\'s border to add a port right there.';
-      container_.appendChild(hint);
-    }
     }
 
     if (!isContainer) {
