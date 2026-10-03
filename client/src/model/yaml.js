@@ -172,28 +172,41 @@ function indentOf(line) {
   return line.length - line.trimStart().length;
 }
 
+// Throws on text this reader can't fully consume — most often a line
+// indented deeper than the mapping it sits in (a key dropped into the
+// middle of a sequence, a stray tab, a block scalar). Every structural
+// routine below simply returns when the next line isn't at its indent,
+// so without this check such a line unwinds the whole parse and the
+// caller gets a silently truncated document: everything after the bad
+// line (whole blocks, wires, the boundary) just vanishes. The message
+// carries the 1-based source line so a hand-edited file can be fixed.
 export function parseYaml(text) {
-  const lines = text
-    .split('\n')
-    .map((line) => {
-      // A `#` inside a quoted string is never a comment — but this
-      // schema's scalars never contain one in practice, so a simple
-      // unquoted-# strip (skipping past any quoted span first) is enough.
-      let inQuote = null;
-      for (let i = 0; i < line.length; i += 1) {
-        const ch = line[i];
-        if (inQuote) {
-          if (ch === inQuote) inQuote = null;
-        } else if (ch === '"' || ch === "'") {
-          inQuote = ch;
-        } else if (ch === '#') {
-          line = line.slice(0, i);
-          break;
-        }
+  // Original line numbers travel alongside the stripped lines because
+  // blank and comment-only lines are dropped before parsing.
+  const lineNumbers = [];
+  const lines = [];
+  text.split('\n').forEach((rawLine, index) => {
+    let line = rawLine;
+    // A `#` inside a quoted string is never a comment — but this
+    // schema's scalars never contain one in practice, so a simple
+    // unquoted-# strip (skipping past any quoted span first) is enough.
+    let inQuote = null;
+    for (let i = 0; i < line.length; i += 1) {
+      const ch = line[i];
+      if (inQuote) {
+        if (ch === inQuote) inQuote = null;
+      } else if (ch === '"' || ch === "'") {
+        inQuote = ch;
+      } else if (ch === '#') {
+        line = line.slice(0, i);
+        break;
       }
-      return line.replace(/\s+$/, '');
-    })
-    .filter((line) => line.trim() !== '');
+    }
+    line = line.replace(/\s+$/, '');
+    if (line.trim() === '') return;
+    lines.push(line);
+    lineNumbers.push(index + 1);
+  });
 
   let pos = 0;
 
@@ -248,5 +261,9 @@ export function parseYaml(text) {
     return arr;
   }
 
-  return parseMapping(0);
+  const result = parseMapping(0);
+  if (pos < lines.length) {
+    throw new Error(`unexpected indentation at line ${lineNumbers[pos]}: ${lines[pos].trim().slice(0, 60)}`);
+  }
+  return result;
 }
