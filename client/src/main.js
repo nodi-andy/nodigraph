@@ -401,10 +401,14 @@ async function bootstrap() {
   function refreshSaved() {
     rememberFile();
     const pendingHost = Boolean(window.nodigraphHasUnsavedChanges?.());
-    appMenuApi?.refreshSaved(pendingHost ? false : localSavedSnapshot === null ? null : localSavedSnapshot === lastSyncedSnapshot);
+    const saved = pendingHost ? false : localSavedSnapshot === null ? null : localSavedSnapshot === lastSyncedSnapshot;
+    appMenuApi?.refreshSaved(saved);
     const fileState = { name: fileHandle?.name ?? null, saved: fileHandle ? fileSavedSnapshot === lastSyncedSnapshot : null };
     appMenuApi?.refreshFile({ supported: supportsFileSystemAccess(), ...fileState });
     fileSourceApi?.refresh(fileState);
+    // The first crumb carries the same news: anything the menu's save row
+    // or the file chip would mark unsaved.
+    breadcrumbApi?.setUnsaved(saved === false || fileState.saved === false);
     refreshTitle();
   }
 

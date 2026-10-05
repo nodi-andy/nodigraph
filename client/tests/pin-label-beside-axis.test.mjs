@@ -79,3 +79,16 @@ test('a frame pin seen from inside keeps its name off the wire that reaches it',
   const pos = getBoundaryWirePosition(block, left, 0);
   assert.ok(label.y <= pos.y - SOCKET_HALF_OUTER, 'above the axis the wire runs along');
 });
+
+test('with its level shown, only a pin a wire reaches from inside moves its name off the axis', () => {
+  const { block, left, top } = blockWithPins();
+  const ctx = recordingCtx();
+  // What SubPreviewRenderer passes for an open block whose level wires
+  // only the left pin: the top pin has nothing on its axis to cross out.
+  drawBlockPorts(ctx, block, { labelsBeside: new Map([[left.id, 1]]) });
+  const byText = new Map(ctx.calls.fillText.map((call) => [call.text, call]));
+  assert.equal(byText.get('LEFT').baseline, 'bottom');
+  const topLabel = byText.get('TOP');
+  assert.equal(topLabel.align, 'center');
+  assert.equal(topLabel.x, getPortPosition(block, top).x);
+});

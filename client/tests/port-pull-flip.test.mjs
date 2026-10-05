@@ -13,9 +13,11 @@ const { WireSelection } = await import('../src/interaction/WireSelection.js');
 const { DragStateMachine } = await import('../src/interaction/DragStateMachine.js');
 const { addPort, logicalPortOf } = await import('../src/model/BlockDescription.js');
 
-// A port pulled across its edge changes direction: into the block makes
-// it an input, out of it an output. Along the edge it only moves (see
-// DragStateMachine.flipPortByPull).
+// One drag on a port does one thing (see DragStateMachine's DRAGGING_PORT):
+// moved to another slot first, it only moves and its type never changes in
+// that drag; pulled across its edge first, it stays in its slot and the
+// pull sets its type — into the block an input, out of it an output, the
+// pointer back in the middle on the edge both (no direction, the circle).
 
 function setup(direction) {
   const project = new Project({ name: 'P' });
@@ -30,35 +32,56 @@ function setup(direction) {
     requestRender: () => {},
     persist: () => {},
   });
-  return { block, port, sm, geometry: block.geometry };
+  // What onPointerDown sets for a grab of the port's body.
+  sm.state = 'draggingPort';
+  sm.context = { blockId: block.id, portId: port.id, isBoundary: false, portMode: null, startSide: port.side, startOffset: port.offset };
+  const drag = (...points) => { for (const [x, y] of points) sm.onPointerMove({ x, y }, { x, y }); };
+  return { block, port, sm, drag, direction: () => logicalPortOf(block, port).direction ?? null };
 }
 
-test('pulled into the block, a port becomes an input; pulled out, an output', () => {
-  const { block, port, sm, geometry } = setup('out');
-  assert.equal(sm.flipPortByPull(block, port, geometry, 'left', { x: 120 + 40, y: 180 }), true);
-  assert.equal(logicalPortOf(block, port).direction, 'in');
-  assert.equal(sm.flipPortByPull(block, port, geometry, 'left', { x: 120 - 40, y: 180 }), true);
-  assert.equal(logicalPortOf(block, port).direction, 'out');
+test('the drag state is the one onPointerDown uses for a port', async () => {
+  const src = (await import('node:fs')).readFileSync(new URL('../src/interaction/DragStateMachine.js', import.meta.url), 'utf8');
+  assert.match(src, /DRAGGING_PORT: 'draggingPort'/);
 });
 
-test('a slide along the edge, or a small wobble across it, leaves the direction alone', () => {
-  const { block, port, sm, geometry } = setup('in');
-  assert.equal(sm.flipPortByPull(block, port, geometry, 'left', { x: 120 + 10, y: 220 }), false);
-  assert.equal(sm.flipPortByPull(block, port, geometry, 'left', { x: 120 - 20, y: 140 }), false);
-  assert.equal(logicalPortOf(block, port).direction, 'in');
+test('pulled into the block a port becomes an input, out of it an output, back on the edge both', () => {
+  const { port, drag, direction } = setup('out');
+  drag([120 + 40, 180]);
+  assert.equal(direction(), 'in');
+  drag([120 - 40, 180]);
+  assert.equal(direction(), 'out');
+  drag([120 + 5, 180]);
+  assert.equal(direction(), null, 'the middle is both');
+  assert.equal(port.side, 'left');
+  assert.equal(port.offset, 60, 'a type change never moves the slot');
 });
 
-test('pulling the way it already faces changes nothing, and the description follows a flip', () => {
-  const { block, port, sm, geometry } = setup('in');
-  assert.equal(sm.flipPortByPull(block, port, geometry, 'left', { x: 120 + 60, y: 180 }), false);
+test('a type change keeps its slot even when the pointer wanders along the edge', () => {
+  const { port, drag, direction } = setup('in');
+  drag([120 - 40, 180], [120 - 40, 230], [120 - 40, 140]);
+  assert.equal(direction(), 'out');
+  assert.equal(port.offset, 60);
+});
+
+test('a moved port never changes type in that drag, however far it is pulled', () => {
+  const { port, drag, direction } = setup('in');
+  drag([120 + 5, 220]);
+  assert.notEqual(port.offset, 60, 'it moved');
+  drag([120 - 60, 220], [120 + 60, 220]);
+  assert.equal(direction(), 'in');
+});
+
+test('a small wobble across the edge changes nothing', () => {
+  const { port, drag, direction } = setup('in');
+  drag([120 - 20, 180], [120 + 10, 180]);
+  assert.equal(direction(), 'in');
+  assert.equal(port.offset, 60);
+});
+
+test('the description follows a type change', () => {
+  const { block, drag } = setup('in');
   const before = block.description;
-  assert.equal(sm.flipPortByPull(block, port, geometry, 'left', { x: 120 - 60, y: 180 }), true);
+  drag([120 - 60, 180]);
   assert.notEqual(block.description, before);
   assert.match(block.description, /output/);
-});
-
-test('an undirected port takes the direction it is pulled toward', () => {
-  const { block, port, sm, geometry } = setup(null);
-  assert.equal(sm.flipPortByPull(block, port, geometry, 'right', { x: 320 + 50, y: 180 }), true);
-  assert.equal(logicalPortOf(block, port).direction, 'out');
 });

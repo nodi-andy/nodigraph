@@ -46,6 +46,23 @@ import { GRID_SIZE } from '../model/grid.js';
 import { getCanvasPalette } from './canvasPalette.js';
 import { getLevelOpenZoom } from './viewOptions.js';
 
+// How far each of an open block's pin names moves off its pin's axis (see
+// BlockRenderer.drawPortLabel): by the level's opening `t`, but only on
+// the pins a wire reaches from inside — that wire runs along the axis and
+// would cross the name out. A pin with no inner wire keeps its name
+// centred on the axis, as on a closed block.
+function innerWiredBeside(block, t) {
+  if (!(t > 0)) return 0;
+  const inner = new LevelView(block);
+  const beside = new Map();
+  // Every pin, not one per logical port: a wire to the port counts for
+  // each of its pins (see LevelView.listBoundaryWires).
+  for (const pin of block.ports || []) {
+    if (inner.listBoundaryWires(block.id, pin.id).length > 0) beside.set(pin.id, t);
+  }
+  return beside;
+}
+
 // A block's level opens once its contents would be drawn at this many
 // screen pixels per world unit of the level — half size — whatever the
 // block's own size on screen. Judged on the contents, not the face: a
@@ -782,7 +799,7 @@ export function drawLevel(
       palette,
       zoom,
       contentAlpha: contentAlphaFor(previewT),
-      portLabelsBeside: previewT,
+      portLabelsBeside: innerWiredBeside(block, previewT),
       pinWires: pinWires.get(block.id) || null,
       hoverPin,
       selectedPins: selectedPins.get(block.id) || null,
@@ -835,7 +852,7 @@ export function drawLevel(
     if (!wiredIds.has(block.id) && !hasSubArchitecture(block)) continue;
     if (cullRect && !intersects(block.geometry, cullRect)) continue;
     const openAlpha = showSubPreviews && hasSubArchitecture(block) && block.boundaryGeometry ? (focus?.pathIds?.has(block.id) ? 1 : previewAlphaFor(block, zoom, requestRender)) : 0;
-    drawBlockPorts(ctx, block, { portHighlights, palette, zoom, labelsBeside: openAlpha, pinWires: pinWires.get(block.id) || null, hoverPin, selectedPins: selectedPins.get(block.id) || null });
+    drawBlockPorts(ctx, block, { portHighlights, palette, zoom, labelsBeside: innerWiredBeside(block, openAlpha), pinWires: pinWires.get(block.id) || null, hoverPin, selectedPins: selectedPins.get(block.id) || null });
     // An open container's multi-wire pins split into sub-slots at this
     // level's scale (see BlockRenderer.drawExteriorSubSlots), arriving
     // with the level.

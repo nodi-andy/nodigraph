@@ -1577,7 +1577,9 @@ function drawPorts(
     // Ordinary blocks: how far (0..1) the pin names have moved off their
     // pins' axes — see drawPortLabel. The level opening on the face is
     // what moves them (see SubPreviewRenderer.drawLevel); a closed block
-    // keeps them centred.
+    // keeps them centred. A number moves every name; a Map<portId, 0..1>
+    // moves only the pins it lists — the ones a wire reaches from inside,
+    // since a pin with no inner wire has nothing on its axis to cross out.
     labelsBeside = 0,
     // Ordinary blocks: Set<portId> of the pins whose wire is selected
     // (see SubPreviewRenderer.drawLevel) — their plugs draw selected. A
@@ -1624,7 +1626,13 @@ function drawPorts(
     // revealing it later puts it back exactly where it always was — it
     // just isn't painted, here or on a container's boundary frame.
     if (logical?.hidden) continue;
-    const portName = logical?.name || '';
+    // A host may name a pin by what it carries rather than its port name —
+    // noditron writes a Match's rows as their match text, so `out1`/`out2`
+    // read as `1`/`0` (window.nodigraphPortLabel, same shape as the live
+    // colour/value hooks below). Display only: wiring and saving still go
+    // by the port's own name.
+    const hostLabel = typeof window !== 'undefined' ? window.nodigraphPortLabel?.(block, port) : null;
+    const portName = typeof hostLabel === 'string' ? hostLabel : logical?.name || '';
     const portDirection = logical?.direction ?? null;
     // Boundary-only: [{ id, rank, label }] for every wire currently on
     // this port from inside (see SceneRenderer), `rank` being its plain
@@ -1721,7 +1729,8 @@ function drawPorts(
     if (inverted && ringColor === PORT_SELECTED_RING_COLOR) {
       drawPortResizeHandles(ctx, getPortResizeHandleRects(block, port, rectCount), palette);
     }
-    if (portNames) drawPortLabel(ctx, { name: displayedPortName, side: effectiveSide }, { x: px, y: py }, inverted, palette, zoom, inverted ? 1 : labelsBeside, pinScale);
+    const beside = inverted ? 1 : typeof labelsBeside === 'number' ? labelsBeside : labelsBeside?.get(port.id) || 0;
+    if (portNames) drawPortLabel(ctx, { name: displayedPortName, side: effectiveSide }, { x: px, y: py }, inverted, palette, zoom, beside, pinScale);
   }
 }
 

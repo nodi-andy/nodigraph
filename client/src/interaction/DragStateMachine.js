@@ -162,10 +162,20 @@ function imageCornerCursor(corner) {
 const BOUNDARY_MIN_SIZE = GRID_SIZE * 3;
 
 // How far a port has to be pulled across its edge — into the block, or out
-// of it — before the pull sets its direction (see flipPortByPull). Well past
-// a finger's or a hand's wobble along the edge, well short of a deliberate
-// tug.
+// of it — before the pull sets its direction (see setPortTypeByPull). Well
+// past a finger's or a hand's wobble along the edge, well short of a
+// deliberate tug.
 const PORT_PULL_FLIP_DISTANCE = 30;
+
+// How far `world` is past a port's edge: positive out of the block,
+// negative into it.
+function portPullDistance(geometry, side, world) {
+  const { x, y, width, height } = geometry;
+  return side === 'left' ? x - world.x
+    : side === 'right' ? world.x - (x + width)
+    : side === 'top' ? y - world.y
+    : world.y - (y + height);
+}
 
 // How long after the last Ctrl+wheel tick the new interior scale is
 // committed as one undo step — long enough to cover the gap between
@@ -657,7 +667,11 @@ export class DragStateMachine {
       // already-wired exterior port is no longer a plain drag: clone the
       // port with Alt-drag (above) or add one from its edge's "+" ghost.
       this.state = STATES.DRAGGING_PORT;
-      this.context = { blockId: block.id, portId: hit.portId, isBoundary };
+      // `portMode` is what this drag does, decided by its first real
+      // movement (see DRAGGING_PORT in onPointerMove): 'move' to another
+      // slot, or 'type' — pulled across the edge, it sets the direction.
+      const draggedPort = block.ports.find((p) => p.id === hit.portId);
+      this.context = { blockId: block.id, portId: hit.portId, isBoundary, portMode: null, startSide: draggedPort?.side, startOffset: draggedPort?.offset };
       this.requestRender();
       return;
     }
@@ -1228,6 +1242,18 @@ export class DragStateMachine {
         // snaps to that side's nearest free connector slot — ports sit in
         // fixed sockets now, not anywhere along the edge.
         const geometry = this.context.isBoundary ? this.getBoundaryInfo().geometry : block.geometry;
+        // One drag does one thing. Pulled across its edge before it has
+        // left its slot, the port stays put and the drag sets its type
+        // (setPortTypeByPull); moved to another slot first, it only moves,
+        // and no pull later in the same drag changes its type.
+        if (!this.context.portMode && Math.abs(portPullDistance(geometry, port.side, world)) >= PORT_PULL_FLIP_DISTANCE) {
+          this.context.portMode = 'type';
+        }
+        if (this.context.portMode === 'type') {
+          this.setPortTypeByPull(block, port, geometry, port.side, world);
+          this.requestRender();
+          break;
+        }
         const projected = projectPointToPerimeter({ geometry }, world.x, world.y);
         const sideLength = sideAxis(projected.side) === 'x' ? geometry.height : geometry.width;
         if (this.context.isBoundary) {
@@ -1242,7 +1268,7 @@ export class DragStateMachine {
           port.side = placement.side;
           port.offset = placement.offset;
           port.manualOffset = true;
-          this.flipPortByPull(block, port, geometry, projected.side, world);
+          if (port.side !== this.context.startSide || port.offset !== this.context.startOffset) this.context.portMode = 'move';
           this.requestRender();
           this.onLiveUpdate?.({ kind: 'port', blockId: block.id, portId: port.id, side: port.side, offset: port.offset });
           break;
@@ -1258,7 +1284,7 @@ export class DragStateMachine {
         port.side = projected.side;
         port.offset = nearestPortSlot(sideLength, projected.offset, occupied);
         port.manualOffset = true;
-        this.flipPortByPull(block, port, geometry, projected.side, world);
+        if (port.side !== this.context.startSide || port.offset !== this.context.startOffset) this.context.portMode = 'move';
         this.requestRender();
         this.onLiveUpdate?.({ kind: 'port', blockId: block.id, portId: port.id, side: port.side, offset: port.offset });
         break;
@@ -2573,27 +2599,21 @@ export class DragStateMachine {
     this.onBlocksReparented?.({ ids: moved, target });
   }
 
-  // A port dragged along its edge moves; pulled across it, it changes
-  // direction: into the block makes it an input, out of the block an
-  // output — the way it faces, said with the pointer instead of the
-  // Inspector. On the container's own frame, seen from inside, "into the
+  // A port's type, set with the pointer instead of the Inspector, once a
+  // drag has been taken for it (see DRAGGING_PORT): pulled into the block
+  // past PORT_PULL_FLIP_DISTANCE it is an input, out of it an output, and
+  // with the pointer back in the middle, on the edge, it is both (no
+  // direction, the circle) — so the three are one gesture, settled on
+  // release. On the container's own frame, seen from inside, "into the
   // block" is into the level, which is the same thing: a pin pulled into
   // the level is one the level receives on. `geometry` is the rectangle
-  // the port sits on (the face, or the frame from inside); `side` the edge
-  // the pointer projected onto. Past PORT_PULL_FLIP_DISTANCE either way
-  // the direction is set; nearer the edge nothing changes, so an ordinary
-  // slide along the edge never flips a port by accident.
-  flipPortByPull(block, port, geometry, side, world) {
-    const { x, y, width, height } = geometry;
-    const outward =
-      side === 'left' ? x - world.x
-      : side === 'right' ? world.x - (x + width)
-      : side === 'top' ? y - world.y
-      : world.y - (y + height);
-    if (Math.abs(outward) < PORT_PULL_FLIP_DISTANCE) return false;
-    const want = outward > 0 ? 'out' : 'in';
+  // the port sits on (the face, or the frame from inside); `side` its
+  // edge. True when the type changed.
+  setPortTypeByPull(block, port, geometry, side, world) {
+    const outward = portPullDistance(geometry, side, world);
+    const want = outward >= PORT_PULL_FLIP_DISTANCE ? 'out' : outward <= -PORT_PULL_FLIP_DISTANCE ? 'in' : null;
     const logical = logicalPortOf(block, port);
-    if (!logical || logical.direction === want) return false;
+    if (!logical || (logical.direction ?? null) === want) return false;
     logical.direction = want;
     // A pin sharing its name with another is the same logical pin (see
     // BlockDescription.mergeSameNamedLogicalPort), and the description is

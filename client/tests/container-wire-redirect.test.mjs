@@ -83,3 +83,24 @@ test('replacing an unrelated wire does not lift the cap', () => {
   );
   assert.equal(second, null);
 });
+
+test('a container pin with no direction is a bus: it takes a wire to every node on it', () => {
+  // A board (a container) on a CAN bus with two other modules — the shape
+  // noditron wires when a board hears two nodes on its bus.
+  const project = new Project();
+  const make = (name, hasChildren) => {
+    const block = createBlock({ name });
+    block.hasChildren = hasChildren;
+    if (hasChildren) block.children = { blocks: new Map(), connections: new Map() };
+    logicalPortOf(block, addPort(block, { direction: null })).name = 'CAN';
+    project.addBlock(block);
+    return block;
+  };
+  const board = make('Board', true);
+  const can = (block) => block.ports[0].id;
+  for (const peer of [make('Node A', false), make('Node B', true)]) {
+    const wire = project.addConnection(createConnection({ sourceBlockId: board.id, sourcePortId: can(board), targetBlockId: peer.id, targetPortId: can(peer) }));
+    assert.ok(wire, `the board's CAN pin is wired to ${peer.name}`);
+  }
+  assert.equal(project.listConnections().length, 2);
+});

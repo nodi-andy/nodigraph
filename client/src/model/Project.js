@@ -2,6 +2,7 @@ import { createBlock, hydrateBlockTree, serializeBlockTree } from './Block.js';
 import { createDefaultBoundaryGeometry } from './grid.js';
 import { frameToFace } from './levelGeometry.js';
 import { boundaryPortGroupOf, boundaryPortsOf, boundaryWiresOf, boundsOf } from './levelView.js';
+import { logicalPortOf } from './BlockDescription.js';
 
 /**
  * The whole product is itself a Block (`rootBlock`) — you're always inside
@@ -323,6 +324,11 @@ export class Project {
   // "inside" for a wire to fan out into, so it keeps the older, unlimited
   // fan-in/fan-out behaviour — this only ever tightens wiring onto a block
   // that's actually being used as a container.
+  // A pin with no direction is exempt: it is a bus (CAN, a shared net),
+  // not an input or an output, so several wires on it from out here are
+  // one net, and there is no "which outside source does the inside see"
+  // to be ambiguous about — a board's CAN pin is wired to every node on
+  // the bus.
   // `replacing` is the id of a wire this one is about to take the place of
   // (see DragStateMachine.tryCompleteConnection, which adds the
   // replacement before dropping the original so a rejected drop leaves the
@@ -341,7 +347,10 @@ export class Project {
     ];
     for (const [blockId, portId] of endpoints) {
       if (container && blockId === container.id) continue;
-      if (!this.current.blocks.get(blockId)?.hasChildren) continue;
+      const block = this.current.blocks.get(blockId);
+      if (!block?.hasChildren) continue;
+      const logical = logicalPortOf(block, (block.ports || []).find((p) => p.id === portId));
+      if (logical && !logical.direction) continue;
       const alreadyWired = this.listConnections().some(
         (c) =>
           c.id !== replacing &&

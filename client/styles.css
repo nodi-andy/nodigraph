@@ -679,6 +679,21 @@ html, body {
   color: var(--text-strongest);
 }
 
+/* The first crumb's unsaved dot (see ui/Breadcrumb.js), the file chip's own. */
+.breadcrumb .crumb-unsaved-dot {
+  display: none;
+  width: 6px;
+  height: 6px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: var(--warning);
+  vertical-align: middle;
+}
+
+.breadcrumb .crumb.unsaved .crumb-unsaved-dot {
+  display: inline-block;
+}
+
 .breadcrumb .crumb-sep {
   flex-shrink: 0;
   color: var(--text-faint-2);
